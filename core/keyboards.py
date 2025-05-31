@@ -1,35 +1,11 @@
-# МЕНЯТЬ ВСЕ. НЕ ИСПОЛЬЗУЕТСЯ
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
-
-main = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Регистрация")],
-        [KeyboardButton(text="Каталог")],
-        [KeyboardButton(text="")],
-        [KeyboardButton(text="")],
-    ],
-    resize_keyboard=True,
-    input_field_placeholder="Выберите пункт меню...",
-)
-
-
-catalog = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="ТУДА", callback_data="ff")],
-        [InlineKeyboardButton(text="СЮДА", callback_data="ss")],
-        [InlineKeyboardButton(text="ОТТУДА", callback_data="aa")],
-    ]
-)
-
-
-get_number = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="Отправить номер", request_contact=True)]],
-    resize_keyboard=True,
-)
+def delete_period_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Сегодня", callback_data="del_period:day")],
+            [InlineKeyboardButton(text="Месяц", callback_data="del_period:month")],
+            [InlineKeyboardButton(text="Год", callback_data="del_period:year")],
+        ]
+    )

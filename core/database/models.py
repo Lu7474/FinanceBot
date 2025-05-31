@@ -3,13 +3,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import (
-    String,
-    DECIMAL,
-    ForeignKey,
-    BigInteger,
-    DateTime,
-)
+from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime
 
 engine = create_async_engine(url="sqlite+aiosqlite:///db.sqlite3")
 async_session = async_sessionmaker(engine)
@@ -37,6 +31,7 @@ class Record(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     operation: Mapped[str] = mapped_column(String(1))  # "+" или "-"
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))
+    category: Mapped[str] = mapped_column(String, default="не указано")  # новое
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     user = relationship("User", back_populates="records")
 
