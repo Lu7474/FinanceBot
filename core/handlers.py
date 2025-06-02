@@ -77,8 +77,10 @@ async def handle_add_record(message: Message):
             if not user:
                 await message.answer("Ошибка: пользователь не найден.")
                 return
-                
-            success = await add_record(session, message.from_user.id, operation, amount, category)
+
+            success = await add_record(
+                session, message.from_user.id, operation, amount, category
+            )
             if not success:
                 await message.answer("Ошибка при добавлении записи.")
                 return
@@ -183,9 +185,7 @@ async def handle_history(message: Message):
         if not user:
             await message.answer("Пользователь не найден.")
             return
-        records = await get_records(
-            session, user.id, within, date_from, date_to
-        )
+        records = await get_records(session, user.id, within, date_from, date_to)
 
     if records:
         answer = make_history_text(records)
@@ -243,7 +243,8 @@ async def report_year(callback: CallbackQuery):
 
     # Фильтруем будущие месяцы
     available_months = [
-        month for month in years_months[year]
+        month
+        for month in years_months[year]
         if year < current_year or (year == current_year and month <= current_month)
     ]
 

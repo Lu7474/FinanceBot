@@ -26,7 +26,7 @@ def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
     now = datetime.utcnow()
     current_year = now.year
     current_month = now.month
-    
+
     month_names = {
         1: "Январь",
         2: "Февраль",
@@ -41,20 +41,25 @@ def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
         11: "Ноябрь",
         12: "Декабрь",
     }
-    
+
     # Фильтруем будущие месяцы
     available_months = [
-        month for month in sorted(months)
+        month
+        for month in sorted(months)
         if year < current_year or (year == current_year and month <= current_month)
     ]
-    
+
     if not available_months:
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Нет доступных месяцев", callback_data="no_months")]
+                [
+                    InlineKeyboardButton(
+                        text="Нет доступных месяцев", callback_data="no_months"
+                    )
+                ]
             ]
         )
-    
+
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [

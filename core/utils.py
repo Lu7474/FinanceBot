@@ -93,21 +93,25 @@ def build_report_pie(
 
     month_name = RU_MONTHS[date.month]
     fig, ax = plt.subplots(figsize=(4, 4))
-    
+
     # Сортируем категории по убыванию суммы
     sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
-    
+
     # Если категорий больше 5, объединяем остальные в "Прочее"
     if len(sorted_categories) > 5:
-        other_sum = sum(sorted_categories.values()) - sum(list(sorted_categories.values())[:5])
+        other_sum = sum(sorted_categories.values()) - sum(
+            list(sorted_categories.values())[:5]
+        )
         sorted_categories = dict(list(sorted_categories.items())[:5])
         sorted_categories["Прочее"] = other_sum
 
-    ax.pie(sorted_categories.values(), labels=sorted_categories.keys(), autopct="%1.1f%%")
+    ax.pie(
+        sorted_categories.values(), labels=sorted_categories.keys(), autopct="%1.1f%%"
+    )
     ax.set_title(f"Расходы за {month_name} {date.year}")
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=300, bbox_inches='tight')
+    plt.savefig(buf, format="png", dpi=300, bbox_inches="tight")
     buf.seek(0)
     plt.close(fig)
 
@@ -127,9 +131,7 @@ def make_history_text(records) -> str:
     for r in records:
         category = f" - {r.category}" if getattr(r, "category", None) else ""
         symbol = "➖" if r.operation == "-" else "➕"
-        answer += (
-            f"{symbol} {r.amount:,.0f}₽{category} ({r.created_at.strftime('%d.%m.%Y')})\n"
-        )
+        answer += f"{symbol} {r.amount:,.0f}₽{category} ({r.created_at.strftime('%d.%m.%Y')})\n"
 
     answer += f"\nСумма доходов: {sumadd:,.0f}₽".replace(",", ".")
     answer += f"\nСумма расходов: {sumspent:,.0f}₽".replace(",", ".")
