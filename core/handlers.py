@@ -1,13 +1,32 @@
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from datetime import datetime, timedelta
+from collections import defaultdict
 import re
 
-from core.keyboards import delete_period_keyboard
-from core.database.requests import set_user, add_record, get_records, delete_record
+from core.keyboards import (
+    delete_period_keyboard,
+    get_years_keyboard,
+    get_months_keyboard,
+)
+from core.utils import (
+    parse_date,
+    get_available_years_and_months,
+    build_report_pie,
+    make_history_text,
+    RU_MONTHS,
+)
+
+from core.database.requests import (
+    set_user,
+    add_record,
+    get_records,
+    delete_record,
+    get_user_by_tg_id,
+)
 from core.database.models import async_session
 
 
@@ -26,7 +45,6 @@ async def handle_start(message: Message):
 
 @router.message(Command("spent", "earned", "s", "e"))
 async def handle_add_record(message: Message):
-
     cmd_variants = (
         ("/spent", "/s", "!spent", "!s"),
         ("/earned", "/e", "!earned", "!e"),
@@ -55,7 +73,15 @@ async def handle_add_record(message: Message):
 
         async with async_session() as session:
             await set_user(message.from_user.id, name=message.from_user.full_name)
-            await add_record(session, message.from_user.id, operation, amount, category)
+            user = await get_user_by_tg_id(session, message.from_user.id)
+            if not user:
+                await message.answer("Ошибка: пользователь не найден.")
+                return
+                
+            success = await add_record(session, message.from_user.id, operation, amount, category)
+            if not success:
+                await message.answer("Ошибка при добавлении записи.")
+                return
 
         if operation == "-":
             await message.answer("✅ Запись о расходе успешно внесена!")
@@ -76,9 +102,12 @@ async def delete_menu(message: Message):
 @router.callback_query(lambda c: c.data.startswith("del_period:"))
 async def handle_period_selection(callback: CallbackQuery):
     period = callback.data.split(":")[1]
-
     async with async_session() as session:
-        records = await get_records(session, callback.from_user.id, period)
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            return
+        records = await get_records(session, user.id, period)
 
     if not records:
         await callback.message.edit_text("Записей за выбранный период нет.")
@@ -87,42 +116,13 @@ async def handle_period_selection(callback: CallbackQuery):
     kb = InlineKeyboardBuilder()
 
     for r in records:
-        local_time = r.created_at + timedelta(hours=3)
-        text = f"{'➖' if r.operation == '-' else '➕'} {r.amount:.0f}₽ - {r.category} ({local_time.strftime('%d.%m.%Y')})"
+        text = f"{'➖' if r.operation == '-' else '➕'} {r.amount:.0f}₽ - {r.category} ({r.created_at.strftime('%d.%m.%Y')})"
         kb.button(text=text, callback_data=f"del_record:{r.id}")
 
     kb.adjust(1)
     await callback.message.edit_text(
         "Выберите запись для удаления:", reply_markup=kb.as_markup()
     )
-
-
-# позже вынести её в utils.py
-def parse_date(text: str) -> datetime | None:
-    text = text.lower().strip()
-    text = text.replace("г.", "").replace("г", "")
-
-    # Форматы: день.месяц.год
-    for fmt in ("%d.%m.%y", "%d.%m.%Y"):
-        try:
-            dt = datetime.strptime(text, fmt)
-            if dt.year < 100:
-                dt = dt.replace(year=2000 + dt.year)
-            return dt
-        except ValueError:
-            continue
-
-    # Форматы: день месяц год (на русском)
-    for fmt in ("%d %B %Y", "%d %B %y"):
-        try:
-            dt = datetime.strptime(text, fmt)
-            if dt.year < 100:
-                dt = dt.replace(year=2000 + dt.year)
-            return dt
-        except ValueError:
-            continue
-
-    return None
 
 
 @router.message(Command("history", "h"))
@@ -179,25 +179,16 @@ async def handle_history(message: Message):
             return
 
     async with async_session() as session:
+        user = await get_user_by_tg_id(session, message.from_user.id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            return
         records = await get_records(
-            session, message.from_user.id, within, date_from, date_to
+            session, user.id, within, date_from, date_to
         )
 
     if records:
-        sumadd = sum(float(r.amount) for r in records if r.operation == "+")
-        sumspent = sum(float(r.amount) for r in records if r.operation == "-")
-        remaining = sumadd - sumspent
-
-        answer = "🕘 История операций:\n\n"
-        for r in records:
-            local_time = r.created_at + timedelta(hours=3)
-            category = f" - {r.category}" if getattr(r, "category", None) else ""
-            symbol = "➖" if r.operation == "-" else "➕"
-            answer += f"{symbol} {r.amount:,.0f}₽{category} ({local_time.strftime('%d.%m.%Y')})\n"
-
-        answer += f"\nСумма доходов: {sumadd:,.0f}₽".replace(",", ".")
-        answer += f"\nСумма расходов: {sumspent:,.0f}₽".replace(",", ".")
-        answer += f"\nОстаток: {remaining:,.0f}₽".replace(",", ".")
+        answer = make_history_text(records)
         await message.answer(answer)
     else:
         await message.answer("Записей не найдено за указанный период.")
@@ -214,3 +205,117 @@ async def handle_record_delete(callback: CallbackQuery):
         await callback.message.edit_text("✅ Запись удалена!")
     else:
         await callback.message.edit_text("⚠️ Запись не найдена или уже удалена.")
+
+
+@router.message(Command("report"))
+async def report_start(message: Message):
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, message.from_user.id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            return
+        years_months = await get_available_years_and_months(session, user.id)
+    if not years_months:
+        await message.answer("Нет записей для отображения отчёта.")
+        return
+    keyboard = get_years_keyboard(list(years_months.keys()))
+    await message.answer("Выберите год для отчёта:", reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("report_year:"))
+async def report_year(callback: CallbackQuery):
+    year = int(callback.data.split(":")[1])
+    now = datetime.utcnow()
+    current_year = now.year
+    current_month = now.month
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await callback.answer()
+            return
+        years_months = await get_available_years_and_months(session, user.id)
+
+    if year not in years_months:
+        await callback.answer("Нет записей за этот год.")
+        return
+
+    # Фильтруем будущие месяцы
+    available_months = [
+        month for month in years_months[year]
+        if year < current_year or (year == current_year and month <= current_month)
+    ]
+
+    if not available_months:
+        await callback.answer("Нет доступных месяцев для отчета.")
+        return
+
+    keyboard = get_months_keyboard(year, available_months)
+    await callback.message.edit_text(
+        f"Выберите месяц {year} года:", reply_markup=keyboard
+    )
+
+
+@router.callback_query(F.data.startswith("report_month:"))
+async def show_monthly_report(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    year = int(parts[1])
+    month = int(parts[2])
+
+    # Проверяем, не является ли запрашиваемый месяц будущим
+    now = datetime.utcnow()
+    if year > now.year or (year == now.year and month > now.month):
+        await callback.message.edit_text("Нельзя получить отчет за будущий месяц.")
+        await callback.answer()
+        return
+
+    date_from = datetime(year, month, 1)
+    if month == 12:
+        date_to = datetime(year + 1, 1, 1) - timedelta(seconds=1)
+    else:
+        date_to = datetime(year, month + 1, 1) - timedelta(seconds=1)
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await callback.answer()
+            return
+        records = await get_records(session, user.id, "range", date_from, date_to)
+
+    if not records:
+        month_name = RU_MONTHS[date_from.month]
+        await callback.message.edit_text(
+            f"За {month_name} {date_from.year} записей не найдено."
+        )
+        await callback.answer()
+        return
+
+    categories = defaultdict(float)
+    total = 0.0
+    for r in records:
+        if r.operation == "-":
+            cat = r.category or "Без категории"
+            categories[cat] += float(r.amount)
+            total += float(r.amount)
+
+    if not categories:
+        month_name = RU_MONTHS[date_from.month]
+        await callback.message.edit_text(
+            f"За {month_name} {date_from.year} нет расходов для отображения."
+        )
+        await callback.answer()
+        return
+
+    buf, caption = build_report_pie(categories, total, date_from)
+    if buf is None:
+        await callback.message.edit_text(caption)
+        await callback.answer()
+        return
+
+    await callback.message.answer_photo(
+        photo=BufferedInputFile(buf.read(), filename="report.png"),
+        caption=caption,
+    )
+    await callback.answer()

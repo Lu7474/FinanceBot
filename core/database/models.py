@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
@@ -7,6 +7,10 @@ from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime
 
 engine = create_async_engine(url="sqlite+aiosqlite:///db.sqlite3")
 async_session = async_sessionmaker(engine)
+
+
+def moscow_now():
+    return datetime.utcnow() + timedelta(hours=3)
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -20,7 +24,7 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=True)
     phone: Mapped[str] = mapped_column(String, nullable=True, default="no_phone")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     records = relationship("Record", back_populates="user")
 
 
@@ -32,7 +36,7 @@ class Record(Base):
     operation: Mapped[str] = mapped_column(String(1))  # "+" или "-"
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))
     category: Mapped[str] = mapped_column(String, default="не указано")  # новое
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     user = relationship("User", back_populates="records")
 
 
