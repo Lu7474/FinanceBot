@@ -1,5 +1,31 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
 from datetime import datetime
+
+
+def main_menu_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Доход"), KeyboardButton(text="➖ Расход")],
+            [KeyboardButton(text="🕘 История"), KeyboardButton(text="📊 Отчёт")],
+            [KeyboardButton(text="🗑️ Удалить запись")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def category_keyboard(categories: list[str]):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=cat, callback_data=f"cat:{cat}")]
+            for cat in categories
+        ]
+    )
 
 
 def delete_period_keyboard():
