@@ -59,7 +59,7 @@ async def add_record(
     user = await get_user_by_tg_id(session, tg_id)
     if not user:
         return False
-        
+
     record = Record(
         user_id=user.id, operation=operation, amount=amount, category=category
     )
@@ -72,7 +72,7 @@ async def delete_record(session, tg_id: int, record_id: int):
     user = await get_user_by_tg_id(session, tg_id)
     if not user:
         return False
-        
+
     record = (
         await session.execute(
             select(Record).where(Record.id == record_id, Record.user_id == user.id)
