@@ -1,7 +1,7 @@
+import logging
 from datetime import datetime
-
 from sqlalchemy import select
-
+from decimal import Decimal
 from core.database.models import async_session, User, Record
 
 
@@ -21,9 +21,11 @@ async def set_user(tg_id, name, phone=None):
                 if phone:
                     user.phone = phone
             await session.commit()
-        except Exception:
+        except Exception as e:
             await session.rollback()
-            # Можно логировать ошибку
+            logging.exception(
+                f"Ошибка при добавлении/обновлении пользователя {tg_id}: {e}"
+            )
 
 
 async def get_records(
@@ -44,7 +46,9 @@ async def get_records(
             start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             query = query.where(Record.created_at >= start)
         elif within == "year":
-            start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            start = now.replace(
+                month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
             query = query.where(Record.created_at >= start)
         elif within == "date" and date_from:
             start = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -56,8 +60,8 @@ async def get_records(
         query = query.order_by(Record.created_at)
         result = await session.execute(query)
         return result.scalars().all()
-    except Exception:
-        # Можно логировать ошибку
+    except Exception as e:
+        logging.exception(f"Ошибка при получении записей пользователя {user_id}: {e}")
         return []
 
 
@@ -70,14 +74,17 @@ async def add_record(
             return False
 
         record = Record(
-            user_id=user.id, operation=operation, amount=amount, category=category
+            user_id=user.id,
+            operation=operation,
+            amount=Decimal(str(amount)),
+            category=category,
         )
         session.add(record)
         await session.commit()
         return True
     except Exception as e:
         await session.rollback()
-        # Можно логировать ошибку e
+        logging.exception(f"Ошибка при добавлении записи для пользователя {tg_id}: {e}")
         return False
 
 
@@ -98,7 +105,9 @@ async def delete_record(session, tg_id: int, record_id: int):
             await session.commit()
             return True
         return False
-    except Exception:
+    except Exception as e:
         await session.rollback()
-        # Можно логировать ошибку
+        logging.exception(
+            f"Ошибка при удалении записи {record_id} пользователя {tg_id}: {e}"
+        )
         return False

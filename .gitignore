@@ -1,8 +1,24 @@
+# Виртуальные окружения
 env/
+venv/
+.venv/
+
+# Файлы конфигурации среды
+.env
+
+# Кэш и временные файлы Python
 __pycache__/
-.vscode/
+.pytest_cache/
+
+# Логи
+bot.log
+
+# Базы данных
 db.sqlite3
 test_db.sqlite3
-config.py
-.pytest_cache/
+
+# Настройки редактора
+.vscode/
+
+# Старые или временные файлы
 handlers_legacy.py

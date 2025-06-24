@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
 
@@ -18,7 +19,17 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        logging.basicConfig(level=logging.INFO)
+        # Логирование в файл с ротацией и в консоль
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            handlers=[
+                logging.StreamHandler(),
+                RotatingFileHandler(
+                    "bot.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+                ),
+            ],
+        )
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Bot off")

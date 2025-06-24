@@ -81,6 +81,14 @@ async def handle_amount_and_category(message: Message, state: FSMContext, **kwar
         return
     try:
         amount = float(match.group(1).replace(",", "."))
+        # --- ВАЛИДАЦИЯ ---
+        if amount <= 0:
+            await message.answer("Сумма должна быть положительной.")
+            return
+        if amount > 1_000_000:
+            await message.answer("Слишком большая сумма. Максимум — 1 000 000.")
+            return
+        # --- КОНЕЦ ВАЛИДАЦИИ ---
     except ValueError:
         await message.answer("Введите корректную сумму.")
         return
@@ -93,9 +101,6 @@ async def handle_amount_and_category(message: Message, state: FSMContext, **kwar
     data = await state.get_data()
     operation = data.get("operation")
 
-    # async with async_session() as session:
-    #     await set_user(message.from_user.id, name=message.from_user.full_name)
-    #     await add_record(session, message.from_user.id, operation, amount, category)
     async with async_session() as session:
         await set_user(message.from_user.id, name=message.from_user.full_name)
         ok = await add_record(

@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import logging
 import io
 
+# Если категорий больше 7, объединяем остальные в "Прочее"
+MAX_CATEGORIES_IN_PIE = 7
 
 RU_MONTHS = {
     1: "Январь",
@@ -99,12 +101,14 @@ def build_report_pie(
         # Сортируем категории по убыванию суммы
         sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
 
-        # Если категорий больше 5, объединяем остальные в "Прочее"
-        if len(sorted_categories) > 5:
+        # Если категорий больше MAX_CATEGORIES_IN_PIE, объединяем остальные в "Прочее"
+        if len(sorted_categories) > MAX_CATEGORIES_IN_PIE:
             other_sum = sum(sorted_categories.values()) - sum(
-                list(sorted_categories.values())[:5]
+                list(sorted_categories.values())[:MAX_CATEGORIES_IN_PIE]
             )
-            sorted_categories = dict(list(sorted_categories.items())[:5])
+            sorted_categories = dict(
+                list(sorted_categories.items())[:MAX_CATEGORIES_IN_PIE]
+            )
             sorted_categories["Прочее"] = other_sum
 
         ax.pie(
