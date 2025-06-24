@@ -2,7 +2,9 @@ from datetime import datetime
 from sqlalchemy import select, func
 from collections import defaultdict
 from core.database.models import Record
+from aiogram.exceptions import TelegramBadRequest
 import matplotlib.pyplot as plt
+import logging
 import io
 
 
@@ -90,33 +92,37 @@ def build_report_pie(
 ) -> tuple[io.BytesIO | None, str]:
     if not categories:
         return None, "Нет данных для построения отчета"
+    try:
+        month_name = RU_MONTHS[date.month]
+        fig, ax = plt.subplots(figsize=(4, 4))
 
-    month_name = RU_MONTHS[date.month]
-    fig, ax = plt.subplots(figsize=(4, 4))
+        # Сортируем категории по убыванию суммы
+        sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
 
-    # Сортируем категории по убыванию суммы
-    sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
+        # Если категорий больше 5, объединяем остальные в "Прочее"
+        if len(sorted_categories) > 5:
+            other_sum = sum(sorted_categories.values()) - sum(
+                list(sorted_categories.values())[:5]
+            )
+            sorted_categories = dict(list(sorted_categories.items())[:5])
+            sorted_categories["Прочее"] = other_sum
 
-    # Если категорий больше 5, объединяем остальные в "Прочее"
-    if len(sorted_categories) > 5:
-        other_sum = sum(sorted_categories.values()) - sum(
-            list(sorted_categories.values())[:5]
+        ax.pie(
+            sorted_categories.values(),
+            labels=sorted_categories.keys(),
+            autopct="%1.1f%%",
         )
-        sorted_categories = dict(list(sorted_categories.items())[:5])
-        sorted_categories["Прочее"] = other_sum
+        ax.set_title(f"Расходы за {month_name} {date.year}")
 
-    ax.pie(
-        sorted_categories.values(), labels=sorted_categories.keys(), autopct="%1.1f%%"
-    )
-    ax.set_title(f"Расходы за {month_name} {date.year}")
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+        buf.seek(0)
+        plt.close(fig)
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=300, bbox_inches="tight")
-    buf.seek(0)
-    plt.close(fig)
-
-    caption = make_report_text(categories, total, date)
-    return buf, caption
+        caption = make_report_text(categories, total, date)
+        return buf, caption
+    except Exception:
+        return None, "Ошибка при построении отчета"
 
 
 def make_history_text(records) -> str:
@@ -137,3 +143,30 @@ def make_history_text(records) -> str:
     answer += f"\nСумма расходов: {sumspent:,.0f}₽".replace(",", ".")
     answer += f"\nОстаток: {remaining:,.0f}₽".replace(",", ".")
     return answer
+
+
+def log_exceptions(error_text):
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except Exception:
+                logging.exception(error_text)
+                message_or_callback = args[0]
+                state = args[1] if len(args) > 1 else None
+                try:
+                    if hasattr(message_or_callback, "edit_text"):
+                        try:
+                            await message_or_callback.edit_text(error_text)
+                        except TelegramBadRequest:
+                            await message_or_callback.answer(error_text)
+                    else:
+                        await message_or_callback.answer(error_text)
+                except Exception:
+                    pass
+                if state:
+                    await state.clear()
+
+        return wrapper
+
+    return decorator
