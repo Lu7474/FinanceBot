@@ -1,11 +1,15 @@
+import logging
+import io
 from datetime import datetime
 from sqlalchemy import select, func
 from collections import defaultdict
 from core.database.models import Record
 from aiogram.exceptions import TelegramBadRequest
+
+import matplotlib
+
+matplotlib.use("Agg")  # Для работы matplotlib без GUI
 import matplotlib.pyplot as plt
-import logging
-import io
 
 # Если категорий больше 7, объединяем остальные в "Прочее"
 MAX_CATEGORIES_IN_PIE = 7
@@ -36,6 +40,8 @@ def parse_date(text: str) -> datetime | None:
             dt = datetime.strptime(text, fmt)
             if dt.year < 100:
                 dt = dt.replace(year=2000 + dt.year)
+            if dt > datetime.now():
+                return None
             return dt
         except ValueError:
             continue
@@ -46,6 +52,8 @@ def parse_date(text: str) -> datetime | None:
             dt = datetime.strptime(text, fmt)
             if dt.year < 100:
                 dt = dt.replace(year=2000 + dt.year)
+            if dt > datetime.now():
+                return None
             return dt
         except ValueError:
             continue
@@ -121,12 +129,13 @@ def build_report_pie(
         buf = io.BytesIO()
         plt.savefig(buf, format="png", dpi=300, bbox_inches="tight")
         buf.seek(0)
-        plt.close(fig)
-
         caption = make_report_text(categories, total, date)
         return buf, caption
     except Exception:
         return None, "Ошибка при построении отчета"
+    finally:
+        if fig is not None:
+            plt.close(fig)
 
 
 def make_history_text(records) -> str:

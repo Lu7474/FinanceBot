@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import select
 from decimal import Decimal
 from core.database.models import async_session, User, Record
+from zoneinfo import ZoneInfo
 
 
 async def get_user_by_tg_id(session, tg_id: int):
@@ -38,7 +39,7 @@ async def get_records(
     try:
         query = select(Record).where(Record.user_id == user_id)
 
-        now = datetime.utcnow()
+        now = datetime.now(ZoneInfo("Europe/Moscow"))  # Московское время
         if within == "day":
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             query = query.where(Record.created_at >= start)
@@ -51,10 +52,31 @@ async def get_records(
             )
             query = query.where(Record.created_at >= start)
         elif within == "date" and date_from:
-            start = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-            end = date_from.replace(hour=23, minute=59, second=59, microsecond=999999)
+            start = date_from.replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+                tzinfo=ZoneInfo("Europe/Moscow"),
+            )
+            end = date_from.replace(
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
+                tzinfo=ZoneInfo("Europe/Moscow"),
+            )
             query = query.where(Record.created_at.between(start, end))
         elif within == "range" and date_from and date_to:
+            # Приводим к московскому времени, если не указано
+            if date_from.tzinfo is None:
+                date_from = date_from.replace(tzinfo=ZoneInfo("Europe/Moscow"))
+            else:
+                date_from = date_from.astimezone(ZoneInfo("Europe/Moscow"))
+            if date_to.tzinfo is None:
+                date_to = date_to.replace(tzinfo=ZoneInfo("Europe/Moscow"))
+            else:
+                date_to = date_to.astimezone(ZoneInfo("Europe/Moscow"))
             query = query.where(Record.created_at.between(date_from, date_to))
 
         query = query.order_by(Record.created_at)
