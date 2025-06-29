@@ -1,41 +1,44 @@
 import logging
 from datetime import datetime
-from sqlalchemy import select
 from decimal import Decimal
-from core.database.models import async_session, User, Record
+from typing import Optional, List
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-async def get_user_by_tg_id(session, tg_id: int):
+from core.database.models import async_session, User, Record
+
+
+async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> Optional[User]:
     return await session.scalar(select(User).where(User.tg_id == tg_id))
 
 
-async def set_user(tg_id, name, phone=None):
-    async with async_session() as session:
-        try:
-            user = await session.scalar(select(User).where(User.tg_id == tg_id))
-            if not user:
-                user = User(tg_id=tg_id, name=name, phone=phone if phone else None)
-                session.add(user)
-            else:
-                user.name = name
-                if phone:
-                    user.phone = phone
-            await session.commit()
-        except Exception as e:
-            await session.rollback()
-            logging.exception(
-                f"Ошибка при добавлении/обновлении пользователя {tg_id}: {e}"
-            )
+async def set_user(
+    session: AsyncSession, tg_id: int, name: str, phone: Optional[str] = None
+) -> None:
+    try:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            user = User(tg_id=tg_id, name=name, phone=phone if phone else None)
+            session.add(user)
+        else:
+            user.name = name
+            if phone:
+                user.phone = phone
+        await session.commit()
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при добавлении/обновлении пользователя {tg_id}: {e}")
 
 
 async def get_records(
-    session,
+    session: AsyncSession,
     user_id: int,
     within: str = "all",
-    date_from: datetime = None,
-    date_to: datetime = None,
-):
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+) -> List[Record]:
     try:
         query = select(Record).where(Record.user_id == user_id)
 
@@ -88,8 +91,12 @@ async def get_records(
 
 
 async def add_record(
-    session, tg_id: int, operation: str, amount: float, category: str = "не указано"
-):
+    session: AsyncSession,
+    tg_id: int,
+    operation: str,
+    amount: Decimal,
+    category: str = "не указано",
+) -> bool:
     try:
         user = await get_user_by_tg_id(session, tg_id)
         if not user:
@@ -110,7 +117,7 @@ async def add_record(
         return False
 
 
-async def delete_record(session, tg_id: int, record_id: int):
+async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bool:
     try:
         user = await get_user_by_tg_id(session, tg_id)
         if not user:

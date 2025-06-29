@@ -5,6 +5,7 @@ import pytest_asyncio
 
 from decimal import Decimal
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # Добавляем путь к корню проекта
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -92,7 +93,7 @@ async def test_get_available_years_and_months_future_filtering(session):
 
     user_id = user.id  # Сохраняем ID
 
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
     current_month = now.month
 
@@ -155,7 +156,7 @@ async def test_get_records_day(session):
     user_id = user.id  # Сохраняем ID
 
     # Создаем записи за сегодня и вчера
-    today = datetime.utcnow()
+    today = datetime.now(ZoneInfo("Europe/Moscow"))
     yesterday = today - timedelta(days=1)
 
     records = [
@@ -206,7 +207,7 @@ async def test_get_records_year(session):
     await session.refresh(user)
 
     user_id = user.id  # Сохраняем ID
-    current_year = datetime.utcnow().year
+    current_year = datetime.now(ZoneInfo("Europe/Moscow")).year
 
     # Создаем записи за текущий и прошлый год
     records = [

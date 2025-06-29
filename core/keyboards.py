@@ -8,7 +8,7 @@ from aiogram.types import (
 from core.utils import RU_MONTHS
 
 
-def main_menu_keyboard():
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Доход"), KeyboardButton(text="➖ Расход")],
@@ -20,7 +20,7 @@ def main_menu_keyboard():
     )
 
 
-def delete_period_keyboard():
+def delete_period_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Сегодня", callback_data="del_period:day")],
@@ -54,13 +54,3 @@ def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
         ]
     )
     return kb
-
-
-# создает инлайн-клавиатуру с категориями для быстрого выбора категории при добавлении записи.
-# def category_keyboard(categories: list[str]):
-#     return InlineKeyboardMarkup(
-#         inline_keyboard=[
-#             [InlineKeyboardButton(text=cat, callback_data=f"cat:{cat}")]
-#             for cat in categories
-#         ]
-#     )

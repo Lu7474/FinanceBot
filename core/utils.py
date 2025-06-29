@@ -1,15 +1,19 @@
-import logging
 import io
-from datetime import datetime
-from sqlalchemy import select, func
+import logging
 from collections import defaultdict
-from core.database.models import Record
-from aiogram.exceptions import TelegramBadRequest
+from datetime import datetime
+from typing import Any, Dict, Optional, Tuple
 
 import matplotlib
 
 matplotlib.use("Agg")  # Для работы matplotlib без GUI
 import matplotlib.pyplot as plt
+from aiogram.exceptions import TelegramBadRequest
+from sqlalchemy import func, select
+from zoneinfo import ZoneInfo
+
+from core.database.models import Record
+
 
 # Если категорий больше 7, объединяем остальные в "Прочее"
 MAX_CATEGORIES_IN_PIE = 7
@@ -30,7 +34,7 @@ RU_MONTHS = {
 }
 
 
-def parse_date(text: str) -> datetime | None:
+def parse_date(text: str) -> Optional[datetime]:
     text = text.lower().strip()
     text = text.replace("г.", "").replace("г", "")
 
@@ -73,7 +77,7 @@ def make_report_text(categories: dict, total: float, date: datetime) -> str:
 
 
 async def get_available_years_and_months(session, user_id: int) -> dict[int, list[int]]:
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
     current_month = now.month
 
@@ -84,6 +88,9 @@ async def get_available_years_and_months(session, user_id: int) -> dict[int, lis
 
     result = await session.execute(stmt)
     rows = result.fetchall()
+
+    if not rows:
+        return {}  # Явно возвращаем пустой словарь при отсутствии данных
 
     data = defaultdict(set)
     for row in rows:
@@ -99,7 +106,8 @@ async def get_available_years_and_months(session, user_id: int) -> dict[int, lis
 
 def build_report_pie(
     categories: dict, total: float, date: datetime
-) -> tuple[io.BytesIO | None, str]:
+) -> Tuple[Optional[io.BytesIO], str]:
+    fig = None  # Инициализация переменной
     if not categories:
         return None, "Нет данных для построения отчета"
     try:
@@ -138,13 +146,13 @@ def build_report_pie(
             plt.close(fig)
 
 
-def make_history_text(records) -> str:
+def make_history_text(records: list[Any]) -> str:
     if not records:
         return "Нет записей за указанный период."
 
     answer = "🕘 История операций:\n\n"
-    sumadd = sum(float(r.amount) for r in records if r.operation == "+")
-    sumspent = sum(float(r.amount) for r in records if r.operation == "-")
+    sumadd = sum(r.amount for r in records if r.operation == "+")
+    sumspent = sum(r.amount for r in records if r.operation == "-")
     remaining = sumadd - sumspent
 
     for r in records:

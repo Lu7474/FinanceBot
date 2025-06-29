@@ -5,6 +5,7 @@ import pytest_asyncio
 
 from decimal import Decimal
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # Добавляем путь к корню проекта, чтобы импорт сработал
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -122,7 +123,7 @@ async def test_get_records_month(session):
 async def test_get_records_range(session):
     tg_id = 123456
     user = await get_user_by_tg_id(session, tg_id)
-    
+
     # Создаем пользователя если его нет
     if not user:
         user = User(tg_id=tg_id, name="Test User")
@@ -133,7 +134,7 @@ async def test_get_records_range(session):
         await session.refresh(user)  # Обновляем объект
 
     user_id = user.id  # Сохраняем ID до использования
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 

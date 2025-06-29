@@ -1,16 +1,17 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
+from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime
 
 engine = create_async_engine(url="sqlite+aiosqlite:///db.sqlite3")
 async_session = async_sessionmaker(engine)
 
 
 def moscow_now():
-    return datetime.utcnow() + timedelta(hours=3)
+    return datetime.now(ZoneInfo("Europe/Moscow"))
 
 
 class Base(AsyncAttrs, DeclarativeBase):
