@@ -16,6 +16,7 @@ from core.keyboards import (
     get_years_keyboard,
     get_months_keyboard,
     main_menu_keyboard,
+    report_type_keyboard,
 )
 from core.utils import (
     get_available_years_and_months,
@@ -31,6 +32,8 @@ from core.database.requests import (
     get_records,
     delete_record,
     get_user_by_tg_id,
+    get_income_report,
+    get_expense_report,
 )
 from core.database.models import async_session
 
@@ -44,6 +47,7 @@ class AddRecord(StatesGroup):
 
 class MenuStates(StatesGroup):
     waiting_for_history_period = State()
+    waiting_for_report_type = State()
     waiting_for_report_year = State()
     waiting_for_report_month = State()
     waiting_for_delete_period = State()
@@ -75,7 +79,9 @@ async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -
 
 @router.message(AddRecord.waiting_for_amount)
 @log_exceptions("Ошибка при добавлении записи")
-async def handle_amount_and_category(message: Message, state: FSMContext, **kwargs) -> None:
+async def handle_amount_and_category(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     # Используем регулярку для поиска суммы
     match = re.search(r"([-+]?\d+(?:[.,]\d+)?)", message.text)
     if not match:
@@ -129,7 +135,9 @@ async def menu_history(message: Message, state: FSMContext, **kwargs) -> None:
 
 @router.callback_query(MenuStates.waiting_for_history_period)
 @log_exceptions("Ошибка при получении истории")
-async def menu_history_period(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def menu_history_period(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     period = callback.data.split(":")[1]
     async with async_session() as session:
         user = await get_user_by_tg_id(session, callback.from_user.id)
@@ -160,14 +168,39 @@ async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
     if not years_months:
         await message.answer("Нет записей для отображения отчёта.")
         return
+    await message.answer("Выберите тип отчёта:", reply_markup=report_type_keyboard())
+    await state.set_state(MenuStates.waiting_for_report_type)
+
+
+@router.message(MenuStates.waiting_for_report_type)
+@log_exceptions("Ошибка при выборе типа отчёта")
+async def report_type_handler(message: Message, state: FSMContext, **kwargs):
+    if message.text not in ("Доход", "Расход"):
+        await message.answer("Пожалуйста, выберите тип отчёта: Доход или Расход.")
+        return
+    await state.update_data(report_type=message.text)
+    user_id = message.from_user.id
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, user_id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            await state.clear()
+            return
+        years_months = await get_available_years_and_months(session, user.id)
+    if not years_months:
+        await message.answer("Нет записей для отображения отчёта.")
+        await state.clear()
+        return
     keyboard = get_years_keyboard(list(years_months.keys()))
-    await message.answer("Выберите год для отчёта:", reply_markup=keyboard)
+    await message.answer("Выберите год:", reply_markup=keyboard)
     await state.set_state(MenuStates.waiting_for_report_year)
 
 
 @router.callback_query(MenuStates.waiting_for_report_year)
 @log_exceptions("Ошибка при получении месяцев для отчёта")
-async def menu_report_year(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def menu_report_year(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     year = int(callback.data.split(":")[1])
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
@@ -209,16 +242,33 @@ async def menu_report_year(callback: CallbackQuery, state: FSMContext, **kwargs)
 
 @router.callback_query(MenuStates.waiting_for_report_month)
 @log_exceptions("Ошибка при формировании отчёта")
-async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs):
     parts = callback.data.split(":")
     year = int(parts[1])
     month = int(parts[2])
 
+    await state.update_data(report_year=year, report_month=month)
+    data = await state.get_data()
+
+    raw_type = data.get("report_type")
+
+    if raw_type == "Доход":
+        report_type = "income"
+        operation_sign = "+"
+    elif raw_type == "Расход":
+        report_type = "expense"
+        operation_sign = "-"
+    else:
+        await callback.message.answer("Ошибка: не выбран тип отчёта.")
+        await state.clear()
+        await callback.answer()
+        return
+
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     if year > now.year or (year == now.year and month > now.month):
         await callback.message.edit_text("Нельзя получить отчет за будущий месяц.")
-        await callback.answer()
         await state.clear()
+        await callback.answer()
         return
 
     date_from = datetime(year, month, 1)
@@ -231,50 +281,38 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         user = await get_user_by_tg_id(session, callback.from_user.id)
         if not user:
             await callback.message.edit_text("Пользователь не найден.")
-            await callback.answer()
             await state.clear()
+            await callback.answer()
             return
+
         records = await get_records(session, user.id, "range", date_from, date_to)
 
-    if not records:
-        month_name = RU_MONTHS[date_from.month]
-        await callback.message.edit_text(
-            f"За {month_name} {date_from.year} записей не найдено."
-        )
-        await callback.answer()
-        await state.clear()
-        return
+        categories = defaultdict(Decimal)
+        total = Decimal("0.0")
 
-    categories = defaultdict(Decimal)
-    total = Decimal("0.0")
-    for r in records:
-        if r.operation == "-":
-            cat = r.category or "Без категории"
-            categories[cat] += r.amount
-            total += r.amount
+        for r in records:
+            if r.operation == operation_sign:
+                cat = r.category or "Без категории"
+                categories[cat] += r.amount
+                total += r.amount
 
-    if not categories:
-        month_name = RU_MONTHS[date_from.month]
-        await callback.message.edit_text(
-            f"За {month_name} {date_from.year} нет расходов для отображения."
-        )
-        await callback.answer()
-        await state.clear()
-        return
+        if categories:
+            buf, caption = build_report_pie(categories, total, date_from, report_type)
+            if buf:
+                await callback.message.answer_photo(
+                    photo=BufferedInputFile(buf.read(), filename="report.png"),
+                    caption=caption,
+                )
 
-    buf, caption = build_report_pie(categories, total, date_from)
-    if buf is None:
-        await callback.message.edit_text(caption)
-        await callback.answer()
-        await state.clear()
-        return
+        if report_type == "income":
+            text = await get_income_report(session, user.id, date_from, date_to)
+        else:
+            text = await get_expense_report(session, user.id, date_from, date_to)
 
-    await callback.message.answer_photo(
-        photo=BufferedInputFile(buf.read(), filename="report.png"),
-        caption=caption,
-    )
-    await callback.answer()
+        await callback.message.answer(text)
+
     await state.clear()
+    await callback.answer()
 
 
 # ====== Удаление записи ======
@@ -290,7 +328,9 @@ async def menu_delete(message: Message, state: FSMContext, **kwargs) -> None:
 
 @router.callback_query(MenuStates.waiting_for_delete_period)
 @log_exceptions("Ошибка при получении записей для удаления")
-async def menu_delete_period(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def menu_delete_period(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     period = callback.data.split(":")[1]
     async with async_session() as session:
         user = await get_user_by_tg_id(session, callback.from_user.id)
@@ -320,7 +360,9 @@ async def menu_delete_period(callback: CallbackQuery, state: FSMContext, **kwarg
 
 @router.callback_query(MenuStates.waiting_for_delete_record)
 @log_exceptions("Ошибка при удалении записи")
-async def menu_delete_record(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def menu_delete_record(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     record_id = int(callback.data.split(":")[1])
     async with async_session() as session:
         deleted = await delete_record(session, callback.from_user.id, record_id)

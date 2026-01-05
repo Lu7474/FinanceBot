@@ -65,9 +65,16 @@ def parse_date(text: str) -> Optional[datetime]:
     return None
 
 
-def make_report_text(categories: dict, total: float, date: datetime) -> str:
+def make_report_text(
+    categories: dict,
+    total: float,
+    date: datetime,
+    report_type: str,
+) -> str:
     month_name = RU_MONTHS[date.month]
-    lines = [f"📊 Траты за {month_name} {date.year}\n"]
+    title_type = "Доходы" if report_type == "income" else "Расходы"
+
+    lines = [f"📊 {title_type} за {month_name} {date.year}\n"]
 
     for name, amount in sorted(categories.items(), key=lambda x: -x[1]):
         lines.append(f"{name} — {amount:,.0f}₽".replace(",", "."))
@@ -105,19 +112,22 @@ async def get_available_years_and_months(session, user_id: int) -> dict[int, lis
 
 
 def build_report_pie(
-    categories: dict, total: float, date: datetime
+    categories: dict,
+    total: float,
+    date: datetime,
+    report_type: str,
 ) -> Tuple[Optional[io.BytesIO], str]:
-    fig = None  # Инициализация переменной
+
     if not categories:
         return None, "Нет данных для построения отчета"
+
+    fig = None
     try:
         month_name = RU_MONTHS[date.month]
         fig, ax = plt.subplots(figsize=(4, 4))
 
-        # Сортируем категории по убыванию суммы
         sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
 
-        # Если категорий больше MAX_CATEGORIES_IN_PIE, объединяем остальные в "Прочее"
         if len(sorted_categories) > MAX_CATEGORIES_IN_PIE:
             other_sum = sum(sorted_categories.values()) - sum(
                 list(sorted_categories.values())[:MAX_CATEGORIES_IN_PIE]
@@ -132,13 +142,17 @@ def build_report_pie(
             labels=sorted_categories.keys(),
             autopct="%1.1f%%",
         )
-        ax.set_title(f"Расходы за {month_name} {date.year}")
+
+        title_type = "Доходы" if report_type == "income" else "Расходы"
+        ax.set_title(f"{title_type} за {month_name} {date.year}")
 
         buf = io.BytesIO()
         plt.savefig(buf, format="png", dpi=300, bbox_inches="tight")
         buf.seek(0)
-        caption = make_report_text(categories, total, date)
+
+        caption = make_report_text(categories, total, date, report_type)
         return buf, caption
+
     except Exception:
         return None, "Ошибка при построении отчета"
     finally:

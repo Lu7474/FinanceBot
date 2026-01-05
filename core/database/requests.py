@@ -140,3 +140,35 @@ async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bo
             f"Ошибка при удалении записи {record_id} пользователя {tg_id}: {e}"
         )
         return False
+
+
+async def get_income_report(session, user_id, date_from=None, date_to=None):
+    query = select(Record).where(Record.user_id == user_id, Record.operation == "+")
+    if date_from and date_to:
+        query = query.where(Record.created_at.between(date_from, date_to))
+    incomes = await session.execute(query)
+    incomes = incomes.scalars().all()
+    if not incomes:
+        return "Доходов не найдено."
+    report = "Ваши доходы:\n"
+    for inc in incomes:
+        report += f"{inc.created_at:%d.%m.%y} — {round(inc.amount, 0):,.0f}₽ {inc.category}\n".replace(
+            ",", "."
+        )
+    return report
+
+
+async def get_expense_report(session, user_id, date_from=None, date_to=None):
+    query = select(Record).where(Record.user_id == user_id, Record.operation == "-")
+    if date_from and date_to:
+        query = query.where(Record.created_at.between(date_from, date_to))
+    expenses = await session.execute(query)
+    expenses = expenses.scalars().all()
+    if not expenses:
+        return "Расходов не найдено."
+    report = "Ваши расходы:\n"
+    for exp in expenses:
+        report += f"{exp.created_at:%d.%m.%y} — {round(exp.amount, 0):,.0f}₽ {exp.category}\n".replace(
+            ",", "."
+        )
+    return report

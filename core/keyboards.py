@@ -54,3 +54,8 @@ def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
         ]
     )
     return kb
+
+
+def report_type_keyboard():
+    keyboard = [[KeyboardButton(text="Доход"), KeyboardButton(text="Расход")]]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
