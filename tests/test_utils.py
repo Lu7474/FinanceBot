@@ -32,22 +32,33 @@ def test_parse_date_formats():
 def test_make_report_text():
     categories = {"Еда": 1000.0, "Транспорт": 500.0}
     date = datetime(2024, 6, 1)
-    text = make_report_text(categories, 1500.0, date)
+    text = make_report_text(categories, 1500.0, date, "expense")
     assert "Еда" in text and "Транспорт" in text
     assert f"{RU_MONTHS[6]} 2024" in text
+    assert "Расходы" in text
+
+    # Проверка для доходов
+    text_income = make_report_text(categories, 1500.0, date, "income")
+    assert "Доходы" in text_income
 
 
-def test_build_report_pie_and_caption():
+@pytest.mark.asyncio
+async def test_build_report_pie_and_caption():
     categories = {"Еда": 1000.0, "Транспорт": 500.0}
     date = datetime(2024, 6, 1)
-    buf, caption = build_report_pie(categories, 1500.0, date)
+    buf, caption = await build_report_pie(categories, 1500.0, date, "expense")
 
     assert buf is not None
-    assert caption.startswith("📊 Траты за")
+    assert caption.startswith("📊 Расходы за")
     assert "Еда" in caption
 
+    # Проверка для доходов
+    buf_inc, caption_inc = await build_report_pie(categories, 1500.0, date, "income")
+    assert buf_inc is not None
+    assert caption_inc.startswith("📊 Доходы за")
+
     # Проверка с пустыми данными
-    empty_buf, empty_caption = build_report_pie({}, 0, date)
+    empty_buf, empty_caption = await build_report_pie({}, 0, date, "expense")
     assert empty_buf is None
     assert "Нет данных для построения отчета" in empty_caption
 

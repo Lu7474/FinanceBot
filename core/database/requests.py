@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional, List
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.models import async_session, User, Record
@@ -16,7 +16,8 @@ async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> Optional[User]
 
 async def set_user(
     session: AsyncSession, tg_id: int, name: str, phone: Optional[str] = None
-) -> None:
+) -> bool:
+    """Создаёт или обновляет пользователя. Возвращает True при успехе."""
     try:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
@@ -27,9 +28,11 @@ async def set_user(
             if phone:
                 user.phone = phone
         await session.commit()
+        return True
     except Exception as e:
         await session.rollback()
         logging.exception(f"Ошибка при добавлении/обновлении пользователя {tg_id}: {e}")
+        return False
 
 
 async def get_records(
@@ -123,17 +126,11 @@ async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bo
         if not user:
             return False
 
-        record = (
-            await session.execute(
-                select(Record).where(Record.id == record_id, Record.user_id == user.id)
-            )
-        ).scalar_one_or_none()
-
-        if record:
-            await session.delete(record)
-            await session.commit()
-            return True
-        return False
+        result = await session.execute(
+            delete(Record).where(Record.id == record_id, Record.user_id == user.id)
+        )
+        await session.commit()
+        return result.rowcount > 0
     except Exception as e:
         await session.rollback()
         logging.exception(
@@ -142,7 +139,12 @@ async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bo
         return False
 
 
-async def get_income_report(session, user_id, date_from=None, date_to=None):
+async def get_income_report(
+    session: AsyncSession,
+    user_id: int,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+) -> str:
     query = select(Record).where(Record.user_id == user_id, Record.operation == "+")
     if date_from and date_to:
         query = query.where(Record.created_at.between(date_from, date_to))
@@ -158,7 +160,12 @@ async def get_income_report(session, user_id, date_from=None, date_to=None):
     return report
 
 
-async def get_expense_report(session, user_id, date_from=None, date_to=None):
+async def get_expense_report(
+    session: AsyncSession,
+    user_id: int,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+) -> str:
     query = select(Record).where(Record.user_id == user_id, Record.operation == "-")
     if date_from and date_to:
         query = query.where(Record.created_at.between(date_from, date_to))

@@ -1,14 +1,19 @@
+import asyncio
 import io
 import logging
+import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import matplotlib
 
 matplotlib.use("Agg")  # Для работы matplotlib без GUI
 import matplotlib.pyplot as plt
+from aiogram import BaseMiddleware
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import TelegramObject, Message, CallbackQuery
 from sqlalchemy import func, select
 from zoneinfo import ZoneInfo
 
@@ -17,6 +22,8 @@ from core.database.models import Record
 
 # Если категорий больше 7, объединяем остальные в "Прочее"
 MAX_CATEGORIES_IN_PIE = 7
+# Таймаут для генерации графика (секунды)
+CHART_TIMEOUT_SECONDS = 10
 
 RU_MONTHS = {
     1: "Январь",
@@ -39,12 +46,14 @@ def parse_date(text: str) -> Optional[datetime]:
     text = text.replace("г.", "").replace("г", "")
 
     # Форматы: день.месяц.год
+    moscow_tz = ZoneInfo("Europe/Moscow")
     for fmt in ("%d.%m.%y", "%d.%m.%Y"):
         try:
             dt = datetime.strptime(text, fmt)
             if dt.year < 100:
                 dt = dt.replace(year=2000 + dt.year)
-            if dt > datetime.now():
+            dt = dt.replace(tzinfo=moscow_tz)
+            if dt > datetime.now(moscow_tz):
                 return None
             return dt
         except ValueError:
@@ -56,7 +65,8 @@ def parse_date(text: str) -> Optional[datetime]:
             dt = datetime.strptime(text, fmt)
             if dt.year < 100:
                 dt = dt.replace(year=2000 + dt.year)
-            if dt > datetime.now():
+            dt = dt.replace(tzinfo=moscow_tz)
+            if dt > datetime.now(moscow_tz):
                 return None
             return dt
         except ValueError:
@@ -111,13 +121,13 @@ async def get_available_years_and_months(session, user_id: int) -> dict[int, lis
     return {year: sorted(months) for year, months in data.items()}
 
 
-def build_report_pie(
+def _build_report_pie_sync(
     categories: dict,
     total: float,
     date: datetime,
     report_type: str,
 ) -> Tuple[Optional[io.BytesIO], str]:
-
+    """Синхронная функция построения графика (вызывается в executor)."""
     if not categories:
         return None, "Нет данных для построения отчета"
 
@@ -154,10 +164,44 @@ def build_report_pie(
         return buf, caption
 
     except Exception:
+        logging.exception("Ошибка при построении графика")
         return None, "Ошибка при построении отчета"
     finally:
         if fig is not None:
             plt.close(fig)
+
+
+async def build_report_pie(
+    categories: dict,
+    total: float,
+    date: datetime,
+    report_type: str,
+) -> Tuple[Optional[io.BytesIO], str]:
+    """Асинхронная обёртка с таймаутом для построения графика."""
+    if not categories:
+        return None, "Нет данных для построения отчета"
+
+    loop = asyncio.get_event_loop()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor,
+                    _build_report_pie_sync,
+                    categories,
+                    total,
+                    date,
+                    report_type,
+                ),
+                timeout=CHART_TIMEOUT_SECONDS,
+            )
+        return result
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут при построении графика ({CHART_TIMEOUT_SECONDS}s)")
+        return None, "Превышено время ожидания построения графика"
+    except Exception:
+        logging.exception("Ошибка при построении графика")
+        return None, "Ошибка при построении отчета"
 
 
 def make_history_text(records: list[Any]) -> str:
@@ -205,3 +249,80 @@ def log_exceptions(error_text):
         return wrapper
 
     return decorator
+
+
+class RateLimiter:
+    """Простой rate limiter для ограничения частоты запросов пользователей."""
+
+    def __init__(self, max_requests: int = 10, window_seconds: int = 60):
+        """
+        Args:
+            max_requests: Максимум запросов за окно времени
+            window_seconds: Размер окна в секундах
+        """
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._requests: Dict[int, list] = {}  # user_id -> list of timestamps
+
+    def is_allowed(self, user_id: int) -> bool:
+        """Проверяет, разрешён ли запрос для пользователя."""
+        now = time.time()
+        window_start = now - self.window_seconds
+
+        # Получаем историю запросов пользователя
+        if user_id not in self._requests:
+            self._requests[user_id] = []
+
+        # Удаляем старые записи
+        self._requests[user_id] = [
+            ts for ts in self._requests[user_id] if ts > window_start
+        ]
+
+        # Проверяем лимит
+        if len(self._requests[user_id]) >= self.max_requests:
+            return False
+
+        # Добавляем текущий запрос
+        self._requests[user_id].append(now)
+        return True
+
+    def get_retry_after(self, user_id: int) -> int:
+        """Возвращает количество секунд до следующего разрешённого запроса."""
+        if user_id not in self._requests or not self._requests[user_id]:
+            return 0
+
+        now = time.time()
+        oldest = min(self._requests[user_id])
+        retry_after = int(oldest + self.window_seconds - now) + 1
+        return max(0, retry_after)
+
+
+# Глобальный экземпляр rate limiter: 20 запросов в минуту
+rate_limiter = RateLimiter(max_requests=20, window_seconds=60)
+
+
+class RateLimitMiddleware(BaseMiddleware):
+    """Middleware для ограничения частоты запросов."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        user_id = None
+        if isinstance(event, Message) and event.from_user:
+            user_id = event.from_user.id
+        elif isinstance(event, CallbackQuery) and event.from_user:
+            user_id = event.from_user.id
+
+        if user_id and not rate_limiter.is_allowed(user_id):
+            retry_after = rate_limiter.get_retry_after(user_id)
+            logging.warning(f"Rate limit для user_id={user_id}, retry_after={retry_after}s")
+            if isinstance(event, Message):
+                await event.answer(f"Слишком много запросов. Подождите {retry_after} сек.")
+            elif isinstance(event, CallbackQuery):
+                await event.answer(f"Подождите {retry_after} сек.", show_alert=True)
+            return None
+
+        return await handler(event, data)
