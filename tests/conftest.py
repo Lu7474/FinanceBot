@@ -1,7 +1,9 @@
+"""
+Фикстуры pytest для тестирования БД.
+"""
 import sys
 from pathlib import Path
 
-# Добавляем путь к корню проекта
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 
@@ -10,11 +12,12 @@ from core.database.models import Base
 
 import pytest_asyncio
 
-# Создаем тестовый engine
+# Подключение к тестовой БД (отдельная от основной)
 test_engine = create_async_engine(url="sqlite+aiosqlite:///test_db.sqlite3")
 test_session = async_sessionmaker(test_engine)
 
 
+# Создаёт таблицы перед тестами, удаляет после
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     async with test_engine.begin() as conn:
@@ -24,6 +27,7 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 
+# Предоставляет сессию БД для каждого теста
 @pytest_asyncio.fixture
 async def session():
     async with test_session() as s:

@@ -1,10 +1,12 @@
+"""
+Тесты утилит: парсинг дат, генерация отчётов, графики.
+"""
 import sys
 from pathlib import Path
 import pytest
 from datetime import datetime
 from collections import defaultdict
 
-# Добавляем путь к корню проекта
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.utils import (
@@ -16,6 +18,9 @@ from core.utils import (
 )
 
 
+# ==================== parse_date ====================
+
+# Парсинг форматов 01.01.24 и 01.01.2024, некорректная строка → None
 def test_parse_date_formats():
     d1 = parse_date("10.06.24")
     assert d1 is not None
@@ -29,6 +34,9 @@ def test_parse_date_formats():
     assert d4 is None
 
 
+# ==================== make_report_text ====================
+
+# Формирование текстового отчёта с категориями и итогом
 def test_make_report_text():
     categories = {"Еда": 1000.0, "Транспорт": 500.0}
     date = datetime(2024, 6, 1)
@@ -42,6 +50,9 @@ def test_make_report_text():
     assert "Доходы" in text_income
 
 
+# ==================== build_report_pie ====================
+
+# Генерация графика: буфер + caption, пустые данные → None
 @pytest.mark.asyncio
 async def test_build_report_pie_and_caption():
     categories = {"Еда": 1000.0, "Транспорт": 500.0}
@@ -63,6 +74,9 @@ async def test_build_report_pie_and_caption():
     assert "Нет данных для построения отчета" in empty_caption
 
 
+# ==================== make_history_text ====================
+
+# Текст истории с итогами, пустой список → "Нет записей"
 def test_make_history_text():
     class FakeRecord:
         def __init__(self, op, amount, cat, dt):

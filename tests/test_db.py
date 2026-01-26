@@ -1,3 +1,6 @@
+"""
+Тесты CRUD-операций с БД: пользователи и записи.
+"""
 import sys
 from pathlib import Path
 import pytest
@@ -7,7 +10,6 @@ from decimal import Decimal
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# Добавляем путь к корню проекта, чтобы импорт сработал
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.database.models import User, Record
@@ -20,6 +22,9 @@ from core.database.requests import (
 )
 
 
+# ==================== Пользователи ====================
+
+# Создание и получение пользователя по tg_id
 @pytest.mark.asyncio
 async def test_set_and_get_user(session):
     tg_id = 123456
@@ -47,6 +52,9 @@ async def test_set_and_get_user(session):
     assert user.phone == phone
 
 
+# ==================== Записи ====================
+
+# Добавление записи и проверка через get_records
 @pytest.mark.asyncio
 async def test_add_and_get_record(session):
     tg_id = 123456
@@ -71,12 +79,11 @@ async def test_add_and_get_record(session):
     )
 
 
+# Удаление записи и проверка отсутствия
 @pytest.mark.asyncio
 async def test_delete_record(session):
     tg_id = 123456
     user = await get_user_by_tg_id(session, tg_id)
-    
-    # Создаем пользователя если его нет
     if not user:
         user = User(tg_id=tg_id, name="Test User")
         session.add(user)
@@ -98,12 +105,13 @@ async def test_delete_record(session):
     assert all(r.id != record_to_delete.id for r in records_after)
 
 
+# ==================== Фильтры периодов ====================
+
+# Получение записей за месяц
 @pytest.mark.asyncio
 async def test_get_records_month(session):
     tg_id = 123456
     user = await get_user_by_tg_id(session, tg_id)
-    
-    # Создаем пользователя если его нет
     if not user:
         user = User(tg_id=tg_id, name="Test User")
         session.add(user)
@@ -119,12 +127,11 @@ async def test_get_records_month(session):
     assert any(r.category == "кафе" for r in records)
 
 
+# Получение записей за диапазон дат
 @pytest.mark.asyncio
 async def test_get_records_range(session):
     tg_id = 123456
     user = await get_user_by_tg_id(session, tg_id)
-
-    # Создаем пользователя если его нет
     if not user:
         user = User(tg_id=tg_id, name="Test User")
         session.add(user)

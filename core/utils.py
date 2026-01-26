@@ -1,3 +1,6 @@
+"""
+Утилиты: парсинг дат, генерация графиков, rate-limiter, декораторы.
+"""
 import asyncio
 import io
 import logging
@@ -9,7 +12,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import matplotlib
 
-matplotlib.use("Agg")  # Для работы matplotlib без GUI
+matplotlib.use("Agg")  # Отключаем GUI для работы на сервере
 import matplotlib.pyplot as plt
 from aiogram import BaseMiddleware
 from aiogram.exceptions import TelegramBadRequest
@@ -20,11 +23,12 @@ from zoneinfo import ZoneInfo
 from core.database.models import Record
 
 
-# Если категорий больше 7, объединяем остальные в "Прочее"
-MAX_CATEGORIES_IN_PIE = 7
-# Таймаут для генерации графика (секунды)
-CHART_TIMEOUT_SECONDS = 10
+# ==================== Константы ====================
 
+MAX_CATEGORIES_IN_PIE = 7      # Лимит категорий на графике (остальное — "Прочее")
+CHART_TIMEOUT_SECONDS = 10     # Таймаут генерации графика (сек)
+
+# Словарь русских названий месяцев (для отчётов и UI)
 RU_MONTHS = {
     1: "Январь",
     2: "Февраль",
@@ -41,6 +45,9 @@ RU_MONTHS = {
 }
 
 
+# ==================== Парсинг дат ====================
+
+# Парсит дату из текста (форматы: 01.01.24, 01.01.2024, 01 января 2024)
 def parse_date(text: str) -> Optional[datetime]:
     text = text.lower().strip()
     text = text.replace("г.", "").replace("г", "")
@@ -75,6 +82,9 @@ def parse_date(text: str) -> Optional[datetime]:
     return None
 
 
+# ==================== Генерация отчётов ====================
+
+# Формирует текстовый отчёт по категориям
 def make_report_text(
     categories: dict,
     total: float,
@@ -93,6 +103,7 @@ def make_report_text(
     return "\n".join(lines)
 
 
+# Получает годы и месяцы, в которых есть записи пользователя
 async def get_available_years_and_months(session, user_id: int) -> dict[int, list[int]]:
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
@@ -121,13 +132,15 @@ async def get_available_years_and_months(session, user_id: int) -> dict[int, lis
     return {year: sorted(months) for year, months in data.items()}
 
 
+# ==================== Построение графиков ====================
+
+# Синхронная функция построения круговой диаграммы (вызывается в executor)
 def _build_report_pie_sync(
     categories: dict,
     total: float,
     date: datetime,
     report_type: str,
 ) -> Tuple[Optional[io.BytesIO], str]:
-    """Синхронная функция построения графика (вызывается в executor)."""
     if not categories:
         return None, "Нет данных для построения отчета"
 
@@ -171,13 +184,13 @@ def _build_report_pie_sync(
             plt.close(fig)
 
 
+# Асинхронная обёртка с таймаутом для построения графика
 async def build_report_pie(
     categories: dict,
     total: float,
     date: datetime,
     report_type: str,
 ) -> Tuple[Optional[io.BytesIO], str]:
-    """Асинхронная обёртка с таймаутом для построения графика."""
     if not categories:
         return None, "Нет данных для построения отчета"
 
@@ -204,6 +217,7 @@ async def build_report_pie(
         return None, "Ошибка при построении отчета"
 
 
+# Формирует текст истории операций с итогами
 def make_history_text(records: list[Any]) -> str:
     if not records:
         return "Нет записей за указанный период."
@@ -224,6 +238,9 @@ def make_history_text(records: list[Any]) -> str:
     return answer
 
 
+# ==================== Декораторы ====================
+
+# Декоратор для логирования ошибок и отправки сообщения пользователю
 def log_exceptions(error_text):
     def decorator(func):
         async def wrapper(*args, **kwargs):
@@ -251,21 +268,18 @@ def log_exceptions(error_text):
     return decorator
 
 
+# ==================== Rate Limiter ====================
+
+# Ограничитель частоты запросов (защита от спама)
 class RateLimiter:
-    """Простой rate limiter для ограничения частоты запросов пользователей."""
 
     def __init__(self, max_requests: int = 10, window_seconds: int = 60):
-        """
-        Args:
-            max_requests: Максимум запросов за окно времени
-            window_seconds: Размер окна в секундах
-        """
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self._requests: Dict[int, list] = {}  # user_id -> list of timestamps
+        self.max_requests = max_requests      # Макс. запросов за окно
+        self.window_seconds = window_seconds  # Размер окна (сек)
+        self._requests: Dict[int, list] = {}  # user_id -> [timestamps]
 
+    # Проверяет, разрешён ли запрос для пользователя
     def is_allowed(self, user_id: int) -> bool:
-        """Проверяет, разрешён ли запрос для пользователя."""
         now = time.time()
         window_start = now - self.window_seconds
 
@@ -286,8 +300,8 @@ class RateLimiter:
         self._requests[user_id].append(now)
         return True
 
+    # Возвращает секунды до следующего разрешённого запроса
     def get_retry_after(self, user_id: int) -> int:
-        """Возвращает количество секунд до следующего разрешённого запроса."""
         if user_id not in self._requests or not self._requests[user_id]:
             return 0
 
@@ -297,12 +311,14 @@ class RateLimiter:
         return max(0, retry_after)
 
 
-# Глобальный экземпляр rate limiter: 20 запросов в минуту
+# Глобальный rate limiter: 20 запросов/мин на пользователя
 rate_limiter = RateLimiter(max_requests=20, window_seconds=60)
 
 
+# ==================== Middleware ====================
+
+# Middleware для проверки лимита запросов перед обработкой
 class RateLimitMiddleware(BaseMiddleware):
-    """Middleware для ограничения частоты запросов."""
 
     async def __call__(
         self,

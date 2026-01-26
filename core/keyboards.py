@@ -1,3 +1,6 @@
+"""
+Клавиатуры бота: главное меню, выбор периода, типа отчёта и т.д.
+"""
 from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
@@ -8,6 +11,7 @@ from aiogram.types import (
 from core.utils import RU_MONTHS
 
 
+# Главное меню с основными действиями
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -20,6 +24,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+# Inline-клавиатура для выбора периода (день/месяц/год)
 def delete_period_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -30,6 +35,7 @@ def delete_period_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# Inline-клавиатура с доступными годами для отчёта
 def get_years_keyboard(years: list[int]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -40,8 +46,8 @@ def get_years_keyboard(years: list[int]) -> InlineKeyboardMarkup:
     return kb
 
 
+# Inline-клавиатура с месяцами для выбранного года
 def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
-
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -56,6 +62,7 @@ def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
     return kb
 
 
+# Reply-клавиатура для выбора типа отчёта (доход/расход)
 def report_type_keyboard():
     keyboard = [[KeyboardButton(text="Доход"), KeyboardButton(text="Расход")]]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

@@ -1,3 +1,6 @@
+"""
+Расширенные тесты БД: фильтры периодов, years_and_months, обработка ошибок.
+"""
 import sys
 from pathlib import Path
 import pytest
@@ -7,7 +10,6 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# Добавляем путь к корню проекта
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.database.models import User, Record
@@ -20,12 +22,11 @@ from core.database.requests import (
 from core.utils import get_available_years_and_months
 
 
-# ====== Тесты для get_available_years_and_months ======
+# ==================== get_available_years_and_months ====================
 
-
+# Пользователь без записей → пустой словарь
 @pytest.mark.asyncio
 async def test_get_available_years_and_months_empty(session):
-    """Тест для пустого пользователя"""
     tg_id = 999999
     user = User(tg_id=tg_id, name="Empty User")
     session.add(user)
@@ -36,9 +37,9 @@ async def test_get_available_years_and_months_empty(session):
     assert result == {}
 
 
+# Записи за разные годы/месяцы → правильная группировка
 @pytest.mark.asyncio
 async def test_get_available_years_and_months_with_records(session):
-    """Тест с записями за разные месяцы"""
     tg_id = 888888
     user = User(tg_id=tg_id, name="Test User")
     session.add(user)
@@ -82,9 +83,9 @@ async def test_get_available_years_and_months_with_records(session):
     assert 12 in result[2024]
 
 
+# Будущие месяцы должны отфильтровываться
 @pytest.mark.asyncio
 async def test_get_available_years_and_months_future_filtering(session):
-    """Тест фильтрации будущих месяцев"""
     tg_id = 777777
     user = User(tg_id=tg_id, name="Future User")
     session.add(user)
@@ -141,12 +142,11 @@ async def test_get_available_years_and_months_future_filtering(session):
         assert future_month not in result[future_year]
 
 
-# ====== Расширенные тесты для get_records ======
+# ==================== get_records (расширенные) ====================
 
-
+# Фильтр "day" — только сегодняшние записи
 @pytest.mark.asyncio
 async def test_get_records_day(session):
-    """Тест получения записей за день"""
     tg_id = 666666
     user = User(tg_id=tg_id, name="Day User")
     session.add(user)
@@ -197,9 +197,9 @@ async def test_get_records_day(session):
     assert all("today" in r.category for r in day_records)
 
 
+# Фильтр "year" — только записи за текущий год
 @pytest.mark.asyncio
 async def test_get_records_year(session):
-    """Тест получения записей за год"""
     tg_id = 555555
     user = User(tg_id=tg_id, name="Year User")
     session.add(user)
@@ -248,9 +248,9 @@ async def test_get_records_year(session):
     assert all("current_year" in r.category for r in year_records)
 
 
+# Фильтр "date" — записи за конкретную дату
 @pytest.mark.asyncio
 async def test_get_records_date(session):
-    """Тест получения записей за конкретную дату"""
     tg_id = 444444
     user = User(tg_id=tg_id, name="Date User")
     session.add(user)
@@ -299,9 +299,9 @@ async def test_get_records_date(session):
     assert all("target_date" in r.category for r in date_records)
 
 
+# Фильтр "all" — все записи без ограничений
 @pytest.mark.asyncio
 async def test_get_records_all(session):
-    """Тест получения всех записей"""
     tg_id = 333333
     user = User(tg_id=tg_id, name="All User")
     session.add(user)
@@ -348,19 +348,18 @@ async def test_get_records_all(session):
     assert len(all_records) == 3
 
 
-# ====== Тесты ошибок ======
+# ==================== Обработка ошибок ====================
 
-
+# Добавление записи несуществующему пользователю → False
 @pytest.mark.asyncio
 async def test_add_record_nonexistent_user(session):
-    """Тест добавления записи несуществующему пользователю"""
     result = await add_record(session, 999999, "+", 100.0, "test")
     assert result is False
 
 
+# Удаление несуществующей записи → False
 @pytest.mark.asyncio
 async def test_delete_record_nonexistent(session):
-    """Тест удаления несуществующей записи"""
     tg_id = 222222
     user = User(tg_id=tg_id, name="Delete User")
     session.add(user)
@@ -370,9 +369,9 @@ async def test_delete_record_nonexistent(session):
     assert result is False
 
 
+# Удаление чужой записи → False (защита)
 @pytest.mark.asyncio
 async def test_delete_record_wrong_user(session):
-    """Тест удаления чужой записи"""
     # Создаем двух пользователей
     user1 = User(tg_id=111111, name="User 1")
     user2 = User(tg_id=222222, name="User 2")
@@ -399,8 +398,8 @@ async def test_delete_record_wrong_user(session):
     assert result is False
 
 
+# Записи несуществующего пользователя → пустой список
 @pytest.mark.asyncio
 async def test_get_records_nonexistent_user(session):
-    """Тест получения записей несуществующего пользователя"""
     records = await get_records(session, 999999, "day")
     assert records == []

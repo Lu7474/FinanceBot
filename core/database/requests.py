@@ -1,3 +1,6 @@
+"""
+CRUD-операции с БД: работа с пользователями и записями.
+"""
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -10,14 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database.models import async_session, User, Record
 
 
+# ==================== Пользователи ====================
+
+# Получает пользователя по Telegram ID
 async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> Optional[User]:
     return await session.scalar(select(User).where(User.tg_id == tg_id))
 
 
+# Создаёт или обновляет пользователя (возвращает True при успехе)
 async def set_user(
     session: AsyncSession, tg_id: int, name: str, phone: Optional[str] = None
 ) -> bool:
-    """Создаёт или обновляет пользователя. Возвращает True при успехе."""
     try:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
@@ -35,6 +41,10 @@ async def set_user(
         return False
 
 
+# ==================== Записи ====================
+
+# Получает записи пользователя с фильтром по периоду
+# within: "all", "day", "month", "year", "date", "range"
 async def get_records(
     session: AsyncSession,
     user_id: int,
@@ -93,10 +103,11 @@ async def get_records(
         return []
 
 
+# Добавляет новую запись дохода/расхода
 async def add_record(
     session: AsyncSession,
     tg_id: int,
-    operation: str,
+    operation: str,           # "+" или "-"
     amount: Decimal,
     category: str = "не указано",
 ) -> bool:
@@ -120,6 +131,7 @@ async def add_record(
         return False
 
 
+# Удаляет запись по ID (проверяет принадлежность пользователю)
 async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bool:
     try:
         user = await get_user_by_tg_id(session, tg_id)
@@ -139,6 +151,9 @@ async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bo
         return False
 
 
+# ==================== Отчёты ====================
+
+# Формирует текстовый отчёт по доходам за период
 async def get_income_report(
     session: AsyncSession,
     user_id: int,
@@ -160,6 +175,7 @@ async def get_income_report(
     return report
 
 
+# Формирует текстовый отчёт по расходам за период
 async def get_expense_report(
     session: AsyncSession,
     user_id: int,

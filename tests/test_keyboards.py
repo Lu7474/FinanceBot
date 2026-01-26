@@ -1,8 +1,10 @@
+"""
+Тесты клавиатур: структура, callback_data, сортировка.
+"""
 import sys
 from pathlib import Path
 import pytest
 
-# Добавляем путь к корню проекта
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.keyboards import (
@@ -14,8 +16,8 @@ from core.keyboards import (
 from core.utils import RU_MONTHS
 
 
+# Проверяет структуру главного меню (3 ряда, правильные тексты)
 def test_main_menu_keyboard():
-    """Тест главного меню"""
     keyboard = main_menu_keyboard()
 
     # Проверяем структуру
@@ -42,8 +44,8 @@ def test_main_menu_keyboard():
     assert keyboard.one_time_keyboard is False
 
 
+# Проверяет кнопки выбора периода (день/месяц/год)
 def test_delete_period_keyboard():
-    """Тест клавиатуры выбора периода для удаления"""
     keyboard = delete_period_keyboard()
 
     # Проверяем структуру
@@ -62,8 +64,8 @@ def test_delete_period_keyboard():
     assert buttons[2][0].callback_data == "del_period:year"
 
 
+# Проверяет сортировку годов и формат callback_data
 def test_get_years_keyboard():
-    """Тест клавиатуры выбора года"""
     years = [2022, 2024, 2023]  # Несортированный список
     keyboard = get_years_keyboard(years)
 
@@ -83,16 +85,16 @@ def test_get_years_keyboard():
     assert buttons[2][0].callback_data == "report_year:2024"
 
 
+# Пустой список годов → пустая клавиатура
 def test_get_years_keyboard_empty():
-    """Тест клавиатуры выбора года с пустым списком"""
     keyboard = get_years_keyboard([])
 
     assert keyboard.inline_keyboard is not None
     assert len(keyboard.inline_keyboard) == 0
 
 
+# Проверяет сортировку месяцев и русские названия
 def test_get_months_keyboard():
-    """Тест клавиатуры выбора месяца"""
     year = 2024
     months = [3, 1, 12]  # Несортированный список
     keyboard = get_months_keyboard(year, months)
@@ -113,16 +115,16 @@ def test_get_months_keyboard():
     assert buttons[2][0].callback_data == "report_month:2024:12"
 
 
+# Пустой список месяцев → пустая клавиатура
 def test_get_months_keyboard_empty():
-    """Тест клавиатуры выбора месяца с пустым списком"""
     keyboard = get_months_keyboard(2024, [])
 
     assert keyboard.inline_keyboard is not None
     assert len(keyboard.inline_keyboard) == 0
 
 
+# Проверяет все 12 месяцев и их названия
 def test_get_months_keyboard_all_months():
-    """Тест клавиатуры выбора месяца со всеми месяцами"""
     year = 2024
     months = list(range(1, 13))  # Все 12 месяцев
     keyboard = get_months_keyboard(year, months)
@@ -137,8 +139,8 @@ def test_get_months_keyboard_all_months():
         assert button[0].callback_data == f"report_month:2024:{month_num}"
 
 
+# Проверяет префиксы callback_data (del_period, report_year, report_month)
 def test_keyboard_callback_data_format():
-    """Тест формата callback_data во всех клавиатурах"""
     # Тест delete_period_keyboard
     delete_kb = delete_period_keyboard()
     for row in delete_kb.inline_keyboard:
