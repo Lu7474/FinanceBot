@@ -28,6 +28,9 @@ from core.database.models import Record
 MAX_CATEGORIES_IN_PIE = 7      # Лимит категорий на графике (остальное — "Прочее")
 CHART_TIMEOUT_SECONDS = 10     # Таймаут генерации графика (сек)
 
+# Глобальный executor для CPU-bound задач (графики)
+_chart_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_")
+
 # Словарь русских названий месяцев (для отчётов и UI)
 RU_MONTHS = {
     1: "Январь",
@@ -103,22 +106,23 @@ def make_report_text(
     return "\n".join(lines)
 
 
-# Получает годы и месяцы, в которых есть записи пользователя
+# Получает годы и месяцы, в которых есть записи пользователя (оптимизировано: DISTINCT)
 async def get_available_years_and_months(session, user_id: int) -> dict[int, list[int]]:
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
     current_month = now.month
 
+    # DISTINCT — возвращает только уникальные пары (год, месяц), а не все записи
     stmt = select(
         func.extract("year", Record.created_at).label("year"),
         func.extract("month", Record.created_at).label("month"),
-    ).where(Record.user_id == user_id)
+    ).where(Record.user_id == user_id).distinct()
 
     result = await session.execute(stmt)
     rows = result.fetchall()
 
     if not rows:
-        return {}  # Явно возвращаем пустой словарь при отсутствии данных
+        return {}
 
     data = defaultdict(set)
     for row in rows:
@@ -184,7 +188,7 @@ def _build_report_pie_sync(
             plt.close(fig)
 
 
-# Асинхронная обёртка с таймаутом для построения графика
+# Асинхронная обёртка с таймаутом для построения графика (использует глобальный executor)
 async def build_report_pie(
     categories: dict,
     total: float,
@@ -196,18 +200,17 @@ async def build_report_pie(
 
     loop = asyncio.get_event_loop()
     try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(
-                    executor,
-                    _build_report_pie_sync,
-                    categories,
-                    total,
-                    date,
-                    report_type,
-                ),
-                timeout=CHART_TIMEOUT_SECONDS,
-            )
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,  # Используем глобальный executor вместо создания нового
+                _build_report_pie_sync,
+                categories,
+                total,
+                date,
+                report_type,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
         return result
     except asyncio.TimeoutError:
         logging.error(f"Таймаут при построении графика ({CHART_TIMEOUT_SECONDS}s)")

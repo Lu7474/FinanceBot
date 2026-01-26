@@ -33,6 +33,8 @@ from core.database.requests import (
     set_user,
     add_record,
     get_records,
+    count_records,
+    get_totals,
     delete_record,
     get_user_by_tg_id,
     get_income_report,
@@ -45,6 +47,8 @@ router = Router()
 
 # Количество записей на одной странице (для пагинации)
 RECORDS_PER_PAGE = 10
+# Максимальная длина категории (соответствует String(50) в модели)
+MAX_CATEGORY_LENGTH = 50
 
 
 # ==================== FSM States ====================
@@ -73,8 +77,8 @@ class MenuStates(StatesGroup):
 async def handle_start(message: Message, **kwargs) -> None:
     """Команда /start — регистрация пользователя и показ главного меню."""
     async with async_session() as session:
-        success = await set_user(session, message.from_user.id, name=message.from_user.full_name)
-        if not success:
+        user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+        if not user:
             await message.answer("Ошибка при регистрации. Попробуйте позже.")
             return
 
@@ -82,6 +86,19 @@ async def handle_start(message: Message, **kwargs) -> None:
         "Добро пожаловать!\nВыберите действие:",
         reply_markup=main_menu_keyboard(),
     )
+
+
+@router.message(Command("cancel"))
+@log_exceptions("Ошибка при отмене")
+async def handle_cancel(message: Message, state: FSMContext, **kwargs) -> None:
+    """Команда /cancel — отмена текущей операции и возврат в главное меню."""
+    current_state = await state.get_state()
+    if current_state is None:
+        await message.answer("Нет активной операции для отмены.")
+        return
+
+    await state.clear()
+    await message.answer("Операция отменена.", reply_markup=main_menu_keyboard())
 
 
 # ==================== Добавление записи ====================
@@ -126,17 +143,23 @@ async def handle_amount_and_category(
     if not category:
         category = "не указано"
 
+    # Валидация длины категории
+    if len(category) > MAX_CATEGORY_LENGTH:
+        await message.answer(f"Категория слишком длинная. Максимум {MAX_CATEGORY_LENGTH} символов.")
+        return
+
     # Получаем тип операции из state и сохраняем в БД
     data = await state.get_data()
     operation = data.get("operation")
 
     async with async_session() as session:
-        if not await set_user(session, message.from_user.id, name=message.from_user.full_name):
+        # set_user возвращает User с id — используем его напрямую
+        user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+        if not user:
             await message.answer("Ошибка при сохранении пользователя.")
             return
-        ok = await add_record(
-            session, message.from_user.id, operation, amount, category
-        )
+
+        ok = await add_record(session, user.id, operation, amount, category)
         if not ok:
             await message.answer("Ошибка при добавлении записи.")
             return
@@ -148,35 +171,25 @@ async def handle_amount_and_category(
 # ==================== История операций ====================
 
 def build_history_page(
-    records: list[dict], page: int = 0
-) -> tuple[str, InlineKeyboardBuilder, int]:
+    page_records: list[dict],
+    page: int,
+    total_pages: int,
+    income_sum: Decimal,
+    expense_sum: Decimal,
+) -> tuple[str, InlineKeyboardBuilder]:
     """Формирует текст истории и кнопки навигации для указанной страницы.
 
     Args:
-        records: Список записей (dict с ключами operation, amount, category, date)
+        page_records: Записи текущей страницы (уже загружены с LIMIT/OFFSET)
         page: Номер страницы (с 0)
+        total_pages: Общее количество страниц
+        income_sum: Сумма доходов (посчитана в БД)
+        expense_sum: Сумма расходов (посчитана в БД)
 
     Returns:
-        (текст, клавиатура, всего_страниц)
+        (текст, клавиатура)
     """
-    total = len(records)
-    total_pages = (total + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
-
-    # Защита от выхода за границы
-    if page < 0:
-        page = 0
-    if page >= total_pages:
-        page = total_pages - 1
-
-    # Записи для текущей страницы
-    start = page * RECORDS_PER_PAGE
-    end = start + RECORDS_PER_PAGE
-    page_records = records[start:end]
-
-    # Итоговые суммы (по всем записям, не только на странице)
-    sumadd = sum(float(r["amount"]) for r in records if r["operation"] == "+")
-    sumspent = sum(float(r["amount"]) for r in records if r["operation"] == "-")
-    remaining = sumadd - sumspent
+    remaining = income_sum - expense_sum
 
     # Формируем текст
     text = f"🕘 История операций (стр. {page + 1}/{total_pages}):\n\n"
@@ -185,8 +198,8 @@ def build_history_page(
         category = f" - {r['category']}" if r.get("category") else ""
         text += f"{symbol} {r['amount']:,.0f}₽{category} ({r['date']})\n"
 
-    text += f"\nСумма доходов: {sumadd:,.0f}₽".replace(",", ".")
-    text += f"\nСумма расходов: {sumspent:,.0f}₽".replace(",", ".")
+    text += f"\nСумма доходов: {income_sum:,.0f}₽".replace(",", ".")
+    text += f"\nСумма расходов: {expense_sum:,.0f}₽".replace(",", ".")
     text += f"\nОстаток: {remaining:,.0f}₽".replace(",", ".")
 
     # Кнопки навигации (только если страниц > 1)
@@ -203,7 +216,7 @@ def build_history_page(
             kb.button(text=btn_text, callback_data=data)
         kb.adjust(len(nav_buttons))
 
-    return text, kb, total_pages
+    return text, kb
 
 
 @router.message(F.text == "🕘 История")
@@ -222,7 +235,7 @@ async def menu_history(message: Message, state: FSMContext, **kwargs) -> None:
 async def menu_history_period(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    """Выбран период — загружаем записи и показываем первую страницу."""
+    """Выбран период — загружаем первую страницу записей."""
     # Парсим период из callback_data (формат: "del_period:day")
     try:
         period = callback.data.split(":")[1]
@@ -231,22 +244,28 @@ async def menu_history_period(
         await state.clear()
         return
 
-    # Загружаем записи из БД
     async with async_session() as session:
         user = await get_user_by_tg_id(session, callback.from_user.id)
         if not user:
             await callback.message.edit_text("Пользователь не найден.")
             await state.clear()
             return
-        records = await get_records(session, user.id, period)
 
-    if not records:
-        await callback.message.edit_text("Записей не найдено за указанный период.")
-        await state.clear()
-        await callback.answer()
-        return
+        # Подсчёт общего количества и сумм (один раз)
+        total_count = await count_records(session, user.id, period)
+        if total_count == 0:
+            await callback.message.edit_text("Записей не найдено за указанный период.")
+            await state.clear()
+            await callback.answer()
+            return
 
-    # Конвертируем ORM-объекты в dict (чтобы хранить в state без сессии)
+        income_sum, expense_sum = await get_totals(session, user.id, period)
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+
+        # Загружаем только первую страницу
+        records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=0)
+
+    # Конвертируем ORM-объекты в dict
     records_data = [
         {
             "operation": r.operation,
@@ -256,10 +275,18 @@ async def menu_history_period(
         }
         for r in records
     ]
-    await state.update_data(history_records=records_data, history_page=0)
+
+    # Сохраняем в state только параметры, не все записи
+    await state.update_data(
+        history_period=period,
+        history_page=0,
+        history_total_pages=total_pages,
+        history_income=float(income_sum),
+        history_expense=float(expense_sum),
+    )
 
     # Показываем первую страницу
-    text, kb, total_pages = build_history_page(records_data, page=0)
+    text, kb = build_history_page(records_data, 0, total_pages, income_sum, expense_sum)
 
     if total_pages > 1:
         await callback.message.edit_text(text, reply_markup=kb.as_markup())
@@ -287,19 +314,45 @@ async def menu_history_page(
         await callback.answer("Некорректные данные.")
         return
 
-    # Получаем записи из state
+    # Получаем параметры из state
     data = await state.get_data()
-    records_data = data.get("history_records", [])
+    period = data.get("history_period")
+    total_pages = data.get("history_total_pages", 1)
+    income_sum = Decimal(str(data.get("history_income", 0)))
+    expense_sum = Decimal(str(data.get("history_expense", 0)))
 
-    if not records_data:
+    if not period:
         await callback.message.edit_text("Данные истории устарели. Попробуйте снова.")
         await state.clear()
         await callback.answer()
         return
 
-    # Обновляем страницу
+    # Загружаем записи нужной страницы из БД
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await state.clear()
+            await callback.answer()
+            return
+
+        offset = new_page * RECORDS_PER_PAGE
+        records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=offset)
+
+    # Конвертируем в dict
+    records_data = [
+        {
+            "operation": r.operation,
+            "amount": float(r.amount),
+            "category": r.category,
+            "date": r.created_at.strftime("%d.%m.%Y"),
+        }
+        for r in records
+    ]
+
+    # Обновляем страницу в state
     await state.update_data(history_page=new_page)
-    text, kb, _ = build_history_page(records_data, page=new_page)
+    text, kb = build_history_page(records_data, new_page, total_pages, income_sum, expense_sum)
     await callback.message.edit_text(text, reply_markup=kb.as_markup())
     await callback.answer()
 
@@ -501,33 +554,23 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
 # ==================== Удаление записи ====================
 
 def build_delete_keyboard(
-    records: list[dict], page: int = 0
-) -> tuple[InlineKeyboardBuilder, int, int]:
+    page_records: list[dict],
+    page: int,
+    total_pages: int,
+) -> InlineKeyboardBuilder:
     """Формирует клавиатуру со списком записей для удаления.
 
     Args:
-        records: Список записей (dict с id, operation, amount, category, date)
+        page_records: Записи текущей страницы (уже загружены с LIMIT/OFFSET)
         page: Номер страницы (с 0)
+        total_pages: Общее количество страниц
 
     Returns:
-        (клавиатура, всего_страниц, текущая_страница)
+        Клавиатура с кнопками записей и навигацией
     """
-    total = len(records)
-    total_pages = (total + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
-
-    # Защита от выхода за границы
-    if page < 0:
-        page = 0
-    if page >= total_pages:
-        page = total_pages - 1
-
-    # Записи для текущей страницы
-    start = page * RECORDS_PER_PAGE
-    end = start + RECORDS_PER_PAGE
-    page_records = records[start:end]
+    kb = InlineKeyboardBuilder()
 
     # Кнопки с записями
-    kb = InlineKeyboardBuilder()
     for r in page_records:
         symbol = "➖" if r["operation"] == "-" else "➕"
         text = f"{symbol} {r['amount']:.0f}₽ - {r['category']} ({r['date']})"
@@ -548,7 +591,7 @@ def build_delete_keyboard(
             kb.button(text=text, callback_data=data)
         kb.adjust(1, len(nav_buttons))  # Записи по 1, навигация в одном ряду
 
-    return kb, total_pages, page
+    return kb
 
 
 @router.message(F.text == "🗑️ Удалить запись")
@@ -567,7 +610,7 @@ async def menu_delete(message: Message, state: FSMContext, **kwargs) -> None:
 async def menu_delete_period(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    """Выбран период — загружаем записи и показываем список."""
+    """Выбран период — загружаем первую страницу записей для удаления."""
     # Парсим период
     try:
         period = callback.data.split(":")[1]
@@ -576,19 +619,25 @@ async def menu_delete_period(
         await state.clear()
         return
 
-    # Загружаем записи
     async with async_session() as session:
         user = await get_user_by_tg_id(session, callback.from_user.id)
         if not user:
             await callback.message.edit_text("Пользователь не найден.")
             await state.clear()
             return
-        records = await get_records(session, user.id, period)
 
-    if not records:
-        await callback.message.edit_text("Записей за выбранный период нет.")
-        await state.clear()
-        return
+        # Подсчёт общего количества
+        total_count = await count_records(session, user.id, period)
+        if total_count == 0:
+            await callback.message.edit_text("Записей за выбранный период нет.")
+            await state.clear()
+            await callback.answer()
+            return
+
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+
+        # Загружаем только первую страницу
+        records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=0)
 
     # Конвертируем в dict (включая id для удаления)
     records_data = [
@@ -601,13 +650,19 @@ async def menu_delete_period(
         }
         for r in records
     ]
-    await state.update_data(delete_records=records_data, delete_page=0)
+
+    # Сохраняем в state только параметры
+    await state.update_data(
+        delete_period=period,
+        delete_page=0,
+        delete_total_count=total_count,
+        delete_total_pages=total_pages,
+    )
 
     # Показываем первую страницу
-    kb, total_pages, _ = build_delete_keyboard(records_data, page=0)
-    total = len(records_data)
+    kb = build_delete_keyboard(records_data, 0, total_pages)
     await callback.message.edit_text(
-        f"Выберите запись для удаления (всего: {total}):",
+        f"Выберите запись для удаления (всего: {total_count}):",
         reply_markup=kb.as_markup(),
     )
     await state.set_state(MenuStates.waiting_for_delete_record)
@@ -621,8 +676,14 @@ async def menu_delete_record(
 ) -> None:
     """Обработка: навигация по страницам или удаление выбранной записи."""
     data = await state.get_data()
-    records_data = data.get("delete_records", [])
+    period = data.get("delete_period")
     current_page = data.get("delete_page", 0)
+    total_count = data.get("delete_total_count", 0)
+
+    if not period:
+        await callback.answer("Данные устарели. Попробуйте снова.")
+        await state.clear()
+        return
 
     # --- Навигация по страницам ---
     if callback.data.startswith("del_page:"):
@@ -636,12 +697,34 @@ async def menu_delete_record(
             await callback.answer("Некорректные данные.")
             return
 
-        # Обновляем страницу
+        # Загружаем записи нужной страницы из БД
+        async with async_session() as session:
+            user = await get_user_by_tg_id(session, callback.from_user.id)
+            if not user:
+                await callback.message.edit_text("Пользователь не найден.")
+                await state.clear()
+                await callback.answer()
+                return
+
+            offset = new_page * RECORDS_PER_PAGE
+            records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=offset)
+
+        records_data = [
+            {
+                "id": r.id,
+                "operation": r.operation,
+                "amount": float(r.amount),
+                "category": r.category,
+                "date": r.created_at.strftime("%d.%m.%Y"),
+            }
+            for r in records
+        ]
+
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
         await state.update_data(delete_page=new_page)
-        kb, _, _ = build_delete_keyboard(records_data, page=new_page)
-        total = len(records_data)
+        kb = build_delete_keyboard(records_data, new_page, total_pages)
         await callback.message.edit_text(
-            f"Выберите запись для удаления (всего: {total}):",
+            f"Выберите запись для удаления (всего: {total_count}):",
             reply_markup=kb.as_markup(),
         )
         await callback.answer()
@@ -660,34 +743,52 @@ async def menu_delete_record(
         async with async_session() as session:
             deleted = await delete_record(session, callback.from_user.id, record_id)
 
-        if deleted:
-            await callback.answer("✅ Запись удалена!")
+            if deleted:
+                await callback.answer("✅ Запись удалена!")
 
-            # Убираем из списка в state
-            records_data = [r for r in records_data if r["id"] != record_id]
-            await state.update_data(delete_records=records_data)
+                # Пересчитываем общее количество
+                new_total = await count_records(session, callback.from_user.id, period)
+                user = await get_user_by_tg_id(session, callback.from_user.id)
 
-            # Если всё удалено — выходим
-            if not records_data:
-                await callback.message.edit_text("Все записи удалены.")
-                await state.clear()
-                return
+                # Если всё удалено — выходим
+                if new_total == 0:
+                    await callback.message.edit_text("Все записи удалены.")
+                    await state.clear()
+                    return
 
-            # Корректируем страницу (если последняя запись на странице удалена)
-            total_pages = (len(records_data) + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
-            if current_page >= total_pages:
-                current_page = total_pages - 1
-            await state.update_data(delete_page=current_page)
+                # Корректируем страницу
+                total_pages = (new_total + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+                if current_page >= total_pages:
+                    current_page = total_pages - 1
 
-            # Обновляем клавиатуру
-            kb, _, _ = build_delete_keyboard(records_data, page=current_page)
-            total = len(records_data)
-            await callback.message.edit_text(
-                f"Выберите запись для удаления (всего: {total}):",
-                reply_markup=kb.as_markup(),
-            )
-        else:
-            await callback.answer("⚠️ Запись не найдена или уже удалена.")
+                # Загружаем текущую страницу заново
+                offset = current_page * RECORDS_PER_PAGE
+                records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=offset)
+
+                records_data = [
+                    {
+                        "id": r.id,
+                        "operation": r.operation,
+                        "amount": float(r.amount),
+                        "category": r.category,
+                        "date": r.created_at.strftime("%d.%m.%Y"),
+                    }
+                    for r in records
+                ]
+
+                await state.update_data(
+                    delete_page=current_page,
+                    delete_total_count=new_total,
+                    delete_total_pages=total_pages,
+                )
+
+                kb = build_delete_keyboard(records_data, current_page, total_pages)
+                await callback.message.edit_text(
+                    f"Выберите запись для удаления (всего: {new_total}):",
+                    reply_markup=kb.as_markup(),
+                )
+            else:
+                await callback.answer("⚠️ Запись не найдена или уже удалена.")
         return
 
     # --- Неизвестный callback ---

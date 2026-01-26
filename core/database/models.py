@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime
+from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime, Index
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -43,12 +43,18 @@ class User(Base):
 class Record(Base):
     __tablename__ = "records"
 
+    # Индексы для ускорения запросов по периодам и пользователям
+    __table_args__ = (
+        Index("ix_records_user_created", "user_id", "created_at"),  # Для выборки по периоду
+        Index("ix_records_user_operation", "user_id", "operation"),  # Для отчётов по типу
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))   # Владелец записи
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)  # Индекс на FK
     operation: Mapped[str] = mapped_column(String(1))              # "+" (доход) или "-" (расход)
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))        # Сумма
-    category: Mapped[str] = mapped_column(String, default="не указано")  # Категория
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+    category: Mapped[str] = mapped_column(String(50), default="не указано")  # Категория (макс 50 символов)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now, index=True)  # Индекс для сортировки
     user = relationship("User", back_populates="records")
 
 
