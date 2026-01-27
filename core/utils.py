@@ -111,22 +111,47 @@ def parse_date(text: str) -> Optional[datetime]:
 
 # ==================== Генерация отчётов ====================
 
-# Формирует текстовый отчёт по категориям
+# Формирует текстовый отчёт по категориям с деталями по датам
 def make_report_text(
     categories: dict,
     total: float,
     date: datetime,
     report_type: str,
+    records: list = None,
 ) -> str:
     month_name = RU_MONTHS[date.month]
     title_type = "Доходы" if report_type == "income" else "Расходы"
+    icon = "💵" if report_type == "income" else "🛒"
+    operation_sign = "+" if report_type == "income" else "-"
 
-    lines = [f"📊 {title_type} за {month_name} {date.year}\n"]
+    lines = [f"📊 <b>{title_type}</b> • {month_name} {date.year}\n"]
 
+    # Категории
+    lines.append("📁 <b>По категориям:</b>")
     for name, amount in sorted(categories.items(), key=lambda x: -x[1]):
-        lines.append(f"{name} — {format_money(amount)}")
+        lines.append(f"  {icon} {name} — {format_money(amount)}")
 
-    lines.append(f"\nИтого: {format_money(total)}")
+    # Детали по датам (если есть записи)
+    if records:
+        # Фильтруем по типу операции
+        filtered = [r for r in records if (r.operation if hasattr(r, "operation") else r["operation"]) == operation_sign]
+        if filtered:
+            lines.append(f"\n📅 <b>По датам:</b>")
+            for r in filtered:
+                if hasattr(r, "amount"):
+                    amount = r.amount
+                    category = r.category
+                    rec_date = r.created_at
+                else:
+                    amount = r["amount"]
+                    category = r["category"]
+                    rec_date = r["created_at"]
+                short_date = rec_date.strftime("%d.%m")
+                lines.append(f"  {short_date} — {operation_sign}{format_money(amount)} {category}")
+
+    # Итого
+    lines.append(f"\n💰 <b>Итого:</b> {format_money(total)}")
+
     return "\n".join(lines)
 
 
@@ -168,6 +193,7 @@ def _build_report_pie_sync(
     total: float,
     date: datetime,
     report_type: str,
+    records: list = None,
 ) -> Tuple[Optional[io.BytesIO], str]:
     if not categories:
         return None, "Нет данных для построения отчета"
@@ -201,7 +227,7 @@ def _build_report_pie_sync(
         plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight")
         buf.seek(0)
 
-        caption = make_report_text(categories, total, date, report_type)
+        caption = make_report_text(categories, total, date, report_type, records)
         return buf, caption
 
     except Exception:
@@ -218,6 +244,7 @@ async def build_report_pie(
     total: float,
     date: datetime,
     report_type: str,
+    records: list = None,
 ) -> Tuple[Optional[io.BytesIO], str]:
     if not categories:
         return None, "Нет данных для построения отчета"
@@ -232,6 +259,7 @@ async def build_report_pie(
                 total,
                 date,
                 report_type,
+                records,
             ),
             timeout=CHART_TIMEOUT_SECONDS,
         )

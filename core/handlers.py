@@ -25,7 +25,6 @@ from core.keyboards import (
 from core.utils import (
     get_available_years_and_months,
     build_report_pie,
-    make_records_report_text,
     format_money,
     RU_MONTHS,
     RU_WEEKDAYS,
@@ -1030,19 +1029,23 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         )
         total = sum(categories.values()) if categories else Decimal("0.0")
 
-        # Генерируем график (если есть данные)
+        # Загружаем записи для детализации
+        records = await get_records(session, user.id, "range", date_from, date_to)
+
+        # Генерируем график с полным отчётом (если есть данные)
         if categories:
-            buf, caption = await build_report_pie(categories, total, date_from, report_type)
+            buf, caption = await build_report_pie(categories, total, date_from, report_type, records)
             if buf:
                 await callback.message.answer_photo(
                     photo=BufferedInputFile(buf.read(), filename="report.png"),
                     caption=caption,
+                    parse_mode="HTML",
                 )
-
-        # Загружаем записи для текстового отчёта
-        records = await get_records(session, user.id, "range", date_from, date_to)
-        text = make_records_report_text(records, report_type)
-        await callback.message.answer(text)
+            else:
+                # Если график не сгенерировался — отправляем только текст
+                await callback.message.answer(caption, parse_mode="HTML")
+        else:
+            await callback.message.answer("Нет данных за выбранный период.")
 
     # Удаляем сообщение "Генерация..."
     try:
