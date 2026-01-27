@@ -57,6 +57,19 @@ class Record(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now, index=True)  # Индекс для сортировки
     user = relationship("User", back_populates="records")
 
+    def to_dict(self, include_id: bool = False) -> dict:
+        """Конвертирует запись в словарь для передачи в UI."""
+        result = {
+            "operation": self.operation,
+            "amount": float(self.amount),
+            "category": self.category,
+            "date": self.created_at.strftime("%d.%m.%Y"),
+            "created_at": self.created_at,
+        }
+        if include_id:
+            result["id"] = self.id
+        return result
+
 
 # ==================== Инициализация ====================
 

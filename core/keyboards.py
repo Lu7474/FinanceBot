@@ -1,6 +1,8 @@
 """
 Клавиатуры бота: главное меню, выбор периода, типа отчёта и т.д.
 """
+from functools import lru_cache
+
 from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
@@ -11,7 +13,12 @@ from aiogram.types import (
 from core.utils import RU_MONTHS
 
 
-# Главное меню с основными действиями
+# Кнопка отмены для inline-клавиатур
+CANCEL_BUTTON = InlineKeyboardButton(text="❌ Отмена", callback_data="cancel")
+
+
+# Главное меню с основными действиями (кэшируется)
+@lru_cache(maxsize=1)
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -31,38 +38,49 @@ def delete_period_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Сегодня", callback_data="del_period:day")],
             [InlineKeyboardButton(text="Месяц", callback_data="del_period:month")],
             [InlineKeyboardButton(text="Год", callback_data="del_period:year")],
+            [CANCEL_BUTTON],
         ]
     )
 
 
 # Inline-клавиатура с доступными годами для отчёта
 def get_years_keyboard(years: list[int]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=str(year), callback_data=f"report_year:{year}")]
-            for year in sorted(years)
-        ]
-    )
-    return kb
+    buttons = [
+        [InlineKeyboardButton(text=str(year), callback_data=f"report_year:{year}")]
+        for year in sorted(years)
+    ]
+    buttons.append([CANCEL_BUTTON])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # Inline-клавиатура с месяцами для выбранного года
 def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=RU_MONTHS[month],
-                    callback_data=f"report_month:{year}:{month}",
-                )
-            ]
-            for month in sorted(months)
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=RU_MONTHS[month],
+                callback_data=f"report_month:{year}:{month}",
+            )
         ]
-    )
-    return kb
+        for month in sorted(months)
+    ]
+    buttons.append([CANCEL_BUTTON])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # Reply-клавиатура для выбора типа отчёта (доход/расход)
-def report_type_keyboard():
+def report_type_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton(text="Доход"), KeyboardButton(text="Расход")]]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+# Inline-клавиатура подтверждения удаления
+def confirm_delete_keyboard(record_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"confirm_del:{record_id}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_del"),
+            ]
+        ]
+    )

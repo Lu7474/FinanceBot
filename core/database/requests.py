@@ -17,6 +17,15 @@ from core.database.models import async_session, User, Record
 
 # Получает пользователя по Telegram ID
 async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> Optional[User]:
+    """Находит пользователя по Telegram ID.
+
+    Args:
+        session: Асинхронная сессия БД
+        tg_id: Telegram ID пользователя
+
+    Returns:
+        User или None если не найден
+    """
     return await session.scalar(select(User).where(User.tg_id == tg_id))
 
 
@@ -24,6 +33,17 @@ async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> Optional[User]
 async def set_user(
     session: AsyncSession, tg_id: int, name: str, phone: Optional[str] = None
 ) -> Optional[User]:
+    """Создаёт нового или обновляет существующего пользователя.
+
+    Args:
+        session: Асинхронная сессия БД
+        tg_id: Telegram ID пользователя
+        name: Имя пользователя
+        phone: Номер телефона (опционально)
+
+    Returns:
+        User объект или None при ошибке
+    """
     try:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
@@ -79,6 +99,18 @@ async def count_records(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
 ) -> int:
+    """Подсчитывает количество записей пользователя с фильтром по периоду.
+
+    Args:
+        session: Асинхронная сессия БД
+        user_id: ID пользователя (внутренний, не tg_id)
+        within: Период ("all", "day", "month", "year", "date", "range")
+        date_from: Начальная дата (для "date" и "range")
+        date_to: Конечная дата (для "range")
+
+    Returns:
+        Количество записей
+    """
     try:
         query = select(func.count(Record.id)).where(Record.user_id == user_id)
         query = _apply_period_filter(query, within, date_from, date_to)
@@ -90,7 +122,6 @@ async def count_records(
 
 
 # Получает записи пользователя с фильтром по периоду и пагинацией
-# within: "all", "day", "month", "year", "date", "range"
 async def get_records(
     session: AsyncSession,
     user_id: int,
@@ -100,6 +131,20 @@ async def get_records(
     limit: Optional[int] = None,
     offset: int = 0,
 ) -> List[Record]:
+    """Получает записи пользователя с фильтром по периоду и пагинацией.
+
+    Args:
+        session: Асинхронная сессия БД
+        user_id: ID пользователя (внутренний, не tg_id)
+        within: Период ("all", "day", "month", "year", "date", "range")
+        date_from: Начальная дата (для "date" и "range")
+        date_to: Конечная дата (для "range")
+        limit: Максимальное количество записей (для пагинации)
+        offset: Смещение (для пагинации)
+
+    Returns:
+        Список записей Record, отсортированных по дате (новые первые)
+    """
     try:
         query = select(Record).where(Record.user_id == user_id)
         query = _apply_period_filter(query, within, date_from, date_to)
@@ -146,14 +191,38 @@ async def get_totals(
         return Decimal("0"), Decimal("0")
 
 
+# Допустимые значения для операции
+VALID_OPERATIONS = ("+", "-")
+
+
 # Добавляет новую запись дохода/расхода (принимает user_id напрямую)
 async def add_record(
     session: AsyncSession,
     user_id: int,
-    operation: str,           # "+" или "-"
+    operation: str,
     amount: Decimal,
     category: str = "не указано",
 ) -> bool:
+    """Добавляет новую запись дохода или расхода.
+
+    Args:
+        session: Асинхронная сессия БД
+        user_id: ID пользователя (внутренний, не tg_id)
+        operation: "+" для дохода, "-" для расхода
+        amount: Сумма операции
+        category: Категория (по умолчанию "не указано")
+
+    Returns:
+        True если запись добавлена, False при ошибке
+
+    Raises:
+        ValueError: Если operation не "+" или "-"
+    """
+    # Валидация операции
+    if operation not in VALID_OPERATIONS:
+        logging.error(f"Некорректная операция: {operation!r} (ожидается '+' или '-')")
+        raise ValueError(f"operation must be '+' or '-', got {operation!r}")
+
     try:
         record = Record(
             user_id=user_id,
@@ -171,21 +240,27 @@ async def add_record(
 
 
 # Удаляет запись по ID (проверяет принадлежность пользователю)
-async def delete_record(session: AsyncSession, tg_id: int, record_id: int) -> bool:
-    try:
-        user = await get_user_by_tg_id(session, tg_id)
-        if not user:
-            return False
+async def delete_record(session: AsyncSession, user_id: int, record_id: int) -> bool:
+    """Удаляет запись по ID, проверяя принадлежность пользователю.
 
+    Args:
+        session: Асинхронная сессия БД
+        user_id: ID пользователя (внутренний, не tg_id)
+        record_id: ID записи для удаления
+
+    Returns:
+        True если запись удалена, False если не найдена или ошибка
+    """
+    try:
         result = await session.execute(
-            delete(Record).where(Record.id == record_id, Record.user_id == user.id)
+            delete(Record).where(Record.id == record_id, Record.user_id == user_id)
         )
         await session.commit()
         return result.rowcount > 0
     except Exception as e:
         await session.rollback()
         logging.exception(
-            f"Ошибка при удалении записи {record_id} пользователя {tg_id}: {e}"
+            f"Ошибка при удалении записи {record_id} пользователя {user_id}: {e}"
         )
         return False
 
@@ -234,3 +309,49 @@ async def get_expense_report(
             ",", "."
         )
     return report
+
+
+# ==================== Оптимизированные запросы ====================
+
+async def get_categories_summary(
+    session: AsyncSession,
+    user_id: int,
+    operation: str,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+) -> dict[str, Decimal]:
+    """Получает суммы по категориям через SQL GROUP BY (оптимизированный запрос).
+
+    Args:
+        session: Асинхронная сессия БД
+        user_id: ID пользователя (внутренний, не tg_id)
+        operation: "+" для доходов, "-" для расходов
+        date_from: Начальная дата периода
+        date_to: Конечная дата периода
+
+    Returns:
+        Словарь {категория: сумма}
+    """
+    try:
+        query = (
+            select(
+                Record.category,
+                func.sum(Record.amount).label("total"),
+            )
+            .where(Record.user_id == user_id, Record.operation == operation)
+            .group_by(Record.category)
+        )
+
+        if date_from and date_to:
+            query = query.where(Record.created_at.between(date_from, date_to))
+
+        result = await session.execute(query)
+        rows = result.fetchall()
+
+        return {
+            (row.category or "Без категории"): Decimal(str(row.total))
+            for row in rows
+        }
+    except Exception as e:
+        logging.exception(f"Ошибка при получении сумм по категориям для user_id {user_id}: {e}")
+        return {}

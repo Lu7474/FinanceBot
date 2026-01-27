@@ -8,6 +8,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import matplotlib
@@ -27,9 +28,21 @@ from core.database.models import Record
 
 MAX_CATEGORIES_IN_PIE = 7      # Лимит категорий на графике (остальное — "Прочее")
 CHART_TIMEOUT_SECONDS = 10     # Таймаут генерации графика (сек)
+CHART_DPI = 150                # DPI графика (150 достаточно для Telegram, экономит размер)
+
+
+def format_money(amount: float | int) -> str:
+    """Форматирует сумму с пробелами как разделителями тысяч (русская локаль)."""
+    return f"{amount:,.0f}₽".replace(",", " ")
 
 # Глобальный executor для CPU-bound задач (графики)
 _chart_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_")
+
+
+def shutdown_executor() -> None:
+    """Останавливает глобальный executor (вызывается при завершении бота)."""
+    _chart_executor.shutdown(wait=True)
+    logging.info("Chart executor остановлен")
 
 # Словарь русских названий месяцев (для отчётов и UI)
 RU_MONTHS = {
@@ -100,9 +113,9 @@ def make_report_text(
     lines = [f"📊 {title_type} за {month_name} {date.year}\n"]
 
     for name, amount in sorted(categories.items(), key=lambda x: -x[1]):
-        lines.append(f"{name} — {amount:,.0f}₽".replace(",", "."))
+        lines.append(f"{name} — {format_money(amount)}")
 
-    lines.append(f"\nИтого: {total:,.0f}₽".replace(",", "."))
+    lines.append(f"\nИтого: {format_money(total)}")
     return "\n".join(lines)
 
 
@@ -174,7 +187,7 @@ def _build_report_pie_sync(
         ax.set_title(f"{title_type} за {month_name} {date.year}")
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight")
         buf.seek(0)
 
         caption = make_report_text(categories, total, date, report_type)
@@ -220,6 +233,37 @@ async def build_report_pie(
         return None, "Ошибка при построении отчета"
 
 
+# Формирует текстовый отчёт по записям (без повторного запроса к БД)
+def make_records_report_text(records: list[Any], report_type: str) -> str:
+    """Генерирует текстовый отчёт из уже загруженных записей.
+
+    Args:
+        records: Список записей (ORM-объекты или dict с полями operation, amount, category, created_at)
+        report_type: "income" или "expense"
+    """
+    operation_sign = "+" if report_type == "income" else "-"
+    type_name = "доходы" if report_type == "income" else "расходы"
+
+    filtered = [r for r in records if (r.operation if hasattr(r, "operation") else r["operation"]) == operation_sign]
+
+    if not filtered:
+        return f"{'Доходов' if report_type == 'income' else 'Расходов'} не найдено."
+
+    report = f"Ваши {type_name}:\n"
+    for rec in filtered:
+        if hasattr(rec, "amount"):
+            amount = rec.amount
+            category = rec.category
+            date = rec.created_at
+        else:
+            amount = rec["amount"]
+            category = rec["category"]
+            date = rec["created_at"]
+        report += f"{date:%d.%m.%y} — {format_money(amount)} {category}\n"
+
+    return report
+
+
 # Формирует текст истории операций с итогами
 def make_history_text(records: list[Any]) -> str:
     if not records:
@@ -235,24 +279,33 @@ def make_history_text(records: list[Any]) -> str:
         symbol = "➖" if r.operation == "-" else "➕"
         answer += f"{symbol} {r.amount:,.0f}₽{category} ({r.created_at.strftime('%d.%m.%Y')})\n"
 
-    answer += f"\nСумма доходов: {sumadd:,.0f}₽".replace(",", ".")
-    answer += f"\nСумма расходов: {sumspent:,.0f}₽".replace(",", ".")
-    answer += f"\nОстаток: {remaining:,.0f}₽".replace(",", ".")
+    answer += f"\nСумма доходов: {format_money(sumadd)}"
+    answer += f"\nСумма расходов: {format_money(sumspent)}"
+    answer += f"\nОстаток: {format_money(remaining)}"
     return answer
 
 
 # ==================== Декораторы ====================
 
 # Декоратор для логирования ошибок и отправки сообщения пользователю
-def log_exceptions(error_text):
-    def decorator(func):
+def log_exceptions(error_text: str) -> Callable:
+    """Декоратор: логирует исключения и отправляет сообщение пользователю."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
         async def wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
             except Exception:
-                logging.exception(error_text)
                 message_or_callback = args[0]
                 state = args[1] if len(args) > 1 else None
+
+                # Извлекаем user_id для логирования
+                user_id = None
+                if hasattr(message_or_callback, "from_user") and message_or_callback.from_user:
+                    user_id = message_or_callback.from_user.id
+
+                logging.exception(f"{error_text} [user_id={user_id}]")
+
                 try:
                     if hasattr(message_or_callback, "edit_text"):
                         try:
@@ -275,14 +328,40 @@ def log_exceptions(error_text):
 
 # Ограничитель частоты запросов (защита от спама)
 class RateLimiter:
+    # Интервал автоочистки неактивных пользователей (сек)
+    CLEANUP_INTERVAL = 300  # 5 минут
 
     def __init__(self, max_requests: int = 10, window_seconds: int = 60):
         self.max_requests = max_requests      # Макс. запросов за окно
         self.window_seconds = window_seconds  # Размер окна (сек)
         self._requests: Dict[int, list] = {}  # user_id -> [timestamps]
+        self._last_cleanup = time.time()      # Время последней очистки
+
+    # Удаляет неактивных пользователей (вызывается периодически)
+    def _cleanup_inactive_users(self) -> None:
+        now = time.time()
+        # Проверяем интервал очистки
+        if now - self._last_cleanup < self.CLEANUP_INTERVAL:
+            return
+
+        window_start = now - self.window_seconds
+        # Удаляем пользователей без активных запросов
+        inactive_users = [
+            uid for uid, timestamps in self._requests.items()
+            if not timestamps or max(timestamps) < window_start
+        ]
+        for uid in inactive_users:
+            del self._requests[uid]
+
+        self._last_cleanup = now
+        if inactive_users:
+            logging.debug(f"RateLimiter: очищено {len(inactive_users)} неактивных пользователей")
 
     # Проверяет, разрешён ли запрос для пользователя
     def is_allowed(self, user_id: int) -> bool:
+        # Периодическая очистка памяти
+        self._cleanup_inactive_users()
+
         now = time.time()
         window_start = now - self.window_seconds
 
