@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import re
 
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
@@ -15,6 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.keyboards import (
     delete_period_keyboard,
+    history_period_keyboard,
     get_years_keyboard,
     get_months_keyboard,
     main_menu_keyboard,
@@ -28,6 +29,7 @@ from core.utils import (
     make_records_report_text,
     format_money,
     RU_MONTHS,
+    RU_WEEKDAYS,
     log_exceptions,
 )
 
@@ -47,11 +49,56 @@ from core.database.models import async_session
 router = Router()
 
 # Количество записей на одной странице (для пагинации)
-RECORDS_PER_PAGE = 10
+RECORDS_PER_PAGE = 15
+# Максимальное количество записей для "Показать все"
+MAX_SHOW_ALL_RECORDS = 50
 # Максимальная длина категории (соответствует String(50) в модели)
 MAX_CATEGORY_LENGTH = 50
 # Максимальная сумма одной операции (защита от ошибок ввода)
 MAX_AMOUNT = 1_000_000
+
+
+# ==================== Фильтры команд ====================
+# Гибкие фильтры для распознавания разных вариаций написания команд
+
+def is_income(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Доход'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("доход", "➕ доход", "+доход", "+ доход")
+
+
+def is_expense(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Расход'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("расход", "➖ расход", "-расход", "- расход")
+
+
+def is_history(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'История'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("история", "🕘 история")
+
+
+def is_report(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Отчёт'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("отчёт", "отчет", "📊 отчёт", "📊 отчет")
+
+
+def is_delete(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Удалить запись'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("удалить запись", "удалить", "🗑️ удалить запись", "🗑️ удалить")
 
 
 # ==================== FSM States ====================
@@ -66,6 +113,7 @@ class MenuStates(StatesGroup):
     """Состояния для навигации по меню."""
     waiting_for_history_period = State()   # Выбор периода истории
     waiting_for_history_page = State()     # Навигация по страницам истории
+    waiting_for_custom_period = State()    # Ввод своего периода текстом
     waiting_for_report_type = State()      # Выбор типа отчёта (доход/расход)
     waiting_for_report_year = State()      # Выбор года для отчёта
     waiting_for_report_month = State()     # Выбор месяца для отчёта
@@ -86,9 +134,33 @@ async def handle_start(message: Message, **kwargs) -> None:
             await message.answer("Ошибка при регистрации. Попробуйте позже.")
             return
 
+    # Получаем имя пользователя для приветствия
+    first_name = message.from_user.first_name or "друг"
+
+    welcome_text = f"""
+💰 <b>Привет, {first_name}!</b>
+
+Я твой персональный финансовый помощник.
+Помогу вести учёт доходов и расходов.
+
+<b>Что я умею:</b>
+➕ Записывать доходы
+➖ Записывать расходы
+📊 Строить отчёты по категориям
+🕘 Показывать историю операций
+🗑️ Удалять ненужные записи
+
+<b>Быстрый ввод:</b>
+<code>+5000 зарплата</code>
+<code>-200 кофе</code>
+
+Выбери действие в меню ниже 👇
+"""
+
     await message.answer(
-        "Добро пожаловать!\nВыберите действие:",
+        welcome_text.strip(),
         reply_markup=main_menu_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -116,7 +188,7 @@ async def handle_cancel_callback(callback: CallbackQuery, state: FSMContext, **k
 @router.message(Command("help"))
 async def handle_help(message: Message, **kwargs) -> None:
     """Команда /help — справка по боту."""
-    help_text = """📖 <b>Справка по боту</b>
+    help_text = """<b>Справка по боту</b>
 
 <b>Команды:</b>
 /start — начать работу с ботом
@@ -124,30 +196,92 @@ async def handle_help(message: Message, **kwargs) -> None:
 /cancel — отменить текущую операцию
 
 <b>Основные функции:</b>
-➕ <b>Доход</b> — добавить доход (пример: 5000 зарплата)
-➖ <b>Расход</b> — добавить расход (пример: 1500 продукты)
-🕘 <b>История</b> — просмотр операций за период
-📊 <b>Отчёт</b> — график доходов/расходов по месяцам
-🗑️ <b>Удалить</b> — удалить запись
+<b>Доход</b> — добавить доход
+<b>Расход</b> — добавить расход
+<b>История</b> — просмотр операций за период
+<b>Отчёт</b> — график доходов/расходов по месяцам
+<b>Удалить</b> — удалить запись
 
-<b>Формат ввода суммы:</b>
-• Просто число: <code>1000</code>
-• С категорией: <code>1000 еда</code>
-• С копейками: <code>1500.50 такси</code>"""
+<b>Формат ввода:</b>
+Одна запись: <code>1000 еда</code>
+Несколько записей (каждая с новой строки):
+<code>1000 зарплата
+500 еда
+200 транспорт</code>
+
+<b>Быстрый ввод (без кнопки):</b>
+<code>+1000 зарплата
+-500 еда
+-200 транспорт</code>
+Знак +/- определяет тип записи."""
 
     await message.answer(help_text, parse_mode="HTML")
 
 
 # ==================== Добавление записи ====================
 
-@router.message(F.text.in_(["➕ Доход", "➖ Расход"]))
+@router.message(StateFilter(None), F.func(lambda m: is_income(m) or is_expense(m)))
 @log_exceptions("Ошибка при обработке операции")
 async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -> None:
     """Начало добавления записи: сохраняем тип операции, просим ввести сумму."""
-    operation = "+" if message.text == "➕ Доход" else "-"
+    is_income_op = is_income(message)
+    operation = "+" if is_income_op else "-"
     await state.update_data(operation=operation)
-    await message.answer("Введите сумму и категорию, например: 1000 еда")
+
+    if is_income_op:
+        prompt_text = "💵 Введите сумму и категорию:\n<code>5000 зарплата</code>"
+    else:
+        prompt_text = "🛒 Введите сумму и категорию:\n<code>500 продукты</code>"
+
+    await message.answer(prompt_text, parse_mode="HTML")
     await state.set_state(AddRecord.waiting_for_amount)
+
+
+def parse_record_line(line: str, default_operation: str = None) -> tuple[str, Decimal, str] | None:
+    """Парсит строку записи и возвращает (операция, сумма, категория) или None при ошибке.
+
+    Форматы:
+    - "1000 еда" — использует default_operation
+    - "+1000 зарплата" — доход
+    - "-500 еда" — расход
+    """
+    line = line.strip()
+    if not line:
+        return None
+
+    # Определяем операцию из знака в начале
+    operation = default_operation
+    if line.startswith("+"):
+        operation = "+"
+        line = line[1:].strip()
+    elif line.startswith("-"):
+        operation = "-"
+        line = line[1:].strip()
+
+    if not operation:
+        return None
+
+    # Ищем число
+    match = re.search(r"(\d+(?:[.,]\d+)?)", line)
+    if not match:
+        return None
+
+    try:
+        amount = Decimal(match.group(1).replace(",", "."))
+        if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
+            return None
+    except (InvalidOperation, ValueError):
+        return None
+
+    # Категория — всё, что осталось после удаления суммы
+    category = line.replace(match.group(0), "").strip()
+    if not category:
+        category = "не указано"
+
+    if len(category) > MAX_CATEGORY_LENGTH:
+        category = category[:MAX_CATEGORY_LENGTH]
+
+    return operation, amount, category
 
 
 @router.message(AddRecord.waiting_for_amount)
@@ -155,57 +289,185 @@ async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -
 async def handle_amount_and_category(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
-    """Парсинг суммы и категории, сохранение в БД."""
-    # Ищем число в тексте (поддержка запятой как разделителя)
-    match = re.search(r"([-+]?\d+(?:[.,]\d+)?)", message.text)
-    if not match:
-        await message.answer("Введите сумму и категорию, например: 1000 еда")
-        return
-
-    # Валидация суммы
-    try:
-        amount = Decimal(match.group(1).replace(",", "."))
-        if amount <= 0:
-            await message.answer("Сумма должна быть положительной.")
-            return
-        if amount > Decimal(str(MAX_AMOUNT)):
-            await message.answer(f"Слишком большая сумма. Максимум — {MAX_AMOUNT:,}₽.".replace(",", " "))
-            return
-    except (InvalidOperation, ValueError):
-        await message.answer("Введите корректную сумму.")
-        return
-
-    # Категория — всё, что осталось после удаления суммы
-    category = message.text.replace(match.group(0), "").strip()
-    if not category:
-        category = "не указано"
-
-    # Валидация длины категории
-    if len(category) > MAX_CATEGORY_LENGTH:
-        await message.answer(f"Категория слишком длинная. Максимум {MAX_CATEGORY_LENGTH} символов.")
-        return
-
-    # Получаем тип операции из state и сохраняем в БД
+    """Парсинг суммы и категории, сохранение в БД. Поддерживает несколько записей."""
+    # Получаем тип операции из state (по умолчанию)
     data = await state.get_data()
-    operation = data.get("operation")
+    default_operation = data.get("operation")
 
+    # Разбиваем на строки
+    lines = message.text.strip().split("\n")
+
+    # Парсим все записи
+    records_to_add = []
+    errors = []
+
+    for i, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+
+        result = parse_record_line(line, default_operation)
+        if result:
+            records_to_add.append(result)
+        else:
+            errors.append(f"Строка {i}: не удалось распознать")
+
+    if not records_to_add:
+        await message.answer(
+            "Не удалось распознать записи.\n"
+            "Формат: <code>1000 еда</code> или <code>+1000 зарплата</code>\n"
+            "Можно несколько строк.",
+            parse_mode="HTML",
+        )
+        return
+
+    # Сохраняем в БД
     async with async_session() as session:
-        # set_user возвращает User с id — используем его напрямую
         user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
         if not user:
             await message.answer("Ошибка при сохранении пользователя.")
             return
 
-        ok = await add_record(session, user.id, operation, amount, category)
-        if not ok:
-            await message.answer("Ошибка при добавлении записи.")
-            return
+        user_id = user.id  # Сохраняем ID до возможного expire
 
-    await message.answer("✅ Запись добавлена!", reply_markup=main_menu_keyboard())
+        added_records = []
+        for operation, amount, category in records_to_add:
+            ok = await add_record(session, user_id, operation, amount, category)
+            if ok:
+                added_records.append((operation, amount, category))
+
+    # Формируем красивый ответ
+    if not added_records:
+        await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
+        await state.clear()
+        return
+
+    if len(added_records) == 1:
+        op, amt, cat = added_records[0]
+        icon = "💵" if op == "+" else "🛒"
+        op_type = "Доход" if op == "+" else "Расход"
+        response = f"""
+✅ <b>Запись добавлена!</b>
+
+{icon} {op_type}: <b>{amt:,.0f}₽</b>
+📁 Категория: {cat}
+""".replace(",", " ")
+    else:
+        total_income = sum(amt for op, amt, _ in added_records if op == "+")
+        total_expense = sum(amt for op, amt, _ in added_records if op == "-")
+
+        response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
+        for op, amt, cat in added_records:
+            icon = "💵" if op == "+" else "🛒"
+            sign = "+" if op == "+" else "-"
+            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}\n".replace(",", " ")
+
+        response += "\n"
+        if total_income > 0:
+            response += f"📈 Доходы: +{total_income:,.0f}₽\n".replace(",", " ")
+        if total_expense > 0:
+            response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
+
+    if errors:
+        response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
+
+    await message.answer(response.strip(), reply_markup=main_menu_keyboard(), parse_mode="HTML")
     await state.clear()
 
 
+@router.message(StateFilter(None), F.text.regexp(r"^[+-]\d"))
+@log_exceptions("Ошибка при добавлении записи")
+async def handle_direct_record(message: Message, **kwargs) -> None:
+    """Прямой ввод записей без нажатия кнопки (если начинается с + или -)."""
+    lines = message.text.strip().split("\n")
+
+    # Парсим все записи
+    records_to_add = []
+    errors = []
+
+    for i, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+
+        result = parse_record_line(line, default_operation=None)
+        if result:
+            records_to_add.append(result)
+        else:
+            errors.append(f"Строка {i}: не удалось распознать")
+
+    if not records_to_add:
+        await message.answer(
+            "Не удалось распознать записи.\n"
+            "Формат: <code>+1000 зарплата</code> или <code>-500 еда</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    # Сохраняем в БД
+    async with async_session() as session:
+        user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+        if not user:
+            await message.answer("Ошибка при сохранении пользователя.")
+            return
+
+        user_id = user.id  # Сохраняем ID до возможного expire
+
+        added_records = []
+        for operation, amount, category in records_to_add:
+            ok = await add_record(session, user_id, operation, amount, category)
+            if ok:
+                added_records.append((operation, amount, category))
+
+    # Формируем красивый ответ
+    if not added_records:
+        await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
+        return
+
+    if len(added_records) == 1:
+        op, amt, cat = added_records[0]
+        icon = "💵" if op == "+" else "🛒"
+        op_type = "Доход" if op == "+" else "Расход"
+        response = f"""
+✅ <b>Запись добавлена!</b>
+
+{icon} {op_type}: <b>{amt:,.0f}₽</b>
+📁 Категория: {cat}
+""".replace(",", " ")
+    else:
+        total_income = sum(amt for op, amt, _ in added_records if op == "+")
+        total_expense = sum(amt for op, amt, _ in added_records if op == "-")
+
+        response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
+        for op, amt, cat in added_records:
+            icon = "💵" if op == "+" else "🛒"
+            sign = "+" if op == "+" else "-"
+            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}\n".replace(",", " ")
+
+        response += "\n"
+        if total_income > 0:
+            response += f"📈 Доходы: +{total_income:,.0f}₽\n".replace(",", " ")
+        if total_expense > 0:
+            response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
+
+    if errors:
+        response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
+
+    await message.answer(response.strip(), reply_markup=main_menu_keyboard(), parse_mode="HTML")
+
+
 # ==================== История операций ====================
+
+# Названия периодов для отображения в заголовке истории
+PERIOD_NAMES = {
+    "day": "сегодня",
+    "yesterday": "вчера",
+    "week": "7 дней",
+    "month30": "30 дней",
+    "month": "этот месяц",
+    "prev_month": "прошлый месяц",
+    "year": "этот год",
+    "range": "выбранный период",
+}
+
 
 def build_history_page(
     page_records: list[dict],
@@ -213,6 +475,9 @@ def build_history_page(
     total_pages: int,
     income_sum: Decimal,
     expense_sum: Decimal,
+    period: str = "",
+    period_label: str = "",
+    total_count: int = 0,
 ) -> tuple[str, InlineKeyboardBuilder]:
     """Формирует текст истории и кнопки навигации для указанной страницы.
 
@@ -222,22 +487,57 @@ def build_history_page(
         total_pages: Общее количество страниц
         income_sum: Сумма доходов (посчитана в БД)
         expense_sum: Сумма расходов (посчитана в БД)
+        period: Код периода (day, week, month и т.д.)
+        period_label: Пользовательское название периода (для range)
+        total_count: Общее количество записей (для кнопки "Показать все")
 
     Returns:
         (текст, клавиатура)
     """
     remaining = income_sum - expense_sum
 
-    # Формируем текст
-    text = f"🕘 История операций (стр. {page + 1}/{total_pages}):\n\n"
+    # Группировка по датам
+    grouped: dict[str, list] = {}
     for r in page_records:
-        symbol = "➖" if r["operation"] == "-" else "➕"
-        category = f" - {r['category']}" if r.get("category") else ""
-        text += f"{symbol} {r['amount']:,.0f}₽{category} ({r['date']})\n"
+        date_key = r["date"]
+        if date_key not in grouped:
+            grouped[date_key] = []
+        grouped[date_key].append(r)
 
-    text += f"\nСумма доходов: {format_money(income_sum)}"
-    text += f"\nСумма расходов: {format_money(expense_sum)}"
-    text += f"\nОстаток: {format_money(remaining)}"
+    # Определяем название периода
+    if period_label:
+        period_name = period_label
+    else:
+        period_name = PERIOD_NAMES.get(period, "")
+
+    # Формируем текст
+    if period_name:
+        text = f"История операций за {period_name} (стр. {page + 1}/{total_pages}):\n\n"
+    else:
+        text = f"История операций (стр. {page + 1}/{total_pages}):\n\n"
+
+    for date_str, day_records in grouped.items():
+        # Итог дня
+        day_income = sum(r["amount"] for r in day_records if r["operation"] == "+")
+        day_expense = sum(r["amount"] for r in day_records if r["operation"] == "-")
+        day_total = day_income - day_expense
+
+        # День недели
+        weekday = RU_WEEKDAYS[day_records[0]["created_at"].weekday()]
+
+        # Заголовок дня
+        total_sign = "+" if day_total >= 0 else ""
+        text += f"{weekday}, {date_str} (итого: {total_sign}{day_total:,.0f}₽)\n".replace(",", " ")
+
+        # Операции дня
+        for r in day_records:
+            sign = "+" if r["operation"] == "+" else "-"
+            category = f"  {r['category']}" if r.get("category") else ""
+            text += f"  {sign}{r['amount']:,.0f}₽{category}\n".replace(",", " ")
+
+        text += "\n"
+
+    text += f"Доходы: {format_money(income_sum)}\nРасходы: {format_money(expense_sum)}\nОстаток: {format_money(remaining)}"
 
     # Кнопки навигации (только если страниц > 1)
     kb = InlineKeyboardBuilder()
@@ -253,16 +553,21 @@ def build_history_page(
             kb.button(text=btn_text, callback_data=data)
         kb.adjust(len(nav_buttons))
 
+        # Кнопка "Показать все" (если записей не слишком много)
+        if total_count > 0 and total_count <= MAX_SHOW_ALL_RECORDS:
+            kb.button(text=f"Показать все ({total_count})", callback_data="hist_show_all")
+            kb.adjust(len(nav_buttons), 1)
+
     return text, kb
 
 
-@router.message(F.text == "🕘 История")
+@router.message(F.func(is_history))
 @log_exceptions("Ошибка при показе истории")
 async def menu_history(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка История — показываем выбор периода."""
     await message.answer(
         "За какой период показать историю?",
-        reply_markup=delete_period_keyboard(),
+        reply_markup=history_period_keyboard(),
     )
     await state.set_state(MenuStates.waiting_for_history_period)
 
@@ -273,12 +578,24 @@ async def menu_history_period(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Выбран период — загружаем первую страницу записей."""
-    # Парсим период из callback_data (формат: "del_period:day")
+    # Парсим период из callback_data (формат: "hist_period:day")
     try:
         period = callback.data.split(":")[1]
     except (IndexError, AttributeError):
         await callback.answer("Некорректные данные.")
         await state.clear()
+        return
+
+    # Обработка "Свой период" — переход к текстовому вводу дат
+    if period == "custom":
+        await callback.message.edit_text(
+            "Введите период в формате:\n"
+            "<code>01.01.25 - 31.01.25</code>\n\n"
+            "Или отправьте /cancel для отмены.",
+            parse_mode="HTML",
+        )
+        await state.set_state(MenuStates.waiting_for_custom_period)
+        await callback.answer()
         return
 
     async with async_session() as session:
@@ -310,12 +627,13 @@ async def menu_history_period(
         history_period=period,
         history_page=0,
         history_total_pages=total_pages,
+        history_total_count=total_count,
         history_income=float(income_sum),
         history_expense=float(expense_sum),
     )
 
     # Показываем первую страницу
-    text, kb = build_history_page(records_data, 0, total_pages, income_sum, expense_sum)
+    text, kb = build_history_page(records_data, 0, total_pages, income_sum, expense_sum, period=period, total_count=total_count)
 
     if total_pages > 1:
         await callback.message.edit_text(text, reply_markup=kb.as_markup())
@@ -326,7 +644,7 @@ async def menu_history_period(
     await callback.answer()
 
 
-@router.callback_query(MenuStates.waiting_for_history_page)
+@router.callback_query(MenuStates.waiting_for_history_page, F.data.startswith("hist_page:"))
 @log_exceptions("Ошибка при навигации по истории")
 async def menu_history_page(
     callback: CallbackQuery, state: FSMContext, **kwargs
@@ -350,6 +668,16 @@ async def menu_history_page(
     income_sum = Decimal(str(data.get("history_income", 0)))
     expense_sum = Decimal(str(data.get("history_expense", 0)))
 
+    # Для "range" периода получаем сохранённые даты
+    date_from = None
+    date_to = None
+    if period == "range":
+        date_from_str = data.get("history_date_from")
+        date_to_str = data.get("history_date_to")
+        if date_from_str and date_to_str:
+            date_from = datetime.fromisoformat(date_from_str)
+            date_to = datetime.fromisoformat(date_to_str)
+
     if not period:
         await callback.message.edit_text("Данные истории устарели. Попробуйте снова.")
         await state.clear()
@@ -366,21 +694,213 @@ async def menu_history_page(
             return
 
         offset = new_page * RECORDS_PER_PAGE
-        records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=offset)
+        records = await get_records(session, user.id, period, date_from, date_to, limit=RECORDS_PER_PAGE, offset=offset)
 
     # Конвертируем в dict
     records_data = [r.to_dict() for r in records]
 
+    # Получаем label и total_count для периода (если есть)
+    period_label = data.get("history_period_label", "")
+    total_count = data.get("history_total_count", 0)
+
     # Обновляем страницу в state
     await state.update_data(history_page=new_page)
-    text, kb = build_history_page(records_data, new_page, total_pages, income_sum, expense_sum)
+    text, kb = build_history_page(records_data, new_page, total_pages, income_sum, expense_sum, period=period, period_label=period_label, total_count=total_count)
     await callback.message.edit_text(text, reply_markup=kb.as_markup())
     await callback.answer()
 
 
+@router.callback_query(MenuStates.waiting_for_history_page, F.data == "hist_show_all")
+@log_exceptions("Ошибка при показе всех записей")
+async def menu_history_show_all(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Показать все записи без пагинации."""
+    data = await state.get_data()
+    period = data.get("history_period")
+    period_label = data.get("history_period_label", "")
+    total_count = data.get("history_total_count", 0)
+    income_sum = Decimal(str(data.get("history_income", 0)))
+    expense_sum = Decimal(str(data.get("history_expense", 0)))
+
+    # Для "range" периода получаем сохранённые даты
+    date_from = None
+    date_to = None
+    if period == "range":
+        date_from_str = data.get("history_date_from")
+        date_to_str = data.get("history_date_to")
+        if date_from_str and date_to_str:
+            date_from = datetime.fromisoformat(date_from_str)
+            date_to = datetime.fromisoformat(date_to_str)
+
+    if not period:
+        await callback.message.edit_text("Данные истории устарели. Попробуйте снова.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    # Загружаем все записи
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await state.clear()
+            await callback.answer()
+            return
+
+        records = await get_records(session, user.id, period, date_from, date_to, limit=MAX_SHOW_ALL_RECORDS, offset=0)
+
+    # Конвертируем в dict
+    records_data = [r.to_dict() for r in records]
+
+    # Формируем текст без пагинации
+    remaining = income_sum - expense_sum
+
+    # Группировка по датам
+    grouped: dict[str, list] = {}
+    for r in records_data:
+        date_key = r["date"]
+        if date_key not in grouped:
+            grouped[date_key] = []
+        grouped[date_key].append(r)
+
+    # Определяем название периода
+    if period_label:
+        period_name = period_label
+    else:
+        period_name = PERIOD_NAMES.get(period, "")
+
+    # Формируем текст
+    if period_name:
+        text = f"История операций за {period_name} ({total_count} записей):\n\n"
+    else:
+        text = f"История операций ({total_count} записей):\n\n"
+
+    for date_str, day_records in grouped.items():
+        day_income = sum(r["amount"] for r in day_records if r["operation"] == "+")
+        day_expense = sum(r["amount"] for r in day_records if r["operation"] == "-")
+        day_total = day_income - day_expense
+
+        weekday = RU_WEEKDAYS[day_records[0]["created_at"].weekday()]
+        total_sign = "+" if day_total >= 0 else ""
+        text += f"{weekday}, {date_str} (итого: {total_sign}{day_total:,.0f}₽)\n".replace(",", " ")
+
+        for r in day_records:
+            sign = "+" if r["operation"] == "+" else "-"
+            category = f"  {r['category']}" if r.get("category") else ""
+            text += f"  {sign}{r['amount']:,.0f}₽{category}\n".replace(",", " ")
+
+        text += "\n"
+
+    text += f"Доходы: {format_money(income_sum)}\nРасходы: {format_money(expense_sum)}\nОстаток: {format_money(remaining)}"
+
+    # Проверяем длину сообщения (лимит Telegram — 4096 символов)
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n... (сообщение обрезано)"
+
+    await callback.message.edit_text(text)
+    await state.clear()
+    await callback.answer()
+
+
+@router.message(MenuStates.waiting_for_custom_period)
+@log_exceptions("Ошибка при обработке своего периода")
+async def menu_history_custom_period(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
+    """Обработка текстового ввода дат для своего периода."""
+    text = message.text.strip()
+
+    # Парсим даты из текста (формат: "01.01.25 - 31.01.25")
+    match = re.match(r"(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[-–—]\s*(\d{1,2}\.\d{1,2}\.\d{2,4})", text)
+    if not match:
+        await message.answer(
+            "Неверный формат. Введите период в формате:\n"
+            "<code>01.01.25 - 31.01.25</code>\n\n"
+            "Или отправьте /cancel для отмены.",
+            parse_mode="HTML",
+        )
+        return
+
+    # Парсим начальную и конечную даты
+    date_from_str, date_to_str = match.groups()
+
+    try:
+        date_from = datetime.strptime(date_from_str, "%d.%m.%y" if len(date_from_str.split(".")[-1]) == 2 else "%d.%m.%Y")
+        date_to = datetime.strptime(date_to_str, "%d.%m.%y" if len(date_to_str.split(".")[-1]) == 2 else "%d.%m.%Y")
+    except ValueError:
+        await message.answer(
+            "Неверный формат даты. Используйте формат ДД.ММ.ГГ или ДД.ММ.ГГГГ\n"
+            "Например: <code>01.01.25 - 31.01.25</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    # Проверяем, что начальная дата не позже конечной
+    if date_from > date_to:
+        await message.answer("Начальная дата не может быть позже конечной.")
+        return
+
+    # Проверяем, что даты не в будущем
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    if date_from.replace(tzinfo=ZoneInfo("Europe/Moscow")) > now:
+        await message.answer("Начальная дата не может быть в будущем.")
+        return
+
+    # Устанавливаем время для конечной даты (конец дня)
+    date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo("Europe/Moscow"))
+    date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo("Europe/Moscow"))
+
+    # Загружаем записи за указанный период
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, message.from_user.id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            await state.clear()
+            return
+
+        total_count = await count_records(session, user.id, "range", date_from, date_to)
+        if total_count == 0:
+            await message.answer("Записей не найдено за указанный период.", reply_markup=main_menu_keyboard())
+            await state.clear()
+            return
+
+        income_sum, expense_sum = await get_totals(session, user.id, "range", date_from, date_to)
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+
+        records = await get_records(session, user.id, "range", date_from, date_to, limit=RECORDS_PER_PAGE, offset=0)
+
+    records_data = [r.to_dict() for r in records]
+
+    # Формируем label для периода
+    period_label = f"{date_from.strftime('%d.%m.%y')} - {date_to.strftime('%d.%m.%y')}"
+
+    # Сохраняем параметры в state
+    await state.update_data(
+        history_period="range",
+        history_period_label=period_label,
+        history_date_from=date_from.isoformat(),
+        history_date_to=date_to.isoformat(),
+        history_page=0,
+        history_total_pages=total_pages,
+        history_total_count=total_count,
+        history_income=float(income_sum),
+        history_expense=float(expense_sum),
+    )
+
+    text, kb = build_history_page(records_data, 0, total_pages, income_sum, expense_sum, period="range", period_label=period_label, total_count=total_count)
+
+    if total_pages > 1:
+        await message.answer(text, reply_markup=kb.as_markup())
+        await state.set_state(MenuStates.waiting_for_history_page)
+    else:
+        await message.answer(text, reply_markup=main_menu_keyboard())
+        await state.clear()
+
+
 # ==================== Отчёт (график) ====================
 
-@router.message(F.text == "📊 Отчёт")
+@router.message(F.func(is_report))
 @log_exceptions("Произошла ошибка при формировании отчёта")
 async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка Отчёт — проверяем наличие записей, просим выбрать тип."""
@@ -405,14 +925,18 @@ async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
 @log_exceptions("Ошибка при выборе типа отчёта")
 async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> None:
     """Выбор типа отчёта (Доход/Расход) — показываем выбор года."""
-    if message.text not in ("Доход", "Расход"):
+    if is_income(message):
+        report_type = "Доход"
+    elif is_expense(message):
+        report_type = "Расход"
+    else:
         await message.answer(
             "Пожалуйста, выберите тип отчёта:",
             reply_markup=report_type_keyboard(),
         )
         return
 
-    await state.update_data(report_type=message.text)
+    await state.update_data(report_type=report_type)
 
     # Используем закэшированные данные из state
     data = await state.get_data()
@@ -423,6 +947,9 @@ async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> 
         await state.clear()
         return
 
+    # Возвращаем основную клавиатуру
+    await message.answer("Тип отчёта: " + report_type, reply_markup=main_menu_keyboard())
+    # Показываем inline-клавиатуру с годами
     keyboard = get_years_keyboard(list(years_months.keys()))
     await message.answer("Выберите год:", reply_markup=keyboard)
     await state.set_state(MenuStates.waiting_for_report_year)
@@ -583,8 +1110,8 @@ def build_delete_keyboard(
 
     # Кнопки с записями
     for r in page_records:
-        symbol = "➖" if r["operation"] == "-" else "➕"
-        text = f"{symbol} {r['amount']:.0f}₽ - {r['category']} ({r['date']})"
+        sign = "-" if r["operation"] == "-" else "+"
+        text = f"{sign}{r['amount']:.0f}₽ - {r['category']} ({r['date']})"
         kb.button(text=text, callback_data=f"del_record:{r['id']}")
 
     kb.adjust(1)  # По одной кнопке в ряд
@@ -605,7 +1132,7 @@ def build_delete_keyboard(
     return kb
 
 
-@router.message(F.text == "🗑️ Удалить запись")
+@router.message(F.func(is_delete))
 @log_exceptions("Ошибка при показе меню удаления")
 async def menu_delete(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка Удалить — показываем выбор периода."""

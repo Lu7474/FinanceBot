@@ -2,7 +2,7 @@
 CRUD-операции с БД: работа с пользователями и записями.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, List
 from zoneinfo import ZoneInfo
@@ -71,9 +71,27 @@ def _apply_period_filter(query, within: str, date_from: Optional[datetime], date
     if within == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         query = query.where(Record.created_at >= start)
+    elif within == "yesterday":
+        yesterday = now - timedelta(days=1)
+        start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+        query = query.where(Record.created_at.between(start, end))
+    elif within == "week":
+        start = (now - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        query = query.where(Record.created_at >= start)
+    elif within == "month30":
+        start = (now - timedelta(days=30)).replace(hour=0, minute=0, second=0, microsecond=0)
+        query = query.where(Record.created_at >= start)
     elif within == "month":
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         query = query.where(Record.created_at >= start)
+    elif within == "prev_month":
+        # Первый день прошлого месяца
+        first_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_prev_month = first_this_month - timedelta(days=1)
+        start = last_prev_month.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = last_prev_month.replace(hour=23, minute=59, second=59, microsecond=999999)
+        query = query.where(Record.created_at.between(start, end))
     elif within == "year":
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         query = query.where(Record.created_at >= start)
@@ -148,7 +166,7 @@ async def get_records(
     try:
         query = select(Record).where(Record.user_id == user_id)
         query = _apply_period_filter(query, within, date_from, date_to)
-        query = query.order_by(Record.created_at.desc())  # Сначала новые
+        query = query.order_by(Record.created_at.asc())  # Хронологический порядок
 
         if limit is not None:
             query = query.limit(limit).offset(offset)
