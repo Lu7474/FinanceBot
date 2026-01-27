@@ -65,8 +65,16 @@ async def set_user(
 # ==================== Записи ====================
 
 # Вспомогательная функция: применяет фильтр периода к запросу
-def _apply_period_filter(query, within: str, date_from: Optional[datetime], date_to: Optional[datetime]):
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
+def _apply_period_filter(
+    query,
+    within: str,
+    date_from: Optional[datetime],
+    date_to: Optional[datetime],
+    now: Optional[datetime] = None,
+):
+    # Используем переданное время или создаём новое (для обратной совместимости)
+    if now is None:
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
 
     if within == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -130,8 +138,9 @@ async def count_records(
         Количество записей
     """
     try:
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
         query = select(func.count(Record.id)).where(Record.user_id == user_id)
-        query = _apply_period_filter(query, within, date_from, date_to)
+        query = _apply_period_filter(query, within, date_from, date_to, now=now)
         result = await session.execute(query)
         return result.scalar() or 0
     except Exception as e:
@@ -164,8 +173,9 @@ async def get_records(
         Список записей Record, отсортированных по дате (новые первые)
     """
     try:
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
         query = select(Record).where(Record.user_id == user_id)
-        query = _apply_period_filter(query, within, date_from, date_to)
+        query = _apply_period_filter(query, within, date_from, date_to, now=now)
         query = query.order_by(Record.created_at.asc())  # Хронологический порядок
 
         if limit is not None:
@@ -178,7 +188,7 @@ async def get_records(
         return []
 
 
-# Получает суммы доходов и расходов за период (одним запросом)
+# Получает суммы доходов и расходов за период (одним запросом с CASE WHEN)
 async def get_totals(
     session: AsyncSession,
     user_id: int,
@@ -186,24 +196,26 @@ async def get_totals(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
 ) -> tuple[Decimal, Decimal]:
-    """Возвращает (сумма_доходов, сумма_расходов)."""
+    """Возвращает (сумма_доходов, сумма_расходов) одним запросом."""
     try:
-        # Сумма доходов
-        query_income = select(func.coalesce(func.sum(Record.amount), 0)).where(
-            Record.user_id == user_id, Record.operation == "+"
-        )
-        query_income = _apply_period_filter(query_income, within, date_from, date_to)
+        from sqlalchemy import case
 
-        # Сумма расходов
-        query_expense = select(func.coalesce(func.sum(Record.amount), 0)).where(
-            Record.user_id == user_id, Record.operation == "-"
-        )
-        query_expense = _apply_period_filter(query_expense, within, date_from, date_to)
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        # Один запрос с условной агрегацией
+        query = select(
+            func.coalesce(
+                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+            ).label("income"),
+            func.coalesce(
+                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+            ).label("expense"),
+        ).where(Record.user_id == user_id)
 
-        income = await session.execute(query_income)
-        expense = await session.execute(query_expense)
+        query = _apply_period_filter(query, within, date_from, date_to, now=now)
+        result = await session.execute(query)
+        row = result.one()
 
-        return Decimal(str(income.scalar() or 0)), Decimal(str(expense.scalar() or 0))
+        return Decimal(str(row.income)), Decimal(str(row.expense))
     except Exception as e:
         logging.exception(f"Ошибка при получении сумм пользователя {user_id}: {e}")
         return Decimal("0"), Decimal("0")
@@ -283,52 +295,6 @@ async def delete_record(session: AsyncSession, user_id: int, record_id: int) -> 
         return False
 
 
-# ==================== Отчёты ====================
-
-# Формирует текстовый отчёт по доходам за период
-async def get_income_report(
-    session: AsyncSession,
-    user_id: int,
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
-) -> str:
-    query = select(Record).where(Record.user_id == user_id, Record.operation == "+")
-    if date_from and date_to:
-        query = query.where(Record.created_at.between(date_from, date_to))
-    incomes = await session.execute(query)
-    incomes = incomes.scalars().all()
-    if not incomes:
-        return "Доходов не найдено."
-    report = "Ваши доходы:\n"
-    for inc in incomes:
-        report += f"{inc.created_at:%d.%m.%y} — {round(inc.amount, 0):,.0f}₽ {inc.category}\n".replace(
-            ",", "."
-        )
-    return report
-
-
-# Формирует текстовый отчёт по расходам за период
-async def get_expense_report(
-    session: AsyncSession,
-    user_id: int,
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
-) -> str:
-    query = select(Record).where(Record.user_id == user_id, Record.operation == "-")
-    if date_from and date_to:
-        query = query.where(Record.created_at.between(date_from, date_to))
-    expenses = await session.execute(query)
-    expenses = expenses.scalars().all()
-    if not expenses:
-        return "Расходов не найдено."
-    report = "Ваши расходы:\n"
-    for exp in expenses:
-        report += f"{exp.created_at:%d.%m.%y} — {round(exp.amount, 0):,.0f}₽ {exp.category}\n".replace(
-            ",", "."
-        )
-    return report
-
-
 # ==================== Оптимизированные запросы ====================
 
 async def get_categories_summary(
@@ -373,3 +339,58 @@ async def get_categories_summary(
     except Exception as e:
         logging.exception(f"Ошибка при получении сумм по категориям для user_id {user_id}: {e}")
         return {}
+
+
+# Комбинированный запрос для истории (count + totals + records за один вызов)
+async def get_history_data(
+    session: AsyncSession,
+    user_id: int,
+    within: str = "all",
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> tuple[int, Decimal, Decimal, List[Record]]:
+    """Получает все данные для истории одним вызовом.
+
+    Returns:
+        (total_count, income_sum, expense_sum, records)
+    """
+    try:
+        from sqlalchemy import case
+
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
+
+        # 1. COUNT + SUM одним запросом
+        count_totals_query = select(
+            func.count(Record.id).label("cnt"),
+            func.coalesce(
+                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+            ).label("income"),
+            func.coalesce(
+                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+            ).label("expense"),
+        ).where(Record.user_id == user_id)
+        count_totals_query = _apply_period_filter(count_totals_query, within, date_from, date_to, now=now)
+
+        result = await session.execute(count_totals_query)
+        row = result.one()
+        total_count = row.cnt
+        income_sum = Decimal(str(row.income))
+        expense_sum = Decimal(str(row.expense))
+
+        # 2. Записи с пагинацией
+        records_query = select(Record).where(Record.user_id == user_id)
+        records_query = _apply_period_filter(records_query, within, date_from, date_to, now=now)
+        records_query = records_query.order_by(Record.created_at.asc())
+
+        if limit is not None:
+            records_query = records_query.limit(limit).offset(offset)
+
+        records_result = await session.execute(records_query)
+        records = records_result.scalars().all()
+
+        return total_count, income_sum, expense_sum, records
+    except Exception as e:
+        logging.exception(f"Ошибка при получении данных истории для user_id {user_id}: {e}")
+        return 0, Decimal("0"), Decimal("0"), []

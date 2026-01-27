@@ -25,7 +25,6 @@ from core.keyboards import (
 from core.utils import (
     get_available_years_and_months,
     build_report_pie,
-    make_history_text,
     make_records_report_text,
     format_money,
     RU_MONTHS,
@@ -42,6 +41,7 @@ from core.database.requests import (
     delete_record,
     get_user_by_tg_id,
     get_categories_summary,
+    get_history_data,
 )
 from core.database.models import async_session
 
@@ -322,12 +322,16 @@ async def handle_amount_and_category(
 
     # Сохраняем в БД
     async with async_session() as session:
-        user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+        # Используем get вместо set — пользователь уже создан при /start
+        user = await get_user_by_tg_id(session, message.from_user.id)
         if not user:
-            await message.answer("Ошибка при сохранении пользователя.")
-            return
+            # Редкий случай: пользователь не зарегистрирован
+            user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+            if not user:
+                await message.answer("Ошибка. Отправьте /start для регистрации.")
+                return
 
-        user_id = user.id  # Сохраняем ID до возможного expire
+        user_id = user.id
 
         added_records = []
         for operation, amount, category in records_to_add:
@@ -404,12 +408,16 @@ async def handle_direct_record(message: Message, **kwargs) -> None:
 
     # Сохраняем в БД
     async with async_session() as session:
-        user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+        # Используем get вместо set — пользователь уже создан при /start
+        user = await get_user_by_tg_id(session, message.from_user.id)
         if not user:
-            await message.answer("Ошибка при сохранении пользователя.")
-            return
+            # Редкий случай: пользователь не зарегистрирован
+            user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+            if not user:
+                await message.answer("Ошибка. Отправьте /start для регистрации.")
+                return
 
-        user_id = user.id  # Сохраняем ID до возможного expire
+        user_id = user.id
 
         added_records = []
         for operation, amount, category in records_to_add:
@@ -470,7 +478,7 @@ PERIOD_NAMES = {
 
 
 def build_history_page(
-    page_records: list[dict],
+    page_records: list,
     page: int,
     total_pages: int,
     income_sum: Decimal,
@@ -482,7 +490,7 @@ def build_history_page(
     """Формирует текст истории и кнопки навигации для указанной страницы.
 
     Args:
-        page_records: Записи текущей страницы (уже загружены с LIMIT/OFFSET)
+        page_records: Записи текущей страницы (ORM-объекты Record)
         page: Номер страницы (с 0)
         total_pages: Общее количество страниц
         income_sum: Сумма доходов (посчитана в БД)
@@ -496,10 +504,10 @@ def build_history_page(
     """
     remaining = income_sum - expense_sum
 
-    # Группировка по датам
+    # Группировка по датам (работаем напрямую с ORM-объектами)
     grouped: dict[str, list] = {}
     for r in page_records:
-        date_key = r["date"]
+        date_key = r.created_at.strftime("%d.%m.%y")
         if date_key not in grouped:
             grouped[date_key] = []
         grouped[date_key].append(r)
@@ -510,34 +518,37 @@ def build_history_page(
     else:
         period_name = PERIOD_NAMES.get(period, "")
 
-    # Формируем текст
-    if period_name:
-        text = f"История операций за {period_name} (стр. {page + 1}/{total_pages}):\n\n"
-    else:
-        text = f"История операций (стр. {page + 1}/{total_pages}):\n\n"
+    # Формируем заголовок
+    text = f"📊 <b>История</b> • {period_name}\n\n" if period_name else "📊 <b>История</b>\n\n"
 
     for date_str, day_records in grouped.items():
         # Итог дня
-        day_income = sum(r["amount"] for r in day_records if r["operation"] == "+")
-        day_expense = sum(r["amount"] for r in day_records if r["operation"] == "-")
+        day_income = sum(float(r.amount) for r in day_records if r.operation == "+")
+        day_expense = sum(float(r.amount) for r in day_records if r.operation == "-")
         day_total = day_income - day_expense
 
-        # День недели
-        weekday = RU_WEEKDAYS[day_records[0]["created_at"].weekday()]
+        # День недели (короткий формат даты без года)
+        weekday = RU_WEEKDAYS[day_records[0].created_at.weekday()]
+        short_date = ".".join(date_str.split(".")[:2])  # "27.01.26" -> "27.01"
 
         # Заголовок дня
         total_sign = "+" if day_total >= 0 else ""
-        text += f"{weekday}, {date_str} (итого: {total_sign}{day_total:,.0f}₽)\n".replace(",", " ")
+        text += f"▸ <b>{weekday}, {short_date}</b> │ {total_sign}{day_total:,.0f}₽\n".replace(",", " ")
 
         # Операции дня
         for r in day_records:
-            sign = "+" if r["operation"] == "+" else "-"
-            category = f"  {r['category']}" if r.get("category") else ""
-            text += f"  {sign}{r['amount']:,.0f}₽{category}\n".replace(",", " ")
+            sign = "+" if r.operation == "+" else "-"
+            category = r.category or ""
+            text += f"   {sign}{float(r.amount):,.0f}₽ {category}\n".replace(",", " ")
 
         text += "\n"
 
-    text += f"Доходы: {format_money(income_sum)}\nРасходы: {format_money(expense_sum)}\nОстаток: {format_money(remaining)}"
+    # Разделитель и итоги
+    text += "─────────────────\n"
+    text += f"📈 Доход: {format_money(income_sum)}\n"
+    text += f"📉 Расход: {format_money(expense_sum)}\n"
+    balance_sign = "+" if remaining >= 0 else ""
+    text += f"💰 Баланс: {balance_sign}{format_money(remaining)}"
 
     # Кнопки навигации (только если страниц > 1)
     kb = InlineKeyboardBuilder()
@@ -605,22 +616,18 @@ async def menu_history_period(
             await state.clear()
             return
 
-        # Подсчёт общего количества и сумм (один раз)
-        total_count = await count_records(session, user.id, period)
+        # Один вызов вместо трёх (count + totals + records)
+        total_count, income_sum, expense_sum, records = await get_history_data(
+            session, user.id, period, limit=RECORDS_PER_PAGE, offset=0
+        )
+
         if total_count == 0:
             await callback.message.edit_text("Записей не найдено за указанный период.")
             await state.clear()
             await callback.answer()
             return
 
-        income_sum, expense_sum = await get_totals(session, user.id, period)
         total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
-
-        # Загружаем только первую страницу
-        records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=0)
-
-    # Конвертируем ORM-объекты в dict
-    records_data = [r.to_dict() for r in records]
 
     # Сохраняем в state только параметры, не все записи
     await state.update_data(
@@ -632,14 +639,14 @@ async def menu_history_period(
         history_expense=float(expense_sum),
     )
 
-    # Показываем первую страницу
-    text, kb = build_history_page(records_data, 0, total_pages, income_sum, expense_sum, period=period, total_count=total_count)
+    # Показываем первую страницу (передаём ORM-объекты напрямую)
+    text, kb = build_history_page(records, 0, total_pages, income_sum, expense_sum, period=period, total_count=total_count)
 
     if total_pages > 1:
-        await callback.message.edit_text(text, reply_markup=kb.as_markup())
+        await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
         await state.set_state(MenuStates.waiting_for_history_page)
     else:
-        await callback.message.edit_text(text)
+        await callback.message.edit_text(text, parse_mode="HTML")
         await state.clear()
     await callback.answer()
 
@@ -696,17 +703,14 @@ async def menu_history_page(
         offset = new_page * RECORDS_PER_PAGE
         records = await get_records(session, user.id, period, date_from, date_to, limit=RECORDS_PER_PAGE, offset=offset)
 
-    # Конвертируем в dict
-    records_data = [r.to_dict() for r in records]
-
     # Получаем label и total_count для периода (если есть)
     period_label = data.get("history_period_label", "")
     total_count = data.get("history_total_count", 0)
 
     # Обновляем страницу в state
     await state.update_data(history_page=new_page)
-    text, kb = build_history_page(records_data, new_page, total_pages, income_sum, expense_sum, period=period, period_label=period_label, total_count=total_count)
-    await callback.message.edit_text(text, reply_markup=kb.as_markup())
+    text, kb = build_history_page(records, new_page, total_pages, income_sum, expense_sum, period=period, period_label=period_label, total_count=total_count)
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -750,55 +754,17 @@ async def menu_history_show_all(
 
         records = await get_records(session, user.id, period, date_from, date_to, limit=MAX_SHOW_ALL_RECORDS, offset=0)
 
-    # Конвертируем в dict
-    records_data = [r.to_dict() for r in records]
-
-    # Формируем текст без пагинации
-    remaining = income_sum - expense_sum
-
-    # Группировка по датам
-    grouped: dict[str, list] = {}
-    for r in records_data:
-        date_key = r["date"]
-        if date_key not in grouped:
-            grouped[date_key] = []
-        grouped[date_key].append(r)
-
-    # Определяем название периода
-    if period_label:
-        period_name = period_label
-    else:
-        period_name = PERIOD_NAMES.get(period, "")
-
-    # Формируем текст
-    if period_name:
-        text = f"История операций за {period_name} ({total_count} записей):\n\n"
-    else:
-        text = f"История операций ({total_count} записей):\n\n"
-
-    for date_str, day_records in grouped.items():
-        day_income = sum(r["amount"] for r in day_records if r["operation"] == "+")
-        day_expense = sum(r["amount"] for r in day_records if r["operation"] == "-")
-        day_total = day_income - day_expense
-
-        weekday = RU_WEEKDAYS[day_records[0]["created_at"].weekday()]
-        total_sign = "+" if day_total >= 0 else ""
-        text += f"{weekday}, {date_str} (итого: {total_sign}{day_total:,.0f}₽)\n".replace(",", " ")
-
-        for r in day_records:
-            sign = "+" if r["operation"] == "+" else "-"
-            category = f"  {r['category']}" if r.get("category") else ""
-            text += f"  {sign}{r['amount']:,.0f}₽{category}\n".replace(",", " ")
-
-        text += "\n"
-
-    text += f"Доходы: {format_money(income_sum)}\nРасходы: {format_money(expense_sum)}\nОстаток: {format_money(remaining)}"
+    # Переиспользуем build_history_page (без дублирования кода)
+    text, _ = build_history_page(
+        records, 0, 1, income_sum, expense_sum,
+        period=period, period_label=period_label, total_count=total_count
+    )
 
     # Проверяем длину сообщения (лимит Telegram — 4096 символов)
     if len(text) > 4000:
         text = text[:3950] + "\n\n... (сообщение обрезано)"
 
-    await callback.message.edit_text(text)
+    await callback.message.edit_text(text, parse_mode="HTML")
     await state.clear()
     await callback.answer()
 
@@ -870,8 +836,6 @@ async def menu_history_custom_period(
 
         records = await get_records(session, user.id, "range", date_from, date_to, limit=RECORDS_PER_PAGE, offset=0)
 
-    records_data = [r.to_dict() for r in records]
-
     # Формируем label для периода
     period_label = f"{date_from.strftime('%d.%m.%y')} - {date_to.strftime('%d.%m.%y')}"
 
@@ -888,13 +852,13 @@ async def menu_history_custom_period(
         history_expense=float(expense_sum),
     )
 
-    text, kb = build_history_page(records_data, 0, total_pages, income_sum, expense_sum, period="range", period_label=period_label, total_count=total_count)
+    text, kb = build_history_page(records, 0, total_pages, income_sum, expense_sum, period="range", period_label=period_label, total_count=total_count)
 
     if total_pages > 1:
-        await message.answer(text, reply_markup=kb.as_markup())
+        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
         await state.set_state(MenuStates.waiting_for_history_page)
     else:
-        await message.answer(text, reply_markup=main_menu_keyboard())
+        await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
         await state.clear()
 
 

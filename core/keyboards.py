@@ -32,6 +32,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 # Inline-клавиатура для выбора периода (день/месяц/год) - для удаления
+@lru_cache(maxsize=1)
 def delete_period_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -44,6 +45,7 @@ def delete_period_keyboard() -> InlineKeyboardMarkup:
 
 
 # Inline-клавиатура для выбора периода истории (расширенная)
+@lru_cache(maxsize=1)
 def history_period_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -94,6 +96,7 @@ def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
 
 
 # Reply-клавиатура для выбора типа отчёта (доход/расход)
+@lru_cache(maxsize=1)
 def report_type_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton(text="Доход"), KeyboardButton(text="Расход")]]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

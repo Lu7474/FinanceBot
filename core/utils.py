@@ -275,51 +275,6 @@ def make_records_report_text(records: list[Any], report_type: str) -> str:
     return report
 
 
-# Формирует текст истории операций с итогами
-def make_history_text(records: list[Any]) -> str:
-    if not records:
-        return "Нет записей за указанный период."
-
-    answer = "История операций:\n\n"
-    sumadd = sum(r.amount for r in records if r.operation == "+")
-    sumspent = sum(r.amount for r in records if r.operation == "-")
-    remaining = sumadd - sumspent
-
-    # Группировка по датам
-    grouped: dict[str, list] = {}
-    for r in records:
-        date_key = r.created_at.strftime("%d.%m.%Y")
-        if date_key not in grouped:
-            grouped[date_key] = []
-        grouped[date_key].append(r)
-
-    # Вывод по датам с итогами
-    for date_str, day_records in grouped.items():
-        # Итог дня
-        day_income = sum(r.amount for r in day_records if r.operation == "+")
-        day_expense = sum(r.amount for r in day_records if r.operation == "-")
-        day_total = day_income - day_expense
-
-        # День недели
-        first_record = day_records[0]
-        weekday = RU_WEEKDAYS[first_record.created_at.weekday()]
-
-        # Заголовок дня
-        total_sign = "+" if day_total >= 0 else ""
-        answer += f"{weekday}, {date_str} (итого: {total_sign}{day_total:,.0f}₽)\n".replace(",", " ")
-
-        # Операции дня
-        for r in day_records:
-            category = f"  {r.category}" if getattr(r, "category", None) else ""
-            sign = "+" if r.operation == "+" else "-"
-            answer += f"  {sign}{r.amount:,.0f}₽{category}\n".replace(",", " ")
-
-        answer += "\n"
-
-    answer += f"Доходы: {format_money(sumadd)} | Расходы: {format_money(sumspent)} | Остаток: {format_money(remaining)}"
-    return answer
-
-
 # ==================== Декораторы ====================
 
 # Декоратор для логирования ошибок и отправки сообщения пользователю

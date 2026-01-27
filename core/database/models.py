@@ -47,6 +47,7 @@ class Record(Base):
     __table_args__ = (
         Index("ix_records_user_created", "user_id", "created_at"),  # Для выборки по периоду
         Index("ix_records_user_operation", "user_id", "operation"),  # Для отчётов по типу
+        Index("ix_records_user_op_cat", "user_id", "operation", "category"),  # Для GROUP BY категориям
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
