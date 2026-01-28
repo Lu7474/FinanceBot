@@ -3,6 +3,7 @@
 """
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import Any
 from zoneinfo import ZoneInfo
 import re
 
@@ -43,19 +44,17 @@ from core.database.requests import (
     get_categories_summary,
     get_history_data,
 )
-from core.database.models import async_session
+from core.database.models import async_session, Record
+from config import (
+    RECORDS_PER_PAGE,
+    MAX_SHOW_ALL_RECORDS,
+    MAX_CATEGORY_LENGTH,
+    MAX_AMOUNT,
+    MAX_MESSAGE_LENGTH,
+)
 
 
 router = Router()
-
-# Количество записей на одной странице (для пагинации)
-RECORDS_PER_PAGE = 15
-# Максимальное количество записей для "Показать все"
-MAX_SHOW_ALL_RECORDS = 50
-# Максимальная длина категории (соответствует String(50) в модели)
-MAX_CATEGORY_LENGTH = 50
-# Максимальная сумма одной операции (защита от ошибок ввода)
-MAX_AMOUNT = 1_000_000
 
 
 # ==================== Фильтры команд ====================
@@ -240,7 +239,10 @@ async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -
     await state.set_state(AddRecord.waiting_for_amount)
 
 
-def format_added_records_response(added_records: list, errors: list = None) -> str:
+def format_added_records_response(
+    added_records: list[tuple[str, Decimal, str, datetime | None]],
+    errors: list[str] | None = None,
+) -> str:
     """Формирует красивый ответ после добавления записей.
 
     Args:
@@ -295,7 +297,9 @@ def format_added_records_response(added_records: list, errors: list = None) -> s
     return response.strip()
 
 
-def parse_record_line(line: str, default_operation: str = None) -> tuple[str, Decimal, str, datetime | None] | None:
+def parse_record_line(
+    line: str, default_operation: str | None = None
+) -> tuple[str, Decimal, str, datetime | None] | None:
     """Парсит строку записи и возвращает (операция, сумма, категория, дата) или None при ошибке.
 
     Форматы:
@@ -328,7 +332,8 @@ def parse_record_line(line: str, default_operation: str = None) -> tuple[str, De
             record_date = datetime(year, month, day, 12, 0, 0, tzinfo=ZoneInfo("Europe/Moscow"))
             line = line[date_match.end():].strip()
         except ValueError:
-            pass  # Невалидная дата — продолжаем без неё
+            # Невалидная дата (например 31.02) — пропускаем её часть и продолжаем парсинг
+            line = line[date_match.end():].strip()
 
     # Определяем операцию из знака в начале
     operation = default_operation
@@ -503,7 +508,7 @@ PERIOD_NAMES = {
 
 
 def build_history_page(
-    page_records: list,
+    page_records: list[Record],
     page: int,
     total_pages: int,
     income_sum: Decimal,
@@ -660,8 +665,8 @@ async def menu_history_period(
         history_page=0,
         history_total_pages=total_pages,
         history_total_count=total_count,
-        history_income=float(income_sum),
-        history_expense=float(expense_sum),
+        history_income=str(income_sum),
+        history_expense=str(expense_sum),
     )
 
     # Показываем первую страницу (передаём ORM-объекты напрямую)
@@ -697,8 +702,13 @@ async def menu_history_page(
     data = await state.get_data()
     period = data.get("history_period")
     total_pages = data.get("history_total_pages", 1)
-    income_sum = Decimal(str(data.get("history_income", 0)))
-    expense_sum = Decimal(str(data.get("history_expense", 0)))
+    income_sum = Decimal(data.get("history_income", "0"))
+    expense_sum = Decimal(data.get("history_expense", "0"))
+
+    # Проверка границ пагинации
+    if new_page < 0 or new_page >= total_pages:
+        await callback.answer("Страница не существует.")
+        return
 
     # Для "range" периода получаем сохранённые даты
     date_from = None
@@ -749,8 +759,8 @@ async def menu_history_show_all(
     period = data.get("history_period")
     period_label = data.get("history_period_label", "")
     total_count = data.get("history_total_count", 0)
-    income_sum = Decimal(str(data.get("history_income", 0)))
-    expense_sum = Decimal(str(data.get("history_expense", 0)))
+    income_sum = Decimal(data.get("history_income", "0"))
+    expense_sum = Decimal(data.get("history_expense", "0"))
 
     # Для "range" периода получаем сохранённые даты
     date_from = None
@@ -786,8 +796,8 @@ async def menu_history_show_all(
     )
 
     # Проверяем длину сообщения (лимит Telegram — 4096 символов)
-    if len(text) > 4000:
-        text = text[:3950] + "\n\n... (сообщение обрезано)"
+    if len(text) > MAX_MESSAGE_LENGTH - 100:
+        text = text[:MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
 
     await callback.message.edit_text(text, parse_mode="HTML")
     await state.clear()
@@ -873,8 +883,8 @@ async def menu_history_custom_period(
         history_page=0,
         history_total_pages=total_pages,
         history_total_count=total_count,
-        history_income=float(income_sum),
-        history_expense=float(expense_sum),
+        history_income=str(income_sum),
+        history_expense=str(expense_sum),
     )
 
     text, kb = build_history_page(records, 0, total_pages, income_sum, expense_sum, period="range", period_label=period_label, total_count=total_count)
@@ -1085,7 +1095,7 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
 # ==================== Удаление записи ====================
 
 def build_delete_keyboard(
-    page_records: list[dict],
+    page_records: list[dict[str, Any]],
     page: int,
     total_pages: int,
 ) -> InlineKeyboardBuilder:
@@ -1360,6 +1370,12 @@ async def menu_delete_record(
             await callback.answer("Некорректные данные.")
             return
 
+        # Проверка границ пагинации
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+        if new_page < 0 or new_page >= total_pages:
+            await callback.answer("Страница не существует.")
+            return
+
         # Загружаем записи нужной страницы из БД
         async with async_session() as session:
             user = await get_user_by_tg_id(session, callback.from_user.id)
@@ -1377,7 +1393,6 @@ async def menu_delete_record(
 
         records_data = [r.to_dict(include_id=True) for r in records]
 
-        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
         await state.update_data(delete_page=new_page)
         kb = build_delete_keyboard(records_data, new_page, total_pages)
         await callback.message.edit_text(

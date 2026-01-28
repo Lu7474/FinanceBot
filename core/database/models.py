@@ -9,10 +9,12 @@ from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime, Index
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from config import DATABASE_URL
+
 
 # ==================== Подключение к БД ====================
 
-engine = create_async_engine(url="sqlite+aiosqlite:///db.sqlite3")
+engine = create_async_engine(url=DATABASE_URL)
 async_session = async_sessionmaker(engine)
 
 

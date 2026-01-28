@@ -9,7 +9,9 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypeVar
+
+from decimal import Decimal
 
 import matplotlib
 
@@ -22,14 +24,12 @@ from sqlalchemy import func, select
 from zoneinfo import ZoneInfo
 
 from core.database.models import Record
-
-
-# ==================== Константы ====================
-
-MAX_CATEGORIES_IN_PIE = 7      # Лимит категорий на графике (остальное — "Прочее")
-CHART_TIMEOUT_SECONDS = 10     # Таймаут генерации графика (сек)
-CHART_DPI = 150                # DPI графика (150 достаточно для Telegram, экономит размер)
-MAX_CAPTION_LENGTH = 1024      # Лимит символов caption в Telegram
+from config import (
+    MAX_CATEGORIES_IN_PIE,
+    CHART_TIMEOUT_SECONDS,
+    CHART_DPI,
+    MAX_CAPTION_LENGTH,
+)
 
 
 def format_money(amount: float | int) -> str:
@@ -77,11 +77,11 @@ RU_WEEKDAYS = {
 
 # Формирует текстовый отчёт по категориям с деталями по датам
 def make_report_text(
-    categories: dict,
-    total: float,
+    categories: Dict[str, Decimal],
+    total: Decimal | float,
     date: datetime,
     report_type: str,
-    records: list = None,
+    records: Optional[List[Any]] = None,
 ) -> str:
     month_name = RU_MONTHS[date.month]
     title_type = "Доходы" if report_type == "income" else "Расходы"
@@ -126,7 +126,7 @@ def make_report_text(
 
 
 # Получает годы и месяцы, в которых есть записи пользователя (оптимизировано: DISTINCT)
-async def get_available_years_and_months(session, user_id: int) -> dict[int, list[int]]:
+async def get_available_years_and_months(session: Any, user_id: int) -> Dict[int, List[int]]:
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
     current_month = now.month
@@ -159,11 +159,11 @@ async def get_available_years_and_months(session, user_id: int) -> dict[int, lis
 
 # Синхронная функция построения круговой диаграммы (вызывается в executor)
 def _build_report_pie_sync(
-    categories: dict,
-    total: float,
+    categories: Dict[str, Decimal],
+    total: Decimal | float,
     date: datetime,
     report_type: str,
-    records: list = None,
+    records: Optional[List[Any]] = None,
 ) -> Tuple[Optional[io.BytesIO], str]:
     if not categories:
         return None, "Нет данных для построения отчета"
@@ -210,11 +210,11 @@ def _build_report_pie_sync(
 
 # Асинхронная обёртка с таймаутом для построения графика (использует глобальный executor)
 async def build_report_pie(
-    categories: dict,
-    total: float,
+    categories: Dict[str, Decimal],
+    total: Decimal | float,
     date: datetime,
     report_type: str,
-    records: list = None,
+    records: Optional[List[Any]] = None,
 ) -> Tuple[Optional[io.BytesIO], str]:
     if not categories:
         return None, "Нет данных для построения отчета"
@@ -275,6 +275,7 @@ def log_exceptions(error_text: str) -> Callable:
                     pass
                 if state:
                     await state.clear()
+                return None
 
         return wrapper
 
