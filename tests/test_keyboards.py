@@ -44,26 +44,35 @@ def test_main_menu_keyboard():
     assert keyboard.one_time_keyboard is False
 
 
-# Проверяет кнопки выбора периода (день/месяц/год)
+# Проверяет кнопки выбора периода для удаления
 def test_delete_period_keyboard():
     keyboard = delete_period_keyboard()
 
-    # Проверяем структуру
+    # Проверяем структуру: 4 ряда
     assert keyboard.inline_keyboard is not None
-    assert len(keyboard.inline_keyboard) == 4  # 3 кнопки + отмена
+    assert len(keyboard.inline_keyboard) == 4
 
-    # Проверяем кнопки
     buttons = keyboard.inline_keyboard
+
+    # Первый ряд: Сегодня, Вчера
+    assert len(buttons[0]) == 2
     assert buttons[0][0].text == "Сегодня"
     assert buttons[0][0].callback_data == "del_period:day"
+    assert buttons[0][1].text == "Вчера"
+    assert buttons[0][1].callback_data == "del_period:yesterday"
 
-    assert buttons[1][0].text == "Месяц"
+    # Второй ряд: Этот месяц, Этот год
+    assert len(buttons[1]) == 2
+    assert buttons[1][0].text == "Этот месяц"
     assert buttons[1][0].callback_data == "del_period:month"
+    assert buttons[1][1].text == "Этот год"
+    assert buttons[1][1].callback_data == "del_period:year"
 
-    assert buttons[2][0].text == "Год"
-    assert buttons[2][0].callback_data == "del_period:year"
+    # Третий ряд: Выбрать месяц
+    assert buttons[2][0].text == "Выбрать месяц →"
+    assert buttons[2][0].callback_data == "del_select_month"
 
-    # Проверяем кнопку отмены
+    # Четвёртый ряд: Отмена
     assert buttons[3][0].text == "Отмена"
     assert buttons[3][0].callback_data == "cancel"
 
@@ -161,10 +170,14 @@ def test_get_months_keyboard_all_months():
 
 # Проверяет префиксы callback_data (del_period, report_year, report_month)
 def test_keyboard_callback_data_format():
-    # Тест delete_period_keyboard (исключая кнопку отмены)
+    # Тест delete_period_keyboard: первые два ряда — del_period:, третий — del_select_month
     delete_kb = delete_period_keyboard()
-    for row in delete_kb.inline_keyboard[:-1]:  # Исключаем последнюю кнопку (отмена)
-        assert row[0].callback_data.startswith("del_period:")
+    # Ряды 0 и 1 содержат кнопки с del_period:
+    for row in delete_kb.inline_keyboard[:2]:
+        for btn in row:
+            assert btn.callback_data.startswith("del_period:")
+    # Ряд 2 — кнопка выбора месяца
+    assert delete_kb.inline_keyboard[2][0].callback_data == "del_select_month"
 
     # Тест get_years_keyboard (исключая кнопку отмены)
     years_kb = get_years_keyboard([2024])

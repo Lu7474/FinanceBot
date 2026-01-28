@@ -18,6 +18,8 @@ from core.keyboards import (
     history_period_keyboard,
     get_years_keyboard,
     get_months_keyboard,
+    get_delete_years_keyboard,
+    get_delete_months_keyboard,
     main_menu_keyboard,
     report_type_keyboard,
     confirm_delete_keyboard,
@@ -1099,26 +1101,36 @@ def build_delete_keyboard(
     """
     kb = InlineKeyboardBuilder()
 
-    # Кнопки с записями
+    # Кнопки с записями (компактный формат) — каждая в отдельном ряду
     for r in page_records:
-        sign = "-" if r["operation"] == "-" else "+"
-        text = f"{sign}{r['amount']:.0f}₽ - {r['category']} ({r['date']})"
+        icon = "🛒" if r["operation"] == "-" else "💵"
+        # Дата в формате ДД.ММ.ГГ
+        short_date = r["created_at"].strftime("%d.%m.%y")
+        # Сокращаем категорию если слишком длинная (макс ~12 символов)
+        cat = r["category"][:12] + "…" if len(r["category"]) > 12 else r["category"]
+        text = f"{icon} {r['amount']:.0f}₽ {cat} {short_date}"
         kb.button(text=text, callback_data=f"del_record:{r['id']}")
 
-    kb.adjust(1)  # По одной кнопке в ряд
+    # Размещаем все записи по 1 в ряд
+    num_records = len(page_records)
+    if num_records > 0:
+        kb.adjust(*([1] * num_records))
 
     # Кнопки навигации (только если страниц > 1)
     if total_pages > 1:
-        nav_buttons = []
+        nav_kb = InlineKeyboardBuilder()
         if page > 0:
-            nav_buttons.append(("◀ Назад", f"del_page:{page - 1}"))
-        nav_buttons.append((f"{page + 1}/{total_pages}", "del_page:noop"))
+            nav_kb.button(text="◀ Назад", callback_data=f"del_page:{page - 1}")
+        nav_kb.button(text=f"{page + 1}/{total_pages}", callback_data="del_page:noop")
         if page < total_pages - 1:
-            nav_buttons.append(("Вперёд ▶", f"del_page:{page + 1}"))
+            nav_kb.button(text="Вперёд ▶", callback_data=f"del_page:{page + 1}")
+        nav_kb.adjust(3)  # Навигация в одном ряду
+        kb.attach(nav_kb)
 
-        for text, data in nav_buttons:
-            kb.button(text=text, callback_data=data)
-        kb.adjust(1, len(nav_buttons))  # Записи по 1, навигация в одном ряду
+    # Кнопка отмены
+    cancel_kb = InlineKeyboardBuilder()
+    cancel_kb.button(text="Отмена", callback_data="cancel")
+    kb.attach(cancel_kb)
 
     return kb
 
@@ -1139,54 +1151,183 @@ async def menu_delete(message: Message, state: FSMContext, **kwargs) -> None:
 async def menu_delete_period(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    """Выбран период — загружаем первую страницу записей для удаления."""
-    # Парсим период
-    try:
-        period = callback.data.split(":")[1]
-    except (IndexError, AttributeError):
-        await callback.answer("Некорректные данные.")
-        await state.clear()
-        return
+    """Обработка выбора периода или навигации по годам/месяцам."""
 
-    async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
+    # --- Кнопка "Выбрать месяц" — показываем годы ---
+    if callback.data == "del_select_month":
+        async with async_session() as session:
+            user = await get_user_by_tg_id(session, callback.from_user.id)
+            if not user:
+                await callback.message.edit_text("Пользователь не найден.")
+                await state.clear()
+                return
 
-        # Подсчёт общего количества
-        total_count = await count_records(session, user.id, period)
-        if total_count == 0:
-            await callback.message.edit_text("Записей за выбранный период нет.")
+            years_months = await get_available_years_and_months(session, user.id)
+
+        if not years_months:
+            await callback.message.edit_text("У вас пока нет записей.")
             await state.clear()
             await callback.answer()
             return
 
-        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+        years = list(years_months.keys())
+        await state.update_data(delete_years_months=years_months)
+        await callback.message.edit_text(
+            "Выберите год:",
+            reply_markup=get_delete_years_keyboard(years),
+        )
+        await callback.answer()
+        return
 
-        # Загружаем только первую страницу
-        records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=0)
+    # --- Выбран год — показываем месяцы ---
+    if callback.data.startswith("del_year:"):
+        try:
+            year = int(callback.data.split(":")[1])
+        except (IndexError, ValueError):
+            await callback.answer("Некорректные данные.")
+            return
 
-    # Конвертируем в dict (включая id для удаления)
-    records_data = [r.to_dict(include_id=True) for r in records]
+        data = await state.get_data()
+        years_months = data.get("delete_years_months", {})
+        months = years_months.get(year, [])
 
-    # Сохраняем в state только параметры
-    await state.update_data(
-        delete_period=period,
-        delete_page=0,
-        delete_total_count=total_count,
-        delete_total_pages=total_pages,
-    )
+        if not months:
+            await callback.answer("Нет записей за этот год.")
+            return
 
-    # Показываем первую страницу
-    kb = build_delete_keyboard(records_data, 0, total_pages)
-    await callback.message.edit_text(
-        f"Выберите запись для удаления (всего: {total_count}):",
-        reply_markup=kb.as_markup(),
-    )
-    await state.set_state(MenuStates.waiting_for_delete_record)
-    await callback.answer()
+        await state.update_data(delete_selected_year=year)
+        await callback.message.edit_text(
+            f"<b>{year}</b> — выберите месяц:",
+            reply_markup=get_delete_months_keyboard(year, months),
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    # --- Выбран месяц — показываем записи ---
+    if callback.data.startswith("del_month:"):
+        try:
+            parts = callback.data.split(":")
+            year = int(parts[1])
+            month = int(parts[2])
+        except (IndexError, ValueError):
+            await callback.answer("Некорректные данные.")
+            return
+
+        # Вычисляем диапазон дат для месяца
+        from calendar import monthrange
+        start_date = datetime(year, month, 1, 0, 0, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+        last_day = monthrange(year, month)[1]
+        end_date = datetime(year, month, last_day, 23, 59, 59, tzinfo=ZoneInfo("Europe/Moscow"))
+
+        async with async_session() as session:
+            user = await get_user_by_tg_id(session, callback.from_user.id)
+            if not user:
+                await callback.message.edit_text("Пользователь не найден.")
+                await state.clear()
+                return
+
+            total_count = await count_records(session, user.id, "range", start_date, end_date)
+            if total_count == 0:
+                await callback.answer("Записей за этот месяц нет.")
+                return
+
+            total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+            records = await get_records(
+                session, user.id, "range", start_date, end_date,
+                limit=RECORDS_PER_PAGE, offset=0
+            )
+
+        records_data = [r.to_dict(include_id=True) for r in records]
+
+        await state.update_data(
+            delete_period="range",
+            delete_date_from=start_date,
+            delete_date_to=end_date,
+            delete_page=0,
+            delete_total_count=total_count,
+            delete_total_pages=total_pages,
+            delete_selected_year=year,
+            delete_selected_month=month,
+        )
+
+        kb = build_delete_keyboard(records_data, 0, total_pages)
+        await callback.message.edit_text(
+            f"Записи за {RU_MONTHS[month]} {year} (всего: {total_count}):",
+            reply_markup=kb.as_markup(),
+        )
+        await state.set_state(MenuStates.waiting_for_delete_record)
+        await callback.answer()
+        return
+
+    # --- Назад к выбору периода ---
+    if callback.data == "del_back_to_period":
+        await callback.message.edit_text(
+            "За какой период показать записи для удаления?",
+            reply_markup=delete_period_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    # --- Назад к выбору года ---
+    if callback.data == "del_back_to_years":
+        data = await state.get_data()
+        years_months = data.get("delete_years_months", {})
+        years = list(years_months.keys())
+
+        await callback.message.edit_text(
+            "Выберите год:",
+            reply_markup=get_delete_years_keyboard(years),
+        )
+        await callback.answer()
+        return
+
+    # --- Стандартный выбор периода (day/month/year/yesterday) ---
+    if callback.data.startswith("del_period:"):
+        try:
+            period = callback.data.split(":")[1]
+        except (IndexError, AttributeError):
+            await callback.answer("Некорректные данные.")
+            await state.clear()
+            return
+
+        async with async_session() as session:
+            user = await get_user_by_tg_id(session, callback.from_user.id)
+            if not user:
+                await callback.message.edit_text("Пользователь не найден.")
+                await state.clear()
+                return
+
+            total_count = await count_records(session, user.id, period)
+            if total_count == 0:
+                await callback.message.edit_text("Записей за выбранный период нет.")
+                await state.clear()
+                await callback.answer()
+                return
+
+            total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+            records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=0)
+
+        records_data = [r.to_dict(include_id=True) for r in records]
+
+        await state.update_data(
+            delete_period=period,
+            delete_page=0,
+            delete_total_count=total_count,
+            delete_total_pages=total_pages,
+        )
+
+        kb = build_delete_keyboard(records_data, 0, total_pages)
+        await callback.message.edit_text(
+            f"Выберите запись для удаления (всего: {total_count}):",
+            reply_markup=kb.as_markup(),
+        )
+        await state.set_state(MenuStates.waiting_for_delete_record)
+        await callback.answer()
+        return
+
+    # --- Неизвестный callback ---
+    await callback.answer("Некорректные данные.")
 
 
 @router.callback_query(MenuStates.waiting_for_delete_record)
@@ -1199,6 +1340,8 @@ async def menu_delete_record(
     period = data.get("delete_period")
     current_page = data.get("delete_page", 0)
     total_count = data.get("delete_total_count", 0)
+    date_from = data.get("delete_date_from")
+    date_to = data.get("delete_date_to")
 
     if not period:
         await callback.answer("Данные устарели. Попробуйте снова.")
@@ -1227,7 +1370,10 @@ async def menu_delete_record(
                 return
 
             offset = new_page * RECORDS_PER_PAGE
-            records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=offset)
+            records = await get_records(
+                session, user.id, period, date_from, date_to,
+                limit=RECORDS_PER_PAGE, offset=offset
+            )
 
         records_data = [r.to_dict(include_id=True) for r in records]
 
@@ -1274,6 +1420,8 @@ async def menu_delete_confirm(
     data = await state.get_data()
     period = data.get("delete_period")
     current_page = data.get("delete_page", 0)
+    date_from = data.get("delete_date_from")
+    date_to = data.get("delete_date_to")
 
     # --- Отмена удаления ---
     if callback.data == "cancel_del":
@@ -1286,7 +1434,7 @@ async def menu_delete_confirm(
                 await callback.answer()
                 return
 
-            total_count = await count_records(session, user.id, period)
+            total_count = await count_records(session, user.id, period, date_from, date_to)
             if total_count == 0:
                 await callback.message.edit_text("Записей нет.")
                 await state.clear()
@@ -1298,7 +1446,10 @@ async def menu_delete_confirm(
                 current_page = total_pages - 1
 
             offset = current_page * RECORDS_PER_PAGE
-            records = await get_records(session, user.id, period, limit=RECORDS_PER_PAGE, offset=offset)
+            records = await get_records(
+                session, user.id, period, date_from, date_to,
+                limit=RECORDS_PER_PAGE, offset=offset
+            )
 
         records_data = [r.to_dict(include_id=True) for r in records]
         kb = build_delete_keyboard(records_data, current_page, total_pages)
@@ -1334,7 +1485,7 @@ async def menu_delete_confirm(
                 await callback.answer("✅ Запись удалена!")
 
                 # Пересчитываем общее количество
-                new_total = await count_records(session, user_id, period)
+                new_total = await count_records(session, user_id, period, date_from, date_to)
 
                 # Если всё удалено — выходим
                 if new_total == 0:
@@ -1349,7 +1500,10 @@ async def menu_delete_confirm(
 
                 # Загружаем текущую страницу заново
                 offset = current_page * RECORDS_PER_PAGE
-                records = await get_records(session, user_id, period, limit=RECORDS_PER_PAGE, offset=offset)
+                records = await get_records(
+                    session, user_id, period, date_from, date_to,
+                    limit=RECORDS_PER_PAGE, offset=offset
+                )
 
                 records_data = [r.to_dict(include_id=True) for r in records]
 
