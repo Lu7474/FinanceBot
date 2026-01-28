@@ -59,7 +59,7 @@ async def test_set_and_get_user(session):
 async def test_add_and_get_record(session):
     tg_id = 123456
     user = await get_user_by_tg_id(session, tg_id)
-    
+
     # Создаем пользователя если его нет
     if not user:
         user = User(tg_id=tg_id, name="Test User")
@@ -70,7 +70,7 @@ async def test_add_and_get_record(session):
         await session.refresh(user)  # Обновляем объект
 
     user_id = user.id  # Сохраняем ID до использования
-    ok = await add_record(session, tg_id, "+", 500.0, "зарплата")
+    ok = await add_record(session, user_id, "+", 500.0, "зарплата")
     assert ok is True
 
     records = await get_records(session, user_id, "day")
@@ -93,12 +93,12 @@ async def test_delete_record(session):
         await session.refresh(user)  # Обновляем объект
 
     user_id = user.id  # Сохраняем ID до использования
-    await add_record(session, tg_id, "-", 100.0, "еда")
+    await add_record(session, user_id, "-", 100.0, "еда")
     records = await get_records(session, user_id, "day")
     record_to_delete = next((r for r in records if r.amount == Decimal("100.00")), None)
     assert record_to_delete is not None
 
-    deleted = await delete_record(session, tg_id, record_to_delete.id)
+    deleted = await delete_record(session, user_id, record_to_delete.id)
     assert deleted is True
 
     records_after = await get_records(session, user_id, "day")
@@ -121,7 +121,7 @@ async def test_get_records_month(session):
         await session.refresh(user)  # Обновляем объект
 
     user_id = user.id  # Сохраняем ID до использования
-    await add_record(session, tg_id, "-", 50.0, "кафе")
+    await add_record(session, user_id, "-", 50.0, "кафе")
 
     records = await get_records(session, user_id, "month")
     assert any(r.category == "кафе" for r in records)

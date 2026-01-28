@@ -20,5 +20,4 @@ test_db.sqlite3
 # Настройки редактора
 .vscode/
 
-# Старые или временные файлы
-handlers_legacy.py
+.claude/
