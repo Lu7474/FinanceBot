@@ -207,11 +207,14 @@ async def handle_help(message: Message, **kwargs) -> None:
 500 еда
 200 транспорт</code>
 
+<b>Старые записи (с датой):</b>
+<code>27.01 500 продукты</code> — 27 января
+<code>15.12.25 1000 подарок</code> — 15.12.2025
+
 <b>Быстрый ввод (без кнопки):</b>
-<code>+1000 зарплата
--500 еда
--200 транспорт</code>
-Знак +/- определяет тип записи."""
+<code>+1000 зарплата</code> — доход
+<code>-500 еда</code> — расход
+<code>27.01 -350 магазин</code> — расход 27.01"""
 
     await message.answer(help_text, parse_mode="HTML")
 
@@ -239,7 +242,7 @@ def format_added_records_response(added_records: list, errors: list = None) -> s
     """Формирует красивый ответ после добавления записей.
 
     Args:
-        added_records: Список кортежей (operation, amount, category)
+        added_records: Список кортежей (operation, amount, category, date)
         errors: Список ошибок парсинга (опционально)
 
     Returns:
@@ -248,25 +251,35 @@ def format_added_records_response(added_records: list, errors: list = None) -> s
     if not added_records:
         return "Не удалось сохранить записи."
 
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+
     if len(added_records) == 1:
-        op, amt, cat = added_records[0]
+        op, amt, cat, record_date = added_records[0]
         icon = "💵" if op == "+" else "🛒"
         op_type = "Доход" if op == "+" else "Расход"
+
+        date_str = ""
+        if record_date and record_date.date() != today:
+            date_str = f"\n📅 Дата: {record_date.strftime('%d.%m.%Y')}"
+
         response = f"""
 ✅ <b>Запись добавлена!</b>
 
 {icon} {op_type}: <b>{amt:,.0f}₽</b>
-📁 Категория: {cat}
+📁 Категория: {cat}{date_str}
 """.replace(",", " ")
     else:
-        total_income = sum(amt for op, amt, _ in added_records if op == "+")
-        total_expense = sum(amt for op, amt, _ in added_records if op == "-")
+        total_income = sum(amt for op, amt, _, _ in added_records if op == "+")
+        total_expense = sum(amt for op, amt, _, _ in added_records if op == "-")
 
         response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
-        for op, amt, cat in added_records:
+        for op, amt, cat, record_date in added_records:
             icon = "💵" if op == "+" else "🛒"
             sign = "+" if op == "+" else "-"
-            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}\n".replace(",", " ")
+            date_suffix = ""
+            if record_date and record_date.date() != today:
+                date_suffix = f" ({record_date.strftime('%d.%m')})"
+            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}{date_suffix}\n".replace(",", " ")
 
         response += "\n"
         if total_income > 0:
@@ -280,17 +293,40 @@ def format_added_records_response(added_records: list, errors: list = None) -> s
     return response.strip()
 
 
-def parse_record_line(line: str, default_operation: str = None) -> tuple[str, Decimal, str] | None:
-    """Парсит строку записи и возвращает (операция, сумма, категория) или None при ошибке.
+def parse_record_line(line: str, default_operation: str = None) -> tuple[str, Decimal, str, datetime | None] | None:
+    """Парсит строку записи и возвращает (операция, сумма, категория, дата) или None при ошибке.
 
     Форматы:
-    - "1000 еда" — использует default_operation
-    - "+1000 зарплата" — доход
-    - "-500 еда" — расход
+    - "1000 еда" — использует default_operation, сегодняшняя дата
+    - "+1000 зарплата" — доход, сегодняшняя дата
+    - "-500 еда" — расход, сегодняшняя дата
+    - "27.01 500 еда" — указанная дата (ДД.ММ текущего года)
+    - "27.01.25 500 еда" — указанная дата (ДД.ММ.ГГ)
     """
     line = line.strip()
     if not line:
         return None
+
+    record_date = None
+
+    # Проверяем дату в начале строки: ДД.ММ или ДД.ММ.ГГ
+    # Ограничиваем день (1-31) и месяц (1-12) для избежания путаницы с суммами
+    date_match = re.match(r"^(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])(?:\.(\d{2}))?\s+", line)
+    if date_match:
+        day = int(date_match.group(1))
+        month = int(date_match.group(2))
+        year_short = date_match.group(3)
+
+        if year_short:
+            year = 2000 + int(year_short)
+        else:
+            year = datetime.now(ZoneInfo("Europe/Moscow")).year
+
+        try:
+            record_date = datetime(year, month, day, 12, 0, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+            line = line[date_match.end():].strip()
+        except ValueError:
+            pass  # Невалидная дата — продолжаем без неё
 
     # Определяем операцию из знака в начале
     operation = default_operation
@@ -324,7 +360,7 @@ def parse_record_line(line: str, default_operation: str = None) -> tuple[str, De
     if len(category) > MAX_CATEGORY_LENGTH:
         category = category[:MAX_CATEGORY_LENGTH]
 
-    return operation, amount, category
+    return operation, amount, category, record_date
 
 
 @router.message(AddRecord.waiting_for_amount)
@@ -377,10 +413,10 @@ async def handle_amount_and_category(
         user_id = user.id
 
         added_records = []
-        for operation, amount, category in records_to_add:
-            ok = await add_record(session, user_id, operation, amount, category)
+        for operation, amount, category, record_date in records_to_add:
+            ok = await add_record(session, user_id, operation, amount, category, record_date)
             if ok:
-                added_records.append((operation, amount, category))
+                added_records.append((operation, amount, category, record_date))
 
     # Формируем красивый ответ
     if not added_records:
@@ -393,10 +429,10 @@ async def handle_amount_and_category(
     await state.clear()
 
 
-@router.message(StateFilter(None), F.text.regexp(r"^[+-]\d"))
+@router.message(StateFilter(None), F.text.regexp(r"^([+-]\d|\d{1,2}\.\d{1,2}\.?\d{0,2}\s+[+-]?\d)"))
 @log_exceptions("Ошибка при добавлении записи")
 async def handle_direct_record(message: Message, **kwargs) -> None:
-    """Прямой ввод записей без нажатия кнопки (если начинается с + или -)."""
+    """Прямой ввод записей без нажатия кнопки (если начинается с +/- или с даты)."""
     lines = message.text.strip().split("\n")
 
     # Парсим все записи
@@ -435,10 +471,10 @@ async def handle_direct_record(message: Message, **kwargs) -> None:
         user_id = user.id
 
         added_records = []
-        for operation, amount, category in records_to_add:
-            ok = await add_record(session, user_id, operation, amount, category)
+        for operation, amount, category, record_date in records_to_add:
+            ok = await add_record(session, user_id, operation, amount, category, record_date)
             if ok:
-                added_records.append((operation, amount, category))
+                added_records.append((operation, amount, category, record_date))
 
     # Формируем красивый ответ
     if not added_records:

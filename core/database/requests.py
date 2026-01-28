@@ -230,6 +230,7 @@ async def add_record(
     operation: str,
     amount: Decimal,
     category: str = "не указано",
+    created_at: Optional[datetime] = None,
 ) -> bool:
     """Добавляет новую запись дохода или расхода.
 
@@ -239,6 +240,7 @@ async def add_record(
         operation: "+" для дохода, "-" для расхода
         amount: Сумма операции
         category: Категория (по умолчанию "не указано")
+        created_at: Дата записи (опционально, по умолчанию текущая)
 
     Returns:
         True если запись добавлена, False при ошибке
@@ -258,6 +260,8 @@ async def add_record(
             amount=amount,
             category=category,
         )
+        if created_at is not None:
+            record.created_at = created_at
         session.add(record)
         await session.commit()
         return True
