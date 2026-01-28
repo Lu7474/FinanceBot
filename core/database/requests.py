@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Optional, List
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.models import async_session, User, Record
@@ -198,8 +198,6 @@ async def get_totals(
 ) -> tuple[Decimal, Decimal]:
     """Возвращает (сумма_доходов, сумма_расходов) одним запросом."""
     try:
-        from sqlalchemy import case
-
         now = datetime.now(ZoneInfo("Europe/Moscow"))
         # Один запрос с условной агрегацией
         query = select(
@@ -357,8 +355,6 @@ async def get_history_data(
         (total_count, income_sum, expense_sum, records)
     """
     try:
-        from sqlalchemy import case
-
         now = datetime.now(ZoneInfo("Europe/Moscow"))
 
         # 1. COUNT + SUM одним запросом

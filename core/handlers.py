@@ -36,7 +36,6 @@ from core.database.requests import (
     add_record,
     get_records,
     count_records,
-    get_totals,
     delete_record,
     get_user_by_tg_id,
     get_categories_summary,
@@ -236,6 +235,51 @@ async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -
     await state.set_state(AddRecord.waiting_for_amount)
 
 
+def format_added_records_response(added_records: list, errors: list = None) -> str:
+    """Формирует красивый ответ после добавления записей.
+
+    Args:
+        added_records: Список кортежей (operation, amount, category)
+        errors: Список ошибок парсинга (опционально)
+
+    Returns:
+        Отформатированный текст ответа
+    """
+    if not added_records:
+        return "Не удалось сохранить записи."
+
+    if len(added_records) == 1:
+        op, amt, cat = added_records[0]
+        icon = "💵" if op == "+" else "🛒"
+        op_type = "Доход" if op == "+" else "Расход"
+        response = f"""
+✅ <b>Запись добавлена!</b>
+
+{icon} {op_type}: <b>{amt:,.0f}₽</b>
+📁 Категория: {cat}
+""".replace(",", " ")
+    else:
+        total_income = sum(amt for op, amt, _ in added_records if op == "+")
+        total_expense = sum(amt for op, amt, _ in added_records if op == "-")
+
+        response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
+        for op, amt, cat in added_records:
+            icon = "💵" if op == "+" else "🛒"
+            sign = "+" if op == "+" else "-"
+            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}\n".replace(",", " ")
+
+        response += "\n"
+        if total_income > 0:
+            response += f"📈 Доходы: +{total_income:,.0f}₽\n".replace(",", " ")
+        if total_expense > 0:
+            response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
+
+    if errors:
+        response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
+
+    return response.strip()
+
+
 def parse_record_line(line: str, default_operation: str = None) -> tuple[str, Decimal, str] | None:
     """Парсит строку записи и возвращает (операция, сумма, категория) или None при ошибке.
 
@@ -344,36 +388,8 @@ async def handle_amount_and_category(
         await state.clear()
         return
 
-    if len(added_records) == 1:
-        op, amt, cat = added_records[0]
-        icon = "💵" if op == "+" else "🛒"
-        op_type = "Доход" if op == "+" else "Расход"
-        response = f"""
-✅ <b>Запись добавлена!</b>
-
-{icon} {op_type}: <b>{amt:,.0f}₽</b>
-📁 Категория: {cat}
-""".replace(",", " ")
-    else:
-        total_income = sum(amt for op, amt, _ in added_records if op == "+")
-        total_expense = sum(amt for op, amt, _ in added_records if op == "-")
-
-        response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
-        for op, amt, cat in added_records:
-            icon = "💵" if op == "+" else "🛒"
-            sign = "+" if op == "+" else "-"
-            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}\n".replace(",", " ")
-
-        response += "\n"
-        if total_income > 0:
-            response += f"📈 Доходы: +{total_income:,.0f}₽\n".replace(",", " ")
-        if total_expense > 0:
-            response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
-
-    if errors:
-        response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
-
-    await message.answer(response.strip(), reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    response = format_added_records_response(added_records, errors)
+    await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     await state.clear()
 
 
@@ -429,36 +445,8 @@ async def handle_direct_record(message: Message, **kwargs) -> None:
         await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
         return
 
-    if len(added_records) == 1:
-        op, amt, cat = added_records[0]
-        icon = "💵" if op == "+" else "🛒"
-        op_type = "Доход" if op == "+" else "Расход"
-        response = f"""
-✅ <b>Запись добавлена!</b>
-
-{icon} {op_type}: <b>{amt:,.0f}₽</b>
-📁 Категория: {cat}
-""".replace(",", " ")
-    else:
-        total_income = sum(amt for op, amt, _ in added_records if op == "+")
-        total_expense = sum(amt for op, amt, _ in added_records if op == "-")
-
-        response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
-        for op, amt, cat in added_records:
-            icon = "💵" if op == "+" else "🛒"
-            sign = "+" if op == "+" else "-"
-            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}\n".replace(",", " ")
-
-        response += "\n"
-        if total_income > 0:
-            response += f"📈 Доходы: +{total_income:,.0f}₽\n".replace(",", " ")
-        if total_expense > 0:
-            response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
-
-    if errors:
-        response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
-
-    await message.answer(response.strip(), reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    response = format_added_records_response(added_records, errors)
+    await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
 
 
 # ==================== История операций ====================
@@ -816,7 +804,7 @@ async def menu_history_custom_period(
     date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo("Europe/Moscow"))
     date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo("Europe/Moscow"))
 
-    # Загружаем записи за указанный период
+    # Загружаем записи за указанный период (один запрос вместо трёх)
     async with async_session() as session:
         user = await get_user_by_tg_id(session, message.from_user.id)
         if not user:
@@ -824,16 +812,16 @@ async def menu_history_custom_period(
             await state.clear()
             return
 
-        total_count = await count_records(session, user.id, "range", date_from, date_to)
+        total_count, income_sum, expense_sum, records = await get_history_data(
+            session, user.id, "range", date_from, date_to, limit=RECORDS_PER_PAGE, offset=0
+        )
+
         if total_count == 0:
             await message.answer("Записей не найдено за указанный период.", reply_markup=main_menu_keyboard())
             await state.clear()
             return
 
-        income_sum, expense_sum = await get_totals(session, user.id, "range", date_from, date_to)
         total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
-
-        records = await get_records(session, user.id, "range", date_from, date_to, limit=RECORDS_PER_PAGE, offset=0)
 
     # Формируем label для периода
     period_label = f"{date_from.strftime('%d.%m.%y')} - {date_to.strftime('%d.%m.%y')}"

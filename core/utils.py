@@ -9,7 +9,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Awaitable, Callable, Dict, Optional, Tuple
 
 import matplotlib
 
@@ -29,6 +29,7 @@ from core.database.models import Record
 MAX_CATEGORIES_IN_PIE = 7      # Лимит категорий на графике (остальное — "Прочее")
 CHART_TIMEOUT_SECONDS = 10     # Таймаут генерации графика (сек)
 CHART_DPI = 150                # DPI графика (150 достаточно для Telegram, экономит размер)
+MAX_CAPTION_LENGTH = 1024      # Лимит символов caption в Telegram
 
 
 def format_money(amount: float | int) -> str:
@@ -72,44 +73,7 @@ RU_WEEKDAYS = {
 }
 
 
-# ==================== Парсинг дат ====================
-
-# Парсит дату из текста (форматы: 01.01.24, 01.01.2024, 01 января 2024)
-def parse_date(text: str) -> Optional[datetime]:
-    text = text.lower().strip()
-    text = text.replace("г.", "").replace("г", "")
-
-    # Форматы: день.месяц.год
-    moscow_tz = ZoneInfo("Europe/Moscow")
-    for fmt in ("%d.%m.%y", "%d.%m.%Y"):
-        try:
-            dt = datetime.strptime(text, fmt)
-            if dt.year < 100:
-                dt = dt.replace(year=2000 + dt.year)
-            dt = dt.replace(tzinfo=moscow_tz)
-            if dt > datetime.now(moscow_tz):
-                return None
-            return dt
-        except ValueError:
-            continue
-
-    # Форматы: день месяц год (на русском)
-    for fmt in ("%d %B %Y", "%d %B %y"):
-        try:
-            dt = datetime.strptime(text, fmt)
-            if dt.year < 100:
-                dt = dt.replace(year=2000 + dt.year)
-            dt = dt.replace(tzinfo=moscow_tz)
-            if dt > datetime.now(moscow_tz):
-                return None
-            return dt
-        except ValueError:
-            continue
-
-    return None
-
-
-# ==================== Генерация отчётов ====================
+# ==================== Генерация отчётов =====================
 
 # Формирует текстовый отчёт по категориям с деталями по датам
 def make_report_text(
@@ -152,7 +116,13 @@ def make_report_text(
     # Итого
     lines.append(f"\n💰 <b>Итого:</b> {format_money(total)}")
 
-    return "\n".join(lines)
+    result = "\n".join(lines)
+
+    # Обрезка до лимита Telegram caption (1024 символа)
+    if len(result) > MAX_CAPTION_LENGTH:
+        result = result[:MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
+
+    return result
 
 
 # Получает годы и месяцы, в которых есть записи пользователя (оптимизировано: DISTINCT)
@@ -249,7 +219,7 @@ async def build_report_pie(
     if not categories:
         return None, "Нет данных для построения отчета"
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         result = await asyncio.wait_for(
             loop.run_in_executor(
@@ -270,37 +240,6 @@ async def build_report_pie(
     except Exception:
         logging.exception("Ошибка при построении графика")
         return None, "Ошибка при построении отчета"
-
-
-# Формирует текстовый отчёт по записям (без повторного запроса к БД)
-def make_records_report_text(records: list[Any], report_type: str) -> str:
-    """Генерирует текстовый отчёт из уже загруженных записей.
-
-    Args:
-        records: Список записей (ORM-объекты или dict с полями operation, amount, category, created_at)
-        report_type: "income" или "expense"
-    """
-    operation_sign = "+" if report_type == "income" else "-"
-    type_name = "доходы" if report_type == "income" else "расходы"
-
-    filtered = [r for r in records if (r.operation if hasattr(r, "operation") else r["operation"]) == operation_sign]
-
-    if not filtered:
-        return f"{'Доходов' if report_type == 'income' else 'Расходов'} не найдено."
-
-    report = f"Ваши {type_name}:\n"
-    for rec in filtered:
-        if hasattr(rec, "amount"):
-            amount = rec.amount
-            category = rec.category
-            date = rec.created_at
-        else:
-            amount = rec["amount"]
-            category = rec["category"]
-            date = rec["created_at"]
-        report += f"{date:%d.%m.%y} — {format_money(amount)} {category}\n"
-
-    return report
 
 
 # ==================== Декораторы ====================
