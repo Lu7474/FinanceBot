@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(./env/Scripts/python.exe:*)",
+      // "Bash(./env/Scripts/python.exe -m pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(pip freeze:*)",
+      "Bash(pip list:*)",
+      "Bash(ruff check:*)",
+      "Bash(ruff format:*)",
+      "Bash(black:*)",
+      "Bash(flake8:*)",
+      "Bash(mypy:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git show:*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/*.sqlite3)",
+      "Read(**/*.log)"
+    ]
+  },
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "language": "russian",
+  "respectGitignore": true
+}

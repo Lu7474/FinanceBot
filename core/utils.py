@@ -9,7 +9,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from decimal import Decimal
 
@@ -72,6 +72,28 @@ RU_WEEKDAYS = {
     6: "Вс",
 }
 
+# Цветовые палитры для диаграмм (уникальные цвета без повторяющихся оттенков)
+INCOME_COLORS = [
+    '#2ecc71',  # Зелёный
+    '#3498db',  # Синий
+    '#1abc9c',  # Бирюзовый
+    '#9b59b6',  # Фиолетовый
+    '#f39c12',  # Оранжевый
+    '#e74c3c',  # Красный
+    '#f1c40f',  # Жёлтый
+    '#95a5a6',  # Серый
+]
+EXPENSE_COLORS = [
+    '#e74c3c',  # Красный
+    '#e67e22',  # Оранжевый
+    '#f1c40f',  # Жёлтый
+    '#2ecc71',  # Зелёный
+    '#1abc9c',  # Бирюзовый
+    '#3498db',  # Синий
+    '#9b59b6',  # Фиолетовый
+    '#95a5a6',  # Серый
+]
+
 
 # ==================== Генерация отчётов =====================
 
@@ -100,7 +122,7 @@ def make_report_text(
         # Фильтруем по типу операции
         filtered = [r for r in records if (r.operation if hasattr(r, "operation") else r["operation"]) == operation_sign]
         if filtered:
-            lines.append(f"\n📅 <b>По датам:</b>")
+            lines.append("\n📅 <b>По датам:</b>")
             for r in filtered:
                 if hasattr(r, "amount"):
                     amount = r.amount
@@ -126,7 +148,10 @@ def make_report_text(
 
 
 # Получает годы и месяцы, в которых есть записи пользователя (оптимизировано: DISTINCT)
-async def get_available_years_and_months(session: Any, user_id: int) -> Dict[int, List[int]]:
+# operation: "+" для доходов, "-" для расходов, None для всех записей
+async def get_available_years_and_months(
+    session: Any, user_id: int, operation: Optional[str] = None
+) -> Dict[int, List[int]]:
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     current_year = now.year
     current_month = now.month
@@ -135,7 +160,13 @@ async def get_available_years_and_months(session: Any, user_id: int) -> Dict[int
     stmt = select(
         func.extract("year", Record.created_at).label("year"),
         func.extract("month", Record.created_at).label("month"),
-    ).where(Record.user_id == user_id).distinct()
+    ).where(Record.user_id == user_id)
+
+    # Фильтрация по типу операции (если указан)
+    if operation is not None:
+        stmt = stmt.where(Record.operation == operation)
+
+    stmt = stmt.distinct()
 
     result = await session.execute(stmt)
     rows = result.fetchall()
@@ -157,7 +188,7 @@ async def get_available_years_and_months(session: Any, user_id: int) -> Dict[int
 
 # ==================== Построение графиков ====================
 
-# Синхронная функция построения круговой диаграммы (вызывается в executor)
+# Синхронная функция построения вертикальной столбчатой диаграммы (вызывается в executor)
 def _build_report_pie_sync(
     categories: Dict[str, Decimal],
     total: Decimal | float,
@@ -165,16 +196,25 @@ def _build_report_pie_sync(
     report_type: str,
     records: Optional[List[Any]] = None,
 ) -> Tuple[Optional[io.BytesIO], str]:
+    """Строит вертикальную столбчатую диаграмму по категориям."""
     if not categories:
         return None, "Нет данных для построения отчета"
 
     fig = None
     try:
-        month_name = RU_MONTHS[date.month]
-        fig, ax = plt.subplots(figsize=(4, 4))
+        # Настройка шрифта для кириллицы
+        plt.rcParams['font.family'] = 'DejaVu Sans'
 
+        month_name = RU_MONTHS[date.month]
+        title_type = "Доходы" if report_type == "income" else "Расходы"
+        colors = INCOME_COLORS if report_type == "income" else EXPENSE_COLORS
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+        # Сортировка по убыванию суммы
         sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
 
+        # Ограничение количества категорий
         if len(sorted_categories) > MAX_CATEGORIES_IN_PIE:
             other_sum = sum(sorted_categories.values()) - sum(
                 list(sorted_categories.values())[:MAX_CATEGORIES_IN_PIE]
@@ -184,17 +224,52 @@ def _build_report_pie_sync(
             )
             sorted_categories["Прочее"] = other_sum
 
-        ax.pie(
-            sorted_categories.values(),
-            labels=sorted_categories.keys(),
-            autopct="%1.1f%%",
+        names = list(sorted_categories.keys())
+        values = [float(v) for v in sorted_categories.values()]
+
+        # Вертикальная столбчатая диаграмма
+        bars = ax.bar(
+            names, values,
+            color=colors[:len(values)],
+            edgecolor='white',
+            linewidth=1.5,
+            width=0.7,
         )
 
-        title_type = "Доходы" if report_type == "income" else "Расходы"
-        ax.set_title(f"{title_type} за {month_name} {date.year}")
+        # Значения над столбиками
+        for bar, val in zip(bars, values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + float(total) * 0.01,
+                format_money(val),
+                ha='center', va='bottom',
+                fontsize=10, fontweight='bold',
+            )
+
+        # Настройка осей
+        ax.set_ylim(0, max(values) * 1.15)
+        ax.set_ylabel('')
+        ax.set_title(f"{title_type} за {month_name} {date.year}", fontsize=14, fontweight='bold', pad=15)
+
+        # Убираем лишние рамки
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # Поворот подписей категорий
+        ax.tick_params(axis='x', rotation=45)
+
+        # Итого внизу
+        fig.text(
+            0.5, 0.02,
+            f"Итого: {format_money(float(total))}",
+            ha='center', fontsize=12, fontweight='bold', color='#2c3e50',
+        )
+
+        plt.tight_layout()
+        fig.subplots_adjust(bottom=0.2)
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight")
+        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor='white')
         buf.seek(0)
 
         caption = make_report_text(categories, total, date, report_type, records)

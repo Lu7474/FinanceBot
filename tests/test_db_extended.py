@@ -4,7 +4,6 @@
 import sys
 from pathlib import Path
 import pytest
-import pytest_asyncio
 
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -14,7 +13,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.database.models import User, Record
 from core.database.requests import (
-    get_user_by_tg_id,
     add_record,
     get_records,
     delete_record,

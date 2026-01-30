@@ -1,6 +1,16 @@
 """
-Обработчики команд и callback-запросов. Основная логика бота.
+Обработчики команд и callback-запросов.
+
+Структура файла:
+- Строки 60-100:   Фильтры команд (is_income, is_expense, ...)
+- Строки 100-125:  FSM States
+- Строки 125-220:  Главное меню (/start, /help, /cancel)
+- Строки 220-490:  Добавление записей
+- Строки 490-900:  История операций
+- Строки 900-1100: Отчёты (графики)
+- Строки 1100-1530: Удаление записей
 """
+
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -926,8 +936,10 @@ async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> 
     """Выбор типа отчёта (Доход/Расход) — показываем выбор года."""
     if is_income(message):
         report_type = "Доход"
+        operation = "+"
     elif is_expense(message):
         report_type = "Расход"
+        operation = "-"
     else:
         await message.answer(
             "Пожалуйста, выберите тип отчёта:",
@@ -937,14 +949,25 @@ async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> 
 
     await state.update_data(report_type=report_type)
 
-    # Используем закэшированные данные из state
-    data = await state.get_data()
-    years_months = data.get("report_years_months")
+    # Запрашиваем годы/месяцы с учётом типа операции
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, message.from_user.id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            await state.clear()
+            return
+        years_months = await get_available_years_and_months(session, user.id, operation)
 
     if not years_months:
-        await message.answer("Нет записей для отображения отчёта.")
+        await message.answer(
+            f"Нет записей по категории «{report_type}» для отображения отчёта.",
+            reply_markup=main_menu_keyboard(),
+        )
         await state.clear()
         return
+
+    # Кэшируем отфильтрованные данные
+    await state.update_data(report_years_months=years_months)
 
     # Возвращаем основную клавиатуру
     await message.answer("Тип отчёта: " + report_type, reply_markup=main_menu_keyboard())
@@ -1348,7 +1371,6 @@ async def menu_delete_record(
     """Обработка: навигация по страницам или удаление выбранной записи."""
     data = await state.get_data()
     period = data.get("delete_period")
-    current_page = data.get("delete_page", 0)
     total_count = data.get("delete_total_count", 0)
     date_from = data.get("delete_date_from")
     date_to = data.get("delete_date_to")
@@ -1542,3 +1564,18 @@ async def menu_delete_confirm(
     # --- Неизвестный callback ---
     await callback.answer("Некорректные данные.")
     await state.clear()
+
+
+# ==================== Fallback для неизвестных сообщений ====================
+
+@router.message(StateFilter(None), F.text)
+async def handle_unknown_message(message: Message, **kwargs) -> None:
+    """Обработка текстовых сообщений, не подходящих под другие хендлеры."""
+    await message.answer(
+        "🤔 Не понял команду.\n\n"
+        "<b>Используйте кнопки меню</b> или быстрый ввод:\n"
+        "<code>+1000 зарплата</code> — доход\n"
+        "<code>-500 еда</code> — расход",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
+    )

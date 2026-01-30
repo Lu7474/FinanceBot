@@ -20,4 +20,5 @@ test_db.sqlite3
 # Настройки редактора
 .vscode/
 
-.claude/
+# Claude Code (локальные настройки)
+.claude/settings.local.json

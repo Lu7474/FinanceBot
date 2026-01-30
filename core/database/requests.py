@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import async_session, User, Record
+from core.database.models import User, Record
 
 
 # ==================== Пользователи ====================

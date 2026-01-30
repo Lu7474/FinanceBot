@@ -4,7 +4,6 @@
 import sys
 from pathlib import Path
 import pytest
-import pytest_asyncio
 
 from decimal import Decimal
 from datetime import datetime
@@ -12,9 +11,8 @@ from zoneinfo import ZoneInfo
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from core.database.models import User, Record
+from core.database.models import User
 from core.database.requests import (
-    set_user,
     get_user_by_tg_id,
     add_record,
     get_records,
