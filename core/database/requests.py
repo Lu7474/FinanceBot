@@ -394,3 +394,58 @@ async def get_history_data(
     except Exception as e:
         logging.exception(f"Ошибка при получении данных истории для user_id {user_id}: {e}")
         return 0, Decimal("0"), Decimal("0"), []
+
+
+async def get_monthly_totals(
+    session: AsyncSession,
+    user_id: int,
+    operation: str,
+    months_back: int = 12,
+) -> list[tuple[int, int, Decimal]]:
+    """Получает суммы по месяцам за последние N месяцев (для графика тренда).
+
+    Args:
+        session: Асинхронная сессия БД
+        user_id: ID пользователя (внутренний, не tg_id)
+        operation: "+" для доходов, "-" для расходов
+        months_back: Сколько месяцев назад смотреть (по умолчанию 12)
+
+    Returns:
+        Список кортежей [(год, месяц, сумма), ...] отсортированный по дате
+    """
+    try:
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        # 365 дней назад
+        start_date = now - timedelta(days=365)
+
+        query = (
+            select(
+                func.extract("year", Record.created_at).label("year"),
+                func.extract("month", Record.created_at).label("month"),
+                func.sum(Record.amount).label("total"),
+            )
+            .where(
+                Record.user_id == user_id,
+                Record.operation == operation,
+                Record.created_at >= start_date,
+            )
+            .group_by(
+                func.extract("year", Record.created_at),
+                func.extract("month", Record.created_at),
+            )
+            .order_by(
+                func.extract("year", Record.created_at),
+                func.extract("month", Record.created_at),
+            )
+        )
+
+        result = await session.execute(query)
+        rows = result.fetchall()
+
+        return [
+            (int(row.year), int(row.month), Decimal(str(row.total)))
+            for row in rows
+        ]
+    except Exception as e:
+        logging.exception(f"Ошибка при получении месячных сумм для user_id {user_id}: {e}")
+        return []

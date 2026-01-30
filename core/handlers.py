@@ -38,6 +38,8 @@ from core.keyboards import (
 from core.utils import (
     get_available_years_and_months,
     build_report_pie,
+    build_trend_chart,
+    make_comparison_text,
     format_money,
     RU_MONTHS,
     RU_WEEKDAYS,
@@ -53,6 +55,7 @@ from core.database.requests import (
     get_user_by_tg_id,
     get_categories_summary,
     get_history_data,
+    get_monthly_totals,
 )
 from core.database.models import async_session, Record
 from config import (
@@ -1094,15 +1097,28 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         # Генерируем график с полным отчётом (если есть данные)
         if categories:
             buf, caption = await build_report_pie(categories, total, date_from, report_type, records)
+
+            # Кнопка "Сравнить с прошлым месяцем"
+            compare_kb = InlineKeyboardBuilder()
+            compare_kb.button(
+                text="📊 Сравнить с прошлым месяцем",
+                callback_data=f"compare:{report_type}:{year}:{month}",
+            )
+
             if buf:
                 await callback.message.answer_photo(
                     photo=BufferedInputFile(buf.read(), filename="report.png"),
                     caption=caption,
                     parse_mode="HTML",
+                    reply_markup=compare_kb.as_markup(),
                 )
             else:
                 # Если график не сгенерировался — отправляем только текст
-                await callback.message.answer(caption, parse_mode="HTML")
+                await callback.message.answer(
+                    caption,
+                    parse_mode="HTML",
+                    reply_markup=compare_kb.as_markup(),
+                )
         else:
             await callback.message.answer("Нет данных за выбранный период.")
 
@@ -1113,6 +1129,110 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         pass
 
     await state.clear()
+
+
+# ==================== Сравнение периодов ====================
+
+@router.callback_query(F.data.startswith("compare:"))
+@log_exceptions("Ошибка при сравнении периодов")
+async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
+    """Сравнение текущего месяца с предыдущим."""
+    # Парсим данные из callback_data (формат: "compare:expense:2025:1")
+    try:
+        parts = callback.data.split(":")
+        report_type = parts[1]  # "income" или "expense"
+        year = int(parts[2])
+        month = int(parts[3])
+    except (IndexError, ValueError, AttributeError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    operation_sign = "+" if report_type == "income" else "-"
+
+    # Вычисляем предыдущий месяц
+    if month == 1:
+        prev_year, prev_month = year - 1, 12
+    else:
+        prev_year, prev_month = year, month - 1
+
+    # Диапазоны дат
+    cur_date_from = datetime(year, month, 1, tzinfo=ZoneInfo("Europe/Moscow"))
+    if month == 12:
+        cur_date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+    else:
+        cur_date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+
+    prev_date_from = datetime(prev_year, prev_month, 1, tzinfo=ZoneInfo("Europe/Moscow"))
+    if prev_month == 12:
+        prev_date_to = datetime(prev_year + 1, 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+    else:
+        prev_date_to = datetime(prev_year, prev_month + 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+
+    await callback.answer("⏳ Формирую сравнение...")
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.answer("Пользователь не найден.")
+            return
+
+        # Получаем данные за текущий и предыдущий месяцы
+        cur_categories = await get_categories_summary(
+            session, user.id, operation_sign, cur_date_from, cur_date_to
+        )
+        prev_categories = await get_categories_summary(
+            session, user.id, operation_sign, prev_date_from, prev_date_to
+        )
+
+        cur_total = sum(cur_categories.values()) if cur_categories else Decimal("0")
+        prev_total = sum(prev_categories.values()) if prev_categories else Decimal("0")
+
+        # Получаем данные для тренда (за год)
+        monthly_data = await get_monthly_totals(session, user.id, operation_sign)
+
+    # Проверяем наличие данных за предыдущий месяц
+    if not prev_categories:
+        await callback.message.answer(
+            f"Нет данных за {RU_MONTHS[prev_month]} {prev_year} для сравнения."
+        )
+        return
+
+    # Вычисляем средний расход/доход
+    avg_monthly = None
+    if monthly_data:
+        avg_monthly = sum(v for _, _, v in monthly_data) / len(monthly_data)
+
+    # Формируем текст сравнения
+    comparison_text = make_comparison_text(
+        current_categories=cur_categories,
+        prev_categories=prev_categories,
+        current_total=cur_total,
+        prev_total=prev_total,
+        current_month=(year, month),
+        prev_month=(prev_year, prev_month),
+        report_type=report_type,
+        avg_monthly=avg_monthly,
+    )
+
+    # Строим график тренда
+    if monthly_data and len(monthly_data) >= 2:
+        chart_buf = await build_trend_chart(
+            monthly_data=monthly_data,
+            report_type=report_type,
+            current_month=(year, month),
+            prev_month=(prev_year, prev_month),
+        )
+
+        if chart_buf:
+            await callback.message.answer_photo(
+                photo=BufferedInputFile(chart_buf.read(), filename="trend.png"),
+                caption=comparison_text,
+                parse_mode="HTML",
+            )
+        else:
+            await callback.message.answer(comparison_text, parse_mode="HTML")
+    else:
+        await callback.message.answer(comparison_text, parse_mode="HTML")
 
 
 # ==================== Удаление записи ====================

@@ -317,6 +317,241 @@ async def build_report_pie(
         return None, "Ошибка при построении отчета"
 
 
+# ==================== Сравнение периодов ====================
+
+# Короткие названия месяцев для графика тренда
+RU_MONTHS_SHORT = {
+    1: "Янв", 2: "Фев", 3: "Мар", 4: "Апр", 5: "Май", 6: "Июн",
+    7: "Июл", 8: "Авг", 9: "Сен", 10: "Окт", 11: "Ноя", 12: "Дек",
+}
+
+
+def _build_trend_chart_sync(
+    monthly_data: List[Tuple[int, int, Decimal]],
+    report_type: str,
+    current_month: Tuple[int, int],
+    prev_month: Tuple[int, int],
+) -> Optional[io.BytesIO]:
+    """Строит линейный график тренда по месяцам.
+
+    Args:
+        monthly_data: Список [(год, месяц, сумма), ...]
+        report_type: "income" или "expense"
+        current_month: (год, месяц) текущего месяца
+        prev_month: (год, месяц) предыдущего месяца
+
+    Returns:
+        BytesIO с PNG-изображением или None при ошибке
+    """
+    if not monthly_data:
+        return None
+
+    fig = None
+    try:
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+
+        # Подготовка данных
+        labels = [f"{RU_MONTHS_SHORT[m]}\n{y}" for y, m, _ in monthly_data]
+        values = [float(v) for _, _, v in monthly_data]
+        months_keys = [(y, m) for y, m, _ in monthly_data]
+
+        # Цвет линии
+        line_color = '#2ecc71' if report_type == "income" else '#e74c3c'
+
+        # Линия тренда
+        x = range(len(values))
+        ax.plot(x, values, color=line_color, linewidth=2.5, marker='o', markersize=6)
+        ax.fill_between(x, values, alpha=0.2, color=line_color)
+
+        # Подсветка текущего и предыдущего месяцев
+        for i, (y, m) in enumerate(months_keys):
+            if (y, m) == current_month:
+                ax.scatter([i], [values[i]], color=line_color, s=150, zorder=5, edgecolor='white', linewidth=2)
+                ax.annotate(
+                    format_money(values[i]),
+                    (i, values[i]),
+                    textcoords="offset points",
+                    xytext=(0, 12),
+                    ha='center',
+                    fontsize=10,
+                    fontweight='bold',
+                    color=line_color,
+                )
+            elif (y, m) == prev_month:
+                ax.scatter([i], [values[i]], color='#7f8c8d', s=100, zorder=5, edgecolor='white', linewidth=2)
+                ax.annotate(
+                    format_money(values[i]),
+                    (i, values[i]),
+                    textcoords="offset points",
+                    xytext=(0, 12),
+                    ha='center',
+                    fontsize=9,
+                    color='#7f8c8d',
+                )
+
+        # Настройка осей
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_ylabel('')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # Заголовок
+        title_type = "Доходы" if report_type == "income" else "Расходы"
+        ax.set_title(f"{title_type} за последний год", fontsize=13, fontweight='bold', pad=15)
+
+        # Средняя линия
+        avg_value = sum(values) / len(values)
+        ax.axhline(y=avg_value, color='#95a5a6', linestyle='--', linewidth=1, alpha=0.7)
+        ax.text(
+            len(values) - 1, avg_value,
+            f"  Ср: {format_money(avg_value)}",
+            va='center', fontsize=9, color='#7f8c8d',
+        )
+
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor='white')
+        buf.seek(0)
+        return buf
+
+    except Exception:
+        logging.exception("Ошибка при построении графика тренда")
+        return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
+
+
+async def build_trend_chart(
+    monthly_data: List[Tuple[int, int, Decimal]],
+    report_type: str,
+    current_month: Tuple[int, int],
+    prev_month: Tuple[int, int],
+) -> Optional[io.BytesIO]:
+    """Асинхронная обёртка для построения графика тренда."""
+    if not monthly_data:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_trend_chart_sync,
+                monthly_data,
+                report_type,
+                current_month,
+                prev_month,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+        return result
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут при построении графика тренда ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении графика тренда")
+        return None
+
+
+def make_comparison_text(
+    current_categories: Dict[str, Decimal],
+    prev_categories: Dict[str, Decimal],
+    current_total: Decimal,
+    prev_total: Decimal,
+    current_month: Tuple[int, int],
+    prev_month: Tuple[int, int],
+    report_type: str,
+    avg_monthly: Optional[Decimal] = None,
+) -> str:
+    """Формирует текст сравнения двух месяцев.
+
+    Args:
+        current_categories: Категории текущего месяца
+        prev_categories: Категории предыдущего месяца
+        current_total: Итого за текущий месяц
+        prev_total: Итого за предыдущий месяц
+        current_month: (год, месяц) текущего
+        prev_month: (год, месяц) предыдущего
+        report_type: "income" или "expense"
+        avg_monthly: Средний расход/доход за период (опционально)
+
+    Returns:
+        Отформатированный текст для caption
+    """
+    icon = "💵" if report_type == "income" else "🛒"
+
+    cur_name = f"{RU_MONTHS[current_month[1]]} {current_month[0]}"
+    prev_name = f"{RU_MONTHS[prev_month[1]]} {prev_month[0]}"
+
+    # Разница
+    diff = current_total - prev_total
+    if prev_total > 0:
+        diff_pct = (diff / prev_total) * 100
+        pct_str = f" ({diff_pct:+.0f}%)"
+    else:
+        pct_str = ""
+
+    if diff > 0:
+        diff_icon = "📈"
+        diff_sign = "+"
+    elif diff < 0:
+        diff_icon = "📉"
+        diff_sign = ""
+    else:
+        diff_icon = "➡️"
+        diff_sign = ""
+
+    lines = [
+        f"📊 <b>Сравнение: {cur_name} vs {prev_name}</b>\n",
+        "💰 <b>Итого:</b>",
+        f"   {cur_name}: {format_money(current_total)}",
+        f"   {prev_name}: {format_money(prev_total)}",
+        f"   Разница: {diff_sign}{format_money(abs(diff))}{pct_str} {diff_icon}\n",
+    ]
+
+    # Сравнение по категориям (топ изменений)
+    all_categories = set(current_categories.keys()) | set(prev_categories.keys())
+    changes = []
+    for cat in all_categories:
+        cur_val = current_categories.get(cat, Decimal(0))
+        prev_val = prev_categories.get(cat, Decimal(0))
+        cat_diff = cur_val - prev_val
+        if cat_diff != 0:
+            changes.append((cat, cur_val, prev_val, cat_diff))
+
+    # Сортируем по абсолютному изменению
+    changes.sort(key=lambda x: abs(x[3]), reverse=True)
+
+    if changes:
+        lines.append(f"{icon} <b>По категориям:</b>")
+        is_income = report_type == "income"
+        for cat, cur_val, prev_val, cat_diff in changes[:5]:  # Топ-5
+            # Цвет: для расходов рост = 🔴, падение = 🟢; для доходов наоборот
+            if cat_diff > 0:
+                color = "🟢" if is_income else "🔴"
+                sign = "+"
+            else:
+                color = "🔴" if is_income else "🟢"
+                sign = ""
+            lines.append(f"   {color} {cat}: {format_money(prev_val)} → {format_money(cur_val)} ({sign}{format_money(cat_diff)})")
+
+    # Средний расход
+    if avg_monthly:
+        lines.append(f"\n📈 <b>Средний за период:</b> {format_money(avg_monthly)}/мес")
+
+    result = "\n".join(lines)
+
+    if len(result) > MAX_CAPTION_LENGTH:
+        result = result[:MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
+
+    return result
+
+
 # ==================== Декораторы ====================
 
 # Декоратор для логирования ошибок и отправки сообщения пользователю
