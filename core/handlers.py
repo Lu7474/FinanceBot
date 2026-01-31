@@ -445,7 +445,10 @@ def parse_record_line(
     # Категория — всё, что осталось после удаления суммы
     category = line.replace(match.group(0), "").strip()
     if not category:
-        category = "не указано"
+        category = "Не указано"
+    else:
+        # Нормализация: первая буква заглавная, остальные строчные
+        category = category.capitalize()
 
     if len(category) > MAX_CATEGORY_LENGTH:
         category = category[:MAX_CATEGORY_LENGTH]

@@ -20,7 +20,7 @@ def test_parse_simple_record():
     op, amount, category, date = result
     assert op == "-"
     assert amount == Decimal("500")
-    assert category == "еда"
+    assert category == "Еда"  # Нормализация: первая заглавная
     assert date is None
 
 
@@ -31,7 +31,7 @@ def test_parse_record_with_sign():
     op, amount, category, date = result
     assert op == "+"
     assert amount == Decimal("1000")
-    assert category == "зарплата"
+    assert category == "Зарплата"  # Нормализация: первая заглавная
 
     result2 = parse_record_line("-500 кафе")
     assert result2 is not None
@@ -59,7 +59,7 @@ def test_parse_record_with_date_ddmm():
     op, amount, category, date = result
     assert op == "-"
     assert amount == Decimal("500")
-    assert category == "продукты"
+    assert category == "Продукты"  # Нормализация
     assert date is not None
     assert date.day == 27
     assert date.month == 1
@@ -73,7 +73,7 @@ def test_parse_record_with_date_ddmmyy():
     op, amount, category, date = result
     assert op == "+"
     assert amount == Decimal("1000")
-    assert category == "подарок"
+    assert category == "Подарок"  # Нормализация
     assert date is not None
     assert date.day == 15
     assert date.month == 12
@@ -87,7 +87,7 @@ def test_parse_record_with_date_and_sign():
     op, amount, category, date = result
     assert op == "+"
     assert amount == Decimal("5000")
-    assert category == "зарплата"
+    assert category == "Зарплата"  # Нормализация
     assert date.day == 20
     assert date.month == 1
     assert date.year == 2026
@@ -96,7 +96,7 @@ def test_parse_record_with_date_and_sign():
     assert result2 is not None
     assert result2[0] == "-"
     assert result2[1] == Decimal("350")
-    assert result2[2] == "магазин"
+    assert result2[2] == "Магазин"  # Нормализация
 
 
 # ==================== Ошибки парсинга ====================
