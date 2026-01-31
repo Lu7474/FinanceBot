@@ -112,12 +112,9 @@ def test_parse_invalid_date():
 
 def test_parse_invalid_date_february():
     """Невалидная дата 31.02 (31 февраля) — regex матчит, но дата невалидна.
-    Невалидная часть пропускается, парсится оставшаяся часть строки."""
+    Запись отклоняется полностью (возвращается None)."""
     result = parse_record_line("31.02 500 тест", default_operation="-")
-    assert result is not None
-    assert result[1] == Decimal("500")  # Парсится сумма после невалидной даты
-    assert result[2] == "тест"  # Категория
-    assert result[3] is None  # Дата невалидна — не установлена
+    assert result is None  # Невалидная дата — запись отклоняется
 
 
 def test_parse_no_operation():

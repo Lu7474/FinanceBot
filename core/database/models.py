@@ -9,7 +9,7 @@ from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime, Index
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from config import DATABASE_URL
+from config import DATABASE_URL, TIMEZONE
 
 
 # ==================== Подключение к БД ====================
@@ -20,7 +20,7 @@ async_session = async_sessionmaker(engine)
 
 # Возвращает текущее время по Москве (для default в моделях)
 def moscow_now():
-    return datetime.now(ZoneInfo("Europe/Moscow"))
+    return datetime.now(ZoneInfo(TIMEZONE))
 
 
 # ==================== Модели ====================

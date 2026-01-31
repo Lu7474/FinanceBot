@@ -64,7 +64,71 @@ from config import (
     MAX_CATEGORY_LENGTH,
     MAX_AMOUNT,
     MAX_MESSAGE_LENGTH,
+    TIMEZONE,
 )
+
+
+# ==================== Хелперы ====================
+
+async def get_user_id_from_event(
+    event: Message | CallbackQuery,
+    kwargs: dict,
+    create_if_missing: bool = False,
+) -> int | None:
+    """Получает user_id из middleware или БД.
+
+    Args:
+        event: Message или CallbackQuery
+        kwargs: Аргументы хендлера (содержат user_id от middleware)
+        create_if_missing: Создать пользователя если не найден
+
+    Returns:
+        Внутренний user_id или None
+    """
+    # Сначала пробуем из middleware (уже закэшировано)
+    user_id = kwargs.get("user_id")
+    if user_id:
+        return user_id
+
+    # Fallback: получаем из БД (для /start и новых пользователей)
+    tg_id = event.from_user.id if event.from_user else None
+    if not tg_id:
+        return None
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, tg_id)
+        if user:
+            return user.id
+
+        if create_if_missing:
+            name = event.from_user.full_name if event.from_user else "Unknown"
+            user = await set_user(session, tg_id, name=name)
+            if user:
+                return user.id
+
+    return None
+
+
+async def save_parsed_records(
+    user_id: int,
+    records_to_add: list[tuple],
+) -> list[tuple]:
+    """Сохраняет распарсенные записи в БД.
+
+    Args:
+        user_id: Внутренний ID пользователя
+        records_to_add: Список кортежей (operation, amount, category, date)
+
+    Returns:
+        Список успешно добавленных записей
+    """
+    added_records = []
+    async with async_session() as session:
+        for operation, amount, category, record_date in records_to_add:
+            ok = await add_record(session, user_id, operation, amount, category, record_date)
+            if ok:
+                added_records.append((operation, amount, category, record_date))
+    return added_records
 
 
 router = Router()
@@ -268,7 +332,7 @@ def format_added_records_response(
     if not added_records:
         return "Не удалось сохранить записи."
 
-    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    today = datetime.now(ZoneInfo(TIMEZONE)).date()
 
     if len(added_records) == 1:
         op, amt, cat, record_date = added_records[0]
@@ -339,14 +403,20 @@ def parse_record_line(
         if year_short:
             year = 2000 + int(year_short)
         else:
-            year = datetime.now(ZoneInfo("Europe/Moscow")).year
+            year = datetime.now(ZoneInfo(TIMEZONE)).year
 
         try:
-            record_date = datetime(year, month, day, 12, 0, 0, tzinfo=ZoneInfo("Europe/Moscow"))
-            line = line[date_match.end():].strip()
+            record_date = datetime(year, month, day, 12, 0, 0, tzinfo=ZoneInfo(TIMEZONE))
         except ValueError:
-            # Невалидная дата (например 31.02) — пропускаем её часть и продолжаем парсинг
-            line = line[date_match.end():].strip()
+            # Невалидная дата (например 31.02) — отклоняем запись
+            return None
+
+        # Проверка на даты в далёком будущем (более 1 дня)
+        now = datetime.now(ZoneInfo(TIMEZONE))
+        if record_date.date() > (now + timedelta(days=1)).date():
+            return None
+
+        line = line[date_match.end():].strip()
 
     # Определяем операцию из знака в начале
     operation = default_operation
@@ -419,24 +489,15 @@ async def handle_amount_and_category(
         )
         return
 
+    # Получаем user_id (из middleware или БД)
+    user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
+    if not user_id:
+        await message.answer("Ошибка. Отправьте /start для регистрации.")
+        await state.clear()
+        return
+
     # Сохраняем в БД
-    async with async_session() as session:
-        # Используем get вместо set — пользователь уже создан при /start
-        user = await get_user_by_tg_id(session, message.from_user.id)
-        if not user:
-            # Редкий случай: пользователь не зарегистрирован
-            user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
-            if not user:
-                await message.answer("Ошибка. Отправьте /start для регистрации.")
-                return
-
-        user_id = user.id
-
-        added_records = []
-        for operation, amount, category, record_date in records_to_add:
-            ok = await add_record(session, user_id, operation, amount, category, record_date)
-            if ok:
-                added_records.append((operation, amount, category, record_date))
+    added_records = await save_parsed_records(user_id, records_to_add)
 
     # Формируем красивый ответ
     if not added_records:
@@ -477,24 +538,14 @@ async def handle_direct_record(message: Message, **kwargs) -> None:
         )
         return
 
+    # Получаем user_id (из middleware или БД)
+    user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
+    if not user_id:
+        await message.answer("Ошибка. Отправьте /start для регистрации.")
+        return
+
     # Сохраняем в БД
-    async with async_session() as session:
-        # Используем get вместо set — пользователь уже создан при /start
-        user = await get_user_by_tg_id(session, message.from_user.id)
-        if not user:
-            # Редкий случай: пользователь не зарегистрирован
-            user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
-            if not user:
-                await message.answer("Ошибка. Отправьте /start для регистрации.")
-                return
-
-        user_id = user.id
-
-        added_records = []
-        for operation, amount, category, record_date in records_to_add:
-            ok = await add_record(session, user_id, operation, amount, category, record_date)
-            if ok:
-                added_records.append((operation, amount, category, record_date))
+    added_records = await save_parsed_records(user_id, records_to_add)
 
     # Формируем красивый ответ
     if not added_records:
@@ -856,14 +907,14 @@ async def menu_history_custom_period(
         return
 
     # Проверяем, что даты не в будущем
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
-    if date_from.replace(tzinfo=ZoneInfo("Europe/Moscow")) > now:
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    if date_from.replace(tzinfo=ZoneInfo(TIMEZONE)) > now:
         await message.answer("Начальная дата не может быть в будущем.")
         return
 
     # Устанавливаем время для конечной даты (конец дня)
-    date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo("Europe/Moscow"))
-    date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo("Europe/Moscow"))
+    date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(TIMEZONE))
+    date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE))
 
     # Загружаем записи за указанный период (один запрос вместо трёх)
     async with async_session() as session:
@@ -994,7 +1045,7 @@ async def menu_report_year(
         await state.clear()
         return
 
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    now = datetime.now(ZoneInfo(TIMEZONE))
     current_year = now.year
     current_month = now.month
 
@@ -1060,7 +1111,7 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         return
 
     # Проверка на будущий месяц
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    now = datetime.now(ZoneInfo(TIMEZONE))
     if year > now.year or (year == now.year and month > now.month):
         await callback.message.edit_text("Нельзя получить отчет за будущий месяц.")
         await state.clear()
@@ -1156,17 +1207,17 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
         prev_year, prev_month = year, month - 1
 
     # Диапазоны дат
-    cur_date_from = datetime(year, month, 1, tzinfo=ZoneInfo("Europe/Moscow"))
+    cur_date_from = datetime(year, month, 1, tzinfo=ZoneInfo(TIMEZONE))
     if month == 12:
-        cur_date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+        cur_date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
     else:
-        cur_date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+        cur_date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
 
-    prev_date_from = datetime(prev_year, prev_month, 1, tzinfo=ZoneInfo("Europe/Moscow"))
+    prev_date_from = datetime(prev_year, prev_month, 1, tzinfo=ZoneInfo(TIMEZONE))
     if prev_month == 12:
-        prev_date_to = datetime(prev_year + 1, 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+        prev_date_to = datetime(prev_year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
     else:
-        prev_date_to = datetime(prev_year, prev_month + 1, 1, tzinfo=ZoneInfo("Europe/Moscow")) - timedelta(seconds=1)
+        prev_date_to = datetime(prev_year, prev_month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
 
     await callback.answer("⏳ Формирую сравнение...")
 
@@ -1369,9 +1420,9 @@ async def menu_delete_period(
 
         # Вычисляем диапазон дат для месяца
         from calendar import monthrange
-        start_date = datetime(year, month, 1, 0, 0, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+        start_date = datetime(year, month, 1, 0, 0, 0, tzinfo=ZoneInfo(TIMEZONE))
         last_day = monthrange(year, month)[1]
-        end_date = datetime(year, month, last_day, 23, 59, 59, tzinfo=ZoneInfo("Europe/Moscow"))
+        end_date = datetime(year, month, last_day, 23, 59, 59, tzinfo=ZoneInfo(TIMEZONE))
 
         async with async_session() as session:
             user = await get_user_by_tg_id(session, callback.from_user.id)

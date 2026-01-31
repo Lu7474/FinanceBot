@@ -10,7 +10,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from core.handlers import router
 from core.database.models import async_main, engine
-from core.utils import RateLimitMiddleware, shutdown_executor
+from core.utils import RateLimitMiddleware, UserMiddleware, shutdown_executor
 from config import BOT_TOKEN, PROXY_URL
 
 
@@ -28,6 +28,10 @@ async def main():
     # Защита от спама: 20 запросов/мин на пользователя
     dp.message.middleware(RateLimitMiddleware())
     dp.callback_query.middleware(RateLimitMiddleware())
+
+    # Кэширование user_id для всех хендлеров
+    dp.message.middleware(UserMiddleware())
+    dp.callback_query.middleware(UserMiddleware())
 
     # Подключаем обработчики
     dp.include_router(router)

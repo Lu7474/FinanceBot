@@ -11,6 +11,7 @@ from sqlalchemy import delete, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.models import User, Record
+from config import TIMEZONE
 
 
 # ==================== Пользователи ====================
@@ -74,7 +75,7 @@ def _apply_period_filter(
 ):
     # Используем переданное время или создаём новое (для обратной совместимости)
     if now is None:
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
 
     if within == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -104,14 +105,14 @@ def _apply_period_filter(
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         query = query.where(Record.created_at >= start)
     elif within == "date" and date_from:
-        start = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo("Europe/Moscow"))
-        end = date_from.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo("Europe/Moscow"))
+        start = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(TIMEZONE))
+        end = date_from.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE))
         query = query.where(Record.created_at.between(start, end))
     elif within == "range" and date_from and date_to:
         if date_from.tzinfo is None:
-            date_from = date_from.replace(tzinfo=ZoneInfo("Europe/Moscow"))
+            date_from = date_from.replace(tzinfo=ZoneInfo(TIMEZONE))
         if date_to.tzinfo is None:
-            date_to = date_to.replace(tzinfo=ZoneInfo("Europe/Moscow"))
+            date_to = date_to.replace(tzinfo=ZoneInfo(TIMEZONE))
         query = query.where(Record.created_at.between(date_from, date_to))
 
     return query
@@ -138,7 +139,7 @@ async def count_records(
         Количество записей
     """
     try:
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
         query = select(func.count(Record.id)).where(Record.user_id == user_id)
         query = _apply_period_filter(query, within, date_from, date_to, now=now)
         result = await session.execute(query)
@@ -173,7 +174,7 @@ async def get_records(
         Список записей Record, отсортированных по дате (новые первые)
     """
     try:
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
         query = select(Record).where(Record.user_id == user_id)
         query = _apply_period_filter(query, within, date_from, date_to, now=now)
         query = query.order_by(Record.created_at.asc())  # Хронологический порядок
@@ -198,7 +199,7 @@ async def get_totals(
 ) -> tuple[Decimal, Decimal]:
     """Возвращает (сумма_доходов, сумма_расходов) одним запросом."""
     try:
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
         # Один запрос с условной агрегацией
         query = select(
             func.coalesce(
@@ -359,7 +360,7 @@ async def get_history_data(
         (total_count, income_sum, expense_sum, records)
     """
     try:
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
 
         # 1. COUNT + SUM одним запросом
         count_totals_query = select(
@@ -414,7 +415,7 @@ async def get_monthly_totals(
         Список кортежей [(год, месяц, сумма), ...] отсортированный по дате
     """
     try:
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
         # 365 дней назад
         start_date = now - timedelta(days=365)
 

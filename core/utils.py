@@ -29,6 +29,7 @@ from config import (
     CHART_TIMEOUT_SECONDS,
     CHART_DPI,
     MAX_CAPTION_LENGTH,
+    TIMEZONE,
 )
 
 
@@ -152,7 +153,7 @@ def make_report_text(
 async def get_available_years_and_months(
     session: Any, user_id: int, operation: Optional[str] = None
 ) -> Dict[int, List[int]]:
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    now = datetime.now(ZoneInfo(TIMEZONE))
     current_year = now.year
     current_month = now.month
 
@@ -690,5 +691,36 @@ class RateLimitMiddleware(BaseMiddleware):
             elif isinstance(event, CallbackQuery):
                 await event.answer(f"Подождите {retry_after} сек.", show_alert=True)
             return None
+
+        return await handler(event, data)
+
+
+# Middleware для получения user_id из БД (кэширует на время обработки события)
+class UserMiddleware(BaseMiddleware):
+    """Получает внутренний user_id из БД один раз и передаёт в хендлеры."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        # Ленивый импорт для избежания циклических зависимостей
+        from core.database.models import async_session
+        from core.database.requests import get_user_by_tg_id
+
+        tg_id = None
+        if isinstance(event, Message) and event.from_user:
+            tg_id = event.from_user.id
+        elif isinstance(event, CallbackQuery) and event.from_user:
+            tg_id = event.from_user.id
+
+        if tg_id:
+            async with async_session() as session:
+                user = await get_user_by_tg_id(session, tg_id)
+                if user:
+                    # Передаём только ID, не ORM объект (избегаем detached state)
+                    data["user_id"] = user.id
+                    data["user_tg_id"] = tg_id
 
         return await handler(event, data)

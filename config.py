@@ -33,3 +33,6 @@ CHART_DPI = 150                    # DPI графика (150 достаточн�
 # Telegram лимиты
 MAX_CAPTION_LENGTH = 1024          # Лимит символов caption в Telegram
 MAX_MESSAGE_LENGTH = 4096          # Лимит символов сообщения в Telegram
+
+# Часовой пояс
+TIMEZONE = "Europe/Moscow"         # Timezone для всех дат в приложении
