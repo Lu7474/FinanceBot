@@ -122,9 +122,19 @@ waiting_for_delete_confirm  — подтверждение удаления
     → выбор года → выбор месяца
     → menu_report_month()
     → get_categories_summary() — SQL GROUP BY
-    → build_report_pie() — генерация PNG графика
+    → build_report_pie() — генерация PNG столбчатого графика
     → make_report_text() — формирование caption
     → отправка фото с отчётом
+```
+
+### 5.1 Сравнение периодов
+```
+[Сравнить периоды] (после отчёта)
+    → handle_compare_periods()
+    → get_monthly_totals() — итоги по месяцам за год
+    → build_trend_chart() — генерация PNG графика тренда
+    → make_comparison_text() — формирование caption
+    → отправка фото с трендом
 ```
 
 ### 6. Удаление записи (с подтверждением)
@@ -179,7 +189,7 @@ datetime.now(ZoneInfo("Europe/Moscow"))
 - Проверка длины сообщения истории (4000 символов)
 
 ### Категории в графике
-Если категорий больше 7, остальные объединяются в "Прочее" (`MAX_CATEGORIES_IN_PIE`).
+Если категорий больше 5, остальные объединяются в "Прочее" (`MAX_CATEGORIES_IN_PIE`).
 
 ## Обработка ошибок
 
@@ -213,18 +223,22 @@ except (IndexError, ValueError, AttributeError):
 
 ## Конфигурация
 
-| Параметр | Где | Значение |
-|----------|-----|----------|
-| BOT_TOKEN | .env | Токен от @BotFather |
-| RECORDS_PER_PAGE | handlers.py | 15 |
-| MAX_SHOW_ALL_RECORDS | handlers.py | 50 |
-| MAX_CATEGORY_LENGTH | handlers.py | 50 |
-| MAX_AMOUNT | handlers.py | 1,000,000 |
-| MAX_CATEGORIES_IN_PIE | utils.py | 7 |
-| MAX_CAPTION_LENGTH | utils.py | 1024 |
-| CHART_TIMEOUT_SECONDS | utils.py | 10 |
-| CHART_DPI | utils.py | 150 |
-| Rate limit | utils.py | 20 req/min |
+Все константы вынесены в `config.py`:
+
+| Параметр | Значение |
+|----------|----------|
+| BOT_TOKEN | Токен от @BotFather (.env) |
+| RECORDS_PER_PAGE | 15 |
+| MAX_SHOW_ALL_RECORDS | 50 |
+| MAX_CATEGORY_LENGTH | 50 |
+| MAX_AMOUNT | 1,000,000 |
+| MAX_CATEGORIES_IN_PIE | 5 |
+| MAX_CAPTION_LENGTH | 1024 |
+| MAX_MESSAGE_LENGTH | 4096 |
+| CHART_TIMEOUT_SECONDS | 10 |
+| CHART_DPI | 150 |
+| TIMEZONE | Europe/Moscow |
+| Rate limit | 20 req/min (в utils.py) |
 
 ## Тестирование
 
@@ -233,6 +247,7 @@ pytest tests/ -v
 ```
 
 Покрытие:
-- `test_utils.py` — build_report_pie, format_money
+- `test_utils.py` — build_report_pie, build_trend_chart, format_money
 - `test_keyboards.py` — клавиатуры
 - `test_db.py`, `test_db_extended.py` — CRUD операции
+- `test_parse_record.py` — парсинг быстрого ввода
