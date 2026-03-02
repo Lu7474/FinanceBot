@@ -1,32 +1,30 @@
-# FinanceBot
+# FinanceBot Configuration & Rules
 
-Telegram бот для учёта личных финансов на aiogram 3.x.
+## System Behavior
+- **Conciseness First**: Respond with minimal necessary text.
+- **Language Policy**: Use English for all code, internal logic, and architecture discussions. 
+- **User-Facing Content**: Use Russian ONLY for bot strings (UI/Messages) and high-level logic summaries if requested.
+- **Token Saving**: Avoid verbose explanations. Use technical slang (middleware, handler, etc.).
+- If a task is small, implement it immediately without asking for permission or explaining the plan.
 
-## Стек
-- Python 3.11+
-- aiogram 3.20
-- SQLAlchemy 2.0 + aiosqlite
-- matplotlib для графиков
-- pytest + pytest-asyncio для тестов
+## Tech Stack
+- Python 3.11+, aiogram 3.20
+- SQLAlchemy 2.0 (Async), aiosqlite
+- Matplotlib, Pytest (asyncio)
 
-## Структура
-- `bot.py` — точка входа
-- `config.py` — конфигурация
-- `core/` — основная логика (handlers, keyboards, utils)
-- `tests/` — тесты
+## Project Structure & Commands
+- Entry: `bot.py` | Config: `config.py`
+- Core: `core/` (handlers, keyboards, utils)
+- Tests: `tests/`
+- Run: `python bot.py`
+- Test: `./env/Scripts/python.exe -m pytest`
+- Lint: `ruff check . --fix` | Format: `black .`
 
-## Стиль кода
-- Следуй PEP8
-- Используй type hints
-- Async/await везде
-- Docstrings на русском языке
+## Code Style
+- **PEP8 & Type Hints**: Mandatory.
+- **Documentation**: Use short, concise Docstrings. Use English for technical docstrings to save tokens. Use Russian only for complex business-logic explanations.
+- **Bot Strings**: Keep all `f-strings` for Telegram UI in Russian as per requirements.
 
-## Команды
-- Запуск: `python bot.py`
-- Тесты: `./env/Scripts/python.exe -m pytest`
-- Линтер: `ruff check .`
-
-## Важно
-- Не читай .env файлы
-- База данных: SQLite (db.sqlite3)
-- Все тексты бота на русском языке
+## Constraints
+- **Security**: NEVER read `.env` or `.sqlite3` files (already in permissions).
+- **Environment**: Always use the virtual env in `./env/Scripts/`.

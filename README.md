@@ -54,10 +54,24 @@ pip install -r requirements.txt
 
 ### 5. Настройка конфигурации
 
-Создайте файл `.env` в корне проекта:
-```env
-BOT_TOKEN=your_telegram_bot_token_here
+Скопируйте файл `.env.example` в `.env`:
+
+**Windows:**
+```bash
+copy .env.example .env
 ```
+
+**Linux/MacOS:**
+```bash
+cp .env.example .env
+```
+
+Откройте файл `.env` и укажите ваш Telegram Bot Token (получить у [@BotFather](https://t.me/BotFather)):
+```env
+BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+```
+
+Опционально можно настроить прокси и путь к базе данных (см. комментарии в `.env.example`).
 
 ### 6. Запуск бота
 ```bash

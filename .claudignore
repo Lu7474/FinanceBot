@@ -1,0 +1,16 @@
+env/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+*.sqlite3
+*.log
+.env
+.env.*
+
+*.png
+*.jpg
+*.jpeg
