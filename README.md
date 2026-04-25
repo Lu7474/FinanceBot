@@ -1,6 +1,27 @@
 # FinanceBot
 
-Telegram-бот для ведения личной финансовой отчетности с возможностью отслеживания доходов и расходов, создания отчетов и анализа трат по категориям.
+> Async Telegram-бот для учёта личных финансов — **aiogram 3** + **SQLAlchemy 2.0 async**
+
+[![Tests](https://github.com/Lu7474/FinanceBot/actions/workflows/tests.yml/badge.svg)](https://github.com/Lu7474/FinanceBot/actions/workflows/tests.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
+| | |
+|---|---|
+| Ввод | `+5000 зарплата` / `-200 кофе` — одна строка без кнопок |
+| История | пагинация, 8 периодов, произвольный диапазон дат |
+| Отчёты | столбчатые диаграммы по категориям (matplotlib) |
+| Аналитика | сравнение периодов, график тренда по месяцам |
+| Тесты | 39 тестов — БД, утилиты, клавиатуры, парсинг |
+
+## Почему это не просто бот
+
+- **Async I/O** — aiogram 3 + SQLAlchemy 2.0 async engine + aiosqlite
+- **Оптимизация запросов** — составные индексы, `CASE WHEN` агрегация в одном запросе вместо двух
+- **FSM** — валидация многошаговых диалогов через aiogram FSM states
+- **Пагинация** — инлайн-навигация, 15 записей/страница, cursor-based
+- **Агрегация** — `GROUP BY` по категориям, нормализация, хвост → «Прочее»
+- **Тестирование** — pytest-asyncio, изолированная in-memory БД на каждый тест
 
 ## Возможности
 
