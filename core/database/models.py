@@ -1,11 +1,12 @@
 """
-SQLAlchemy модели: User и Record. Настройка подключения к БД.
+SQLAlchemy модели: User, Account и Record. Настройка подключения к БД.
 """
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime, Index
+from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime, Index, text
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -39,6 +40,21 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     records = relationship("Record", back_populates="user")        # Связь с записями
+    accounts = relationship("Account", back_populates="user", cascade="all, delete-orphan")
+
+
+# Счёт пользователя (Наличные, Карта и т.д.)
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    balance_offset: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), default=Decimal("0"), server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    user = relationship("User", back_populates="accounts")
+    records = relationship("Record", back_populates="account")
 
 
 # Запись дохода или расхода
@@ -58,7 +74,11 @@ class Record(Base):
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))        # Сумма
     category: Mapped[str] = mapped_column(String(50), default="не указано")  # Категория (макс 50 символов)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now, index=True)  # Индекс для сортировки
+    account_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     user = relationship("User", back_populates="records")
+    account = relationship("Account", back_populates="records")
 
     def to_dict(self, include_id: bool = False) -> dict:
         """Конвертирует запись в словарь для передачи в UI."""
@@ -76,7 +96,23 @@ class Record(Base):
 
 # ==================== Инициализация ====================
 
-# Создаёт таблицы в БД (вызывается при старте бота)
+async def _migrate(conn) -> None:
+    """Applies additive schema migrations safe for existing DBs."""
+    # Add account_id to records if missing (SQLite supports ADD COLUMN)
+    result = await conn.execute(text("PRAGMA table_info(records)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "account_id" not in columns:
+        await conn.execute(
+            text("ALTER TABLE records ADD COLUMN account_id INTEGER REFERENCES accounts(id)")
+        )
+    result = await conn.execute(text("PRAGMA table_info(accounts)"))
+    acc_columns = {row[1] for row in result.fetchall()}
+    if "balance_offset" not in acc_columns:
+        await conn.execute(text("ALTER TABLE accounts ADD COLUMN balance_offset DECIMAL(10,2) NOT NULL DEFAULT 0"))
+
+
+# Создаёт таблицы в БД и применяет миграции (вызывается при старте бота)
 async def async_main():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate(conn)

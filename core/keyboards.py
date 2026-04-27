@@ -2,6 +2,7 @@
 Клавиатуры бота: главное меню, выбор периода, типа отчёта и т.д.
 """
 from functools import lru_cache
+from typing import List
 
 from aiogram.types import (
     InlineKeyboardMarkup,
@@ -9,6 +10,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
 )
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.utils import RU_MONTHS
 
@@ -24,7 +26,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Доход"), KeyboardButton(text="Расход")],
             [KeyboardButton(text="История"), KeyboardButton(text="Отчёт")],
-            [KeyboardButton(text="Удалить запись")],
+            [KeyboardButton(text="Счета"), KeyboardButton(text="Удалить запись")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -143,3 +145,73 @@ def confirm_delete_keyboard(record_id: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+# ==================== Счета ====================
+
+# Inline-клавиатура управления счетами (показывается под балансом)
+@lru_cache(maxsize=1)
+def accounts_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="➕ Создать", callback_data="acc_create"),
+                InlineKeyboardButton(text="✏️ Переименовать", callback_data="acc_rename"),
+            ],
+            [
+                InlineKeyboardButton(text="🗑️ Удалить", callback_data="acc_delete"),
+                InlineKeyboardButton(text="↔️ Перевод", callback_data="acc_transfer"),
+            ],
+            [
+                InlineKeyboardButton(text="💰 Установить баланс", callback_data="acc_set_balance"),
+                InlineKeyboardButton(text="📋 История", callback_data="acc_history"),
+            ],
+        ]
+    )
+
+
+def account_select_keyboard(accounts: List) -> InlineKeyboardMarkup:
+    """Keyboard for selecting account when adding a record (includes 'Skip')."""
+    builder = InlineKeyboardBuilder()
+    for acc in accounts:
+        builder.button(text=acc.name, callback_data=f"acc_select:{acc.id}")
+    builder.button(text="Пропустить", callback_data="acc_skip")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def account_manage_keyboard(accounts: List, action: str) -> InlineKeyboardMarkup:
+    """Keyboard for selecting account for rename/delete/transfer.
+
+    action: 'rename_select' | 'delete_select' | 'transfer_from' | 'transfer_to:{from_id}'
+    """
+    builder = InlineKeyboardBuilder()
+    for acc in accounts:
+        builder.button(text=acc.name, callback_data=f"acc_{action}:{acc.id}")
+    builder.button(text="Отмена", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def confirm_account_delete_keyboard(account_id: int) -> InlineKeyboardMarkup:
+    """Confirmation keyboard for account deletion (no records case)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Да, удалить", callback_data=f"acc_delete_confirm:{account_id}"
+                ),
+                InlineKeyboardButton(text="Отмена", callback_data="acc_delete_cancel"),
+            ]
+        ]
+    )
+
+
+def account_delete_move_keyboard(from_id: int, targets: List) -> InlineKeyboardMarkup:
+    """Shows target accounts to move records before deletion."""
+    builder = InlineKeyboardBuilder()
+    for acc in targets:
+        builder.button(text=acc.name, callback_data=f"acc_delete_move:{from_id}:{acc.id}")
+    builder.button(text="Отмена", callback_data="acc_delete_cancel")
+    builder.adjust(1)
+    return builder.as_markup()

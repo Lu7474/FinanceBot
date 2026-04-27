@@ -1,5 +1,5 @@
 """
-CRUD-операции с БД: работа с пользователями и записями.
+CRUD-операции с БД: работа с пользователями, записями и счетами.
 """
 import logging
 from datetime import datetime, timedelta
@@ -7,11 +7,16 @@ from decimal import Decimal
 from typing import Optional, List
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select, func, case
+from sqlalchemy import delete, select, func, case, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import User, Record
+from core.database.models import User, Record, Account
 from config import TIMEZONE
+
+MAX_ACCOUNTS_PER_USER = 10
+TRANSFER_CATEGORY = "Перевод"
+BALANCE_SET_CATEGORY = "Установка баланса"
+SYSTEM_CATEGORIES = (TRANSFER_CATEGORY, BALANCE_SET_CATEGORY)
 
 
 # ==================== Пользователи ====================
@@ -140,7 +145,10 @@ async def count_records(
     """
     try:
         now = datetime.now(ZoneInfo(TIMEZONE))
-        query = select(func.count(Record.id)).where(Record.user_id == user_id)
+        query = select(func.count(Record.id)).where(
+            Record.user_id == user_id,
+            Record.category.not_in(SYSTEM_CATEGORIES),
+        )
         query = _apply_period_filter(query, within, date_from, date_to, now=now)
         result = await session.execute(query)
         return result.scalar() or 0
@@ -158,26 +166,20 @@ async def get_records(
     date_to: Optional[datetime] = None,
     limit: Optional[int] = None,
     offset: int = 0,
+    account_id: Optional[int] = None,
+    include_transfers: bool = False,
 ) -> List[Record]:
-    """Получает записи пользователя с фильтром по периоду и пагинацией.
-
-    Args:
-        session: Асинхронная сессия БД
-        user_id: ID пользователя (внутренний, не tg_id)
-        within: Период ("all", "day", "month", "year", "date", "range")
-        date_from: Начальная дата (для "date" и "range")
-        date_to: Конечная дата (для "range")
-        limit: Максимальное количество записей (для пагинации)
-        offset: Смещение (для пагинации)
-
-    Returns:
-        Список записей Record, отсортированных по дате (новые первые)
-    """
+    """Получает записи пользователя с фильтром по периоду и пагинацией."""
     try:
         now = datetime.now(ZoneInfo(TIMEZONE))
-        query = select(Record).where(Record.user_id == user_id)
+        conditions = [Record.user_id == user_id]
+        if not include_transfers:
+            conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
+        if account_id is not None:
+            conditions.append(Record.account_id == account_id)
+        query = select(Record).where(*conditions)
         query = _apply_period_filter(query, within, date_from, date_to, now=now)
-        query = query.order_by(Record.created_at.asc())  # Хронологический порядок
+        query = query.order_by(Record.created_at.asc())
 
         if limit is not None:
             query = query.limit(limit).offset(offset)
@@ -208,7 +210,7 @@ async def get_totals(
             func.coalesce(
                 func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
             ).label("expense"),
-        ).where(Record.user_id == user_id)
+        ).where(Record.user_id == user_id, Record.category.not_in(SYSTEM_CATEGORIES))
 
         query = _apply_period_filter(query, within, date_from, date_to, now=now)
         result = await session.execute(query)
@@ -232,6 +234,7 @@ async def add_record(
     amount: Decimal,
     category: str = "не указано",
     created_at: Optional[datetime] = None,
+    account_id: Optional[int] = None,
 ) -> bool:
     """Добавляет новую запись дохода или расхода.
 
@@ -242,6 +245,7 @@ async def add_record(
         amount: Сумма операции
         category: Категория (по умолчанию "не указано")
         created_at: Дата записи (опционально, по умолчанию текущая)
+        account_id: ID счёта (опционально)
 
     Returns:
         True если запись добавлена, False при ошибке
@@ -260,6 +264,7 @@ async def add_record(
             operation=operation,
             amount=amount,
             category=category,
+            account_id=account_id,
         )
         if created_at is not None:
             record.created_at = created_at
@@ -325,7 +330,11 @@ async def get_categories_summary(
                 Record.category,
                 func.sum(Record.amount).label("total"),
             )
-            .where(Record.user_id == user_id, Record.operation == operation)
+            .where(
+                Record.user_id == user_id,
+                Record.operation == operation,
+                Record.category.not_in(SYSTEM_CATEGORIES),
+            )
             .group_by(Record.category)
         )
 
@@ -353,6 +362,8 @@ async def get_history_data(
     date_to: Optional[datetime] = None,
     limit: Optional[int] = None,
     offset: int = 0,
+    account_id: Optional[int] = None,
+    include_transfers: bool = False,
 ) -> tuple[int, Decimal, Decimal, List[Record]]:
     """Получает все данные для истории одним вызовом.
 
@@ -361,6 +372,12 @@ async def get_history_data(
     """
     try:
         now = datetime.now(ZoneInfo(TIMEZONE))
+
+        base_conditions = [Record.user_id == user_id]
+        if not include_transfers:
+            base_conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
+        if account_id is not None:
+            base_conditions.append(Record.account_id == account_id)
 
         # 1. COUNT + SUM одним запросом
         count_totals_query = select(
@@ -371,7 +388,7 @@ async def get_history_data(
             func.coalesce(
                 func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
             ).label("expense"),
-        ).where(Record.user_id == user_id)
+        ).where(*base_conditions)
         count_totals_query = _apply_period_filter(count_totals_query, within, date_from, date_to, now=now)
 
         result = await session.execute(count_totals_query)
@@ -381,7 +398,7 @@ async def get_history_data(
         expense_sum = Decimal(str(row.expense))
 
         # 2. Записи с пагинацией
-        records_query = select(Record).where(Record.user_id == user_id)
+        records_query = select(Record).where(*base_conditions)
         records_query = _apply_period_filter(records_query, within, date_from, date_to, now=now)
         records_query = records_query.order_by(Record.created_at.asc())
 
@@ -428,6 +445,7 @@ async def get_monthly_totals(
             .where(
                 Record.user_id == user_id,
                 Record.operation == operation,
+                Record.category.not_in(SYSTEM_CATEGORIES),
                 Record.created_at >= start_date,
             )
             .group_by(
@@ -450,3 +468,264 @@ async def get_monthly_totals(
     except Exception as e:
         logging.exception(f"Ошибка при получении месячных сумм для user_id {user_id}: {e}")
         return []
+
+
+# ==================== Счета ====================
+
+async def create_account(
+    session: AsyncSession, user_id: int, name: str
+) -> Optional[Account]:
+    """Creates a new account for the user.
+
+    Returns None if limit reached or name already exists.
+    """
+    try:
+        count = await session.scalar(
+            select(func.count(Account.id)).where(Account.user_id == user_id)
+        )
+        if (count or 0) >= MAX_ACCOUNTS_PER_USER:
+            return None
+
+        existing = await session.scalar(
+            select(Account).where(Account.user_id == user_id, Account.name == name)
+        )
+        if existing:
+            return None
+
+        account = Account(user_id=user_id, name=name)
+        session.add(account)
+        await session.commit()
+        await session.refresh(account)
+        return account
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при создании счёта для user_id {user_id}: {e}")
+        return None
+
+
+async def get_accounts(session: AsyncSession, user_id: int) -> List[Account]:
+    """Returns all accounts for the user ordered by creation date."""
+    try:
+        result = await session.execute(
+            select(Account).where(Account.user_id == user_id).order_by(Account.created_at)
+        )
+        return list(result.scalars().all())
+    except Exception as e:
+        logging.exception(f"Ошибка при получении счетов для user_id {user_id}: {e}")
+        return []
+
+
+async def rename_account(
+    session: AsyncSession, account_id: int, user_id: int, new_name: str
+) -> bool:
+    """Renames account. Returns False if not found or name already taken."""
+    try:
+        account = await session.scalar(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        if not account:
+            return False
+
+        duplicate = await session.scalar(
+            select(Account).where(
+                Account.user_id == user_id,
+                Account.name == new_name,
+                Account.id != account_id,
+            )
+        )
+        if duplicate:
+            return False
+
+        account.name = new_name
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при переименовании счёта {account_id}: {e}")
+        return False
+
+
+async def delete_account(
+    session: AsyncSession, account_id: int, user_id: int
+) -> bool:
+    """Sets account_id=NULL in linked records, then deletes the account."""
+    try:
+        account = await session.scalar(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        if not account:
+            return False
+
+        await session.execute(
+            update(Record).where(Record.account_id == account_id).values(account_id=None)
+        )
+        await session.delete(account)
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при удалении счёта {account_id}: {e}")
+        return False
+
+
+async def move_and_delete_account(
+    session: AsyncSession, account_id: int, user_id: int, target_account_id: int
+) -> bool:
+    """Moves all records to target account, then deletes the source account."""
+    try:
+        account = await session.scalar(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        if not account:
+            return False
+        await session.execute(
+            update(Record).where(Record.account_id == account_id).values(account_id=target_account_id)
+        )
+        await session.delete(account)
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при переносе и удалении счёта {account_id}: {e}")
+        return False
+
+
+async def get_account_balances(
+    session: AsyncSession, user_id: int
+) -> List[tuple]:
+    """Returns [(Account, balance), ...] with a single aggregation query."""
+    try:
+        accounts = await get_accounts(session, user_id)
+        if not accounts:
+            return []
+
+        account_ids = [a.id for a in accounts]
+        result = await session.execute(
+            select(
+                Record.account_id,
+                func.coalesce(
+                    func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+                ).label("income"),
+                func.coalesce(
+                    func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+                ).label("expense"),
+            )
+            .where(Record.account_id.in_(account_ids), Record.category != BALANCE_SET_CATEGORY)
+            .group_by(Record.account_id)
+        )
+        balance_map: dict[int, Decimal] = {
+            row.account_id: Decimal(str(row.income)) - Decimal(str(row.expense))
+            for row in result.fetchall()
+        }
+        return [
+            (acc, balance_map.get(acc.id, Decimal("0")) + Decimal(str(acc.balance_offset)))
+            for acc in accounts
+        ]
+    except Exception as e:
+        logging.exception(f"Ошибка при получении балансов для user_id {user_id}: {e}")
+        return []
+
+
+async def get_account_balance(session: AsyncSession, account_id: int) -> Decimal:
+    """Returns balance for a single account (transactions + offset)."""
+    acc_result = await session.execute(select(Account).where(Account.id == account_id))
+    acc = acc_result.scalar_one_or_none()
+    if acc is None:
+        return Decimal("0")
+    result = await session.execute(
+        select(
+            func.coalesce(func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0).label("income"),
+            func.coalesce(func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0).label("expense"),
+        ).where(Record.account_id == account_id, Record.category != BALANCE_SET_CATEGORY)
+    )
+    row = result.one()
+    tx_balance = Decimal(str(row.income)) - Decimal(str(row.expense))
+    return tx_balance + Decimal(str(acc.balance_offset))
+
+
+async def set_account_balance(
+    session: AsyncSession, account_id: int, desired_balance: Decimal, user_id: int
+) -> bool:
+    """Sets account balance via balance_offset and creates a history record."""
+    try:
+        acc_result = await session.execute(select(Account).where(Account.id == account_id))
+        acc = acc_result.scalar_one_or_none()
+        if acc is None:
+            return False
+        tx_result = await session.execute(
+            select(
+                func.coalesce(func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0).label("income"),
+                func.coalesce(func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0).label("expense"),
+            ).where(Record.account_id == account_id, Record.category != BALANCE_SET_CATEGORY)
+        )
+        row = tx_result.one()
+        tx_balance = Decimal(str(row.income)) - Decimal(str(row.expense))
+        acc.balance_offset = desired_balance - tx_balance
+
+        # Replace old balance-set record with new one
+        await session.execute(
+            delete(Record).where(
+                Record.account_id == account_id,
+                Record.category == BALANCE_SET_CATEGORY,
+            )
+        )
+        session.add(Record(
+            user_id=user_id,
+            account_id=account_id,
+            operation="+",
+            amount=desired_balance,
+            category=BALANCE_SET_CATEGORY,
+        ))
+
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при установке баланса для account_id {account_id}: {e}")
+        return False
+
+
+async def get_account_record_count(
+    session: AsyncSession, account_id: int
+) -> int:
+    """Returns the number of records linked to the given account."""
+    try:
+        return await session.scalar(
+            select(func.count(Record.id)).where(Record.account_id == account_id)
+        ) or 0
+    except Exception as e:
+        logging.exception(f"Ошибка при подсчёте записей счёта {account_id}: {e}")
+        return 0
+
+
+async def create_transfer(
+    session: AsyncSession,
+    user_id: int,
+    from_account_id: int,
+    to_account_id: int,
+    amount: Decimal,
+) -> bool:
+    """Creates two records (expense + income) for a transfer between accounts."""
+    try:
+        session.add_all([
+            Record(
+                user_id=user_id,
+                operation="-",
+                amount=amount,
+                category="Перевод",
+                account_id=from_account_id,
+            ),
+            Record(
+                user_id=user_id,
+                operation="+",
+                amount=amount,
+                category="Перевод",
+                account_id=to_account_id,
+            ),
+        ])
+        await session.commit()
+        return True
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при создании перевода для user_id {user_id}: {e}")
+        return False

@@ -34,6 +34,11 @@ from core.keyboards import (
     main_menu_keyboard,
     report_type_keyboard,
     confirm_delete_keyboard,
+    accounts_menu_keyboard,
+    account_select_keyboard,
+    account_manage_keyboard,
+    confirm_account_delete_keyboard,
+    account_delete_move_keyboard,
 )
 from core.utils import (
     get_available_years_and_months,
@@ -56,6 +61,17 @@ from core.database.requests import (
     get_categories_summary,
     get_history_data,
     get_monthly_totals,
+    create_account,
+    get_accounts,
+    rename_account,
+    delete_account,
+    get_account_balances,
+    get_account_balance,
+    set_account_balance,
+    get_account_record_count,
+    create_transfer,
+    move_and_delete_account,
+    MAX_ACCOUNTS_PER_USER,
 )
 from core.database.models import async_session, Record
 from config import (
@@ -112,12 +128,14 @@ async def get_user_id_from_event(
 async def save_parsed_records(
     user_id: int,
     records_to_add: list[tuple],
+    account_id: int | None = None,
 ) -> list[tuple]:
     """Сохраняет распарсенные записи в БД.
 
     Args:
         user_id: Внутренний ID пользователя
         records_to_add: Список кортежей (operation, amount, category, date)
+        account_id: ID счёта (опционально)
 
     Returns:
         Список успешно добавленных записей
@@ -125,7 +143,9 @@ async def save_parsed_records(
     added_records = []
     async with async_session() as session:
         for operation, amount, category, record_date in records_to_add:
-            ok = await add_record(session, user_id, operation, amount, category, record_date)
+            ok = await add_record(
+                session, user_id, operation, amount, category, record_date, account_id
+            )
             if ok:
                 added_records.append((operation, amount, category, record_date))
     return added_records
@@ -177,12 +197,28 @@ def is_delete(message: Message) -> bool:
     return text in ("удалить запись", "удалить", "🗑️ удалить запись", "🗑️ удалить")
 
 
+def is_accounts(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Счета'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() in ("счета", "💳 счета")
+
+
+def is_main_menu_button(message: Message) -> bool:
+    """True если сообщение — кнопка главного меню."""
+    return any([
+        is_income(message), is_expense(message), is_history(message),
+        is_report(message), is_delete(message), is_accounts(message),
+    ])
+
+
 # ==================== FSM States ====================
 # Состояния для многошаговых операций
 
 class AddRecord(StatesGroup):
     """Состояния для добавления записи дохода/расхода."""
-    waiting_for_amount = State()  # Ожидание ввода суммы и категории
+    waiting_for_amount = State()   # Ввод суммы и категории
+    waiting_for_account = State()  # Выбор счёта
 
 
 class MenuStates(StatesGroup):
@@ -198,6 +234,16 @@ class MenuStates(StatesGroup):
     waiting_for_delete_confirm = State()   # Подтверждение удаления
 
 
+class AccountStates(StatesGroup):
+    """Состояния для управления счетами."""
+    waiting_for_account_name = State()   # Ввод названия нового счёта
+    waiting_for_rename_name = State()    # Ввод нового названия при переименовании
+    waiting_for_transfer_amount = State()  # Ввод суммы перевода
+    waiting_for_set_balance = State()    # Ввод желаемого баланса счёта
+    waiting_for_acc_hist_period = State()  # Выбор периода истории счёта
+    waiting_for_acc_hist_page = State()    # Навигация по истории счёта
+
+
 # ==================== Главное меню ====================
 
 @router.message(Command("start"))
@@ -209,6 +255,10 @@ async def handle_start(message: Message, **kwargs) -> None:
         if not user:
             await message.answer("Ошибка при регистрации. Попробуйте позже.")
             return
+        # Создаём счёт по умолчанию для новых пользователей
+        accounts = await get_accounts(session, user.id)
+        if not accounts:
+            await create_account(session, user.id, "Наличные")
 
     # Получаем имя пользователя для приветствия
     first_name = message.from_user.first_name or "друг"
@@ -299,10 +349,11 @@ async def handle_help(message: Message, **kwargs) -> None:
 
 # ==================== Добавление записи ====================
 
-@router.message(StateFilter(None), F.func(lambda m: is_income(m) or is_expense(m)))
+@router.message(~StateFilter(MenuStates.waiting_for_report_type), F.func(lambda m: is_income(m) or is_expense(m)))
 @log_exceptions("Ошибка при обработке операции")
 async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -> None:
     """Начало добавления записи: сохраняем тип операции, просим ввести сумму."""
+    await state.clear()
     is_income_op = is_income(message)
     operation = "+" if is_income_op else "-"
     await state.update_data(operation=operation)
@@ -316,9 +367,21 @@ async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -
     await state.set_state(AddRecord.waiting_for_amount)
 
 
+def _deserialize_records(
+    serialized: list[dict],
+) -> list[tuple[str, Decimal, str, datetime | None]]:
+    """Восстанавливает записи из FSM-state (str → Decimal/datetime)."""
+    result = []
+    for d in serialized:
+        date = datetime.fromisoformat(d["date"]) if d.get("date") else None
+        result.append((d["op"], Decimal(d["amount"]), d["cat"], date))
+    return result
+
+
 def format_added_records_response(
     added_records: list[tuple[str, Decimal, str, datetime | None]],
     errors: list[str] | None = None,
+    account_name: str | None = None,
 ) -> str:
     """Формирует красивый ответ после добавления записей.
 
@@ -367,6 +430,9 @@ def format_added_records_response(
             response += f"📈 Доходы: +{total_income:,.0f}₽\n".replace(",", " ")
         if total_expense > 0:
             response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
+
+    if account_name:
+        response += f"\n💳 Счёт: {account_name}"
 
     if errors:
         response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
@@ -456,27 +522,22 @@ def parse_record_line(
     return operation, amount, category, record_date
 
 
-@router.message(AddRecord.waiting_for_amount)
+@router.message(AddRecord.waiting_for_amount, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при добавлении записи")
 async def handle_amount_and_category(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
-    """Парсинг суммы и категории, сохранение в БД. Поддерживает несколько записей."""
-    # Получаем тип операции из state (по умолчанию)
+    """Парсинг суммы и категории, затем запрос выбора счёта."""
     data = await state.get_data()
     default_operation = data.get("operation")
 
-    # Разбиваем на строки
     lines = message.text.strip().split("\n")
-
-    # Парсим все записи
     records_to_add = []
     errors = []
 
     for i, line in enumerate(lines, 1):
         if not line.strip():
             continue
-
         result = parse_record_line(line, default_operation)
         if result:
             records_to_add.append(result)
@@ -492,25 +553,107 @@ async def handle_amount_and_category(
         )
         return
 
-    # Получаем user_id (из middleware или БД)
     user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
     if not user_id:
         await message.answer("Ошибка. Отправьте /start для регистрации.")
         await state.clear()
         return
 
-    # Сохраняем в БД
-    added_records = await save_parsed_records(user_id, records_to_add)
+    # Сериализуем записи в state (Decimal → str, datetime → isoformat)
+    serialized = [
+        {
+            "op": op,
+            "amount": str(amt),
+            "cat": cat,
+            "date": dt.isoformat() if dt else None,
+        }
+        for op, amt, cat, dt in records_to_add
+    ]
+    await state.update_data(pending_records=serialized, parse_errors=errors, user_id=user_id)
 
-    # Формируем красивый ответ
-    if not added_records:
-        await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
+    # Запрашиваем счёт
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    if not accounts:
+        # Нет счетов — сохраняем без счёта
+        added = await save_parsed_records(user_id, records_to_add)
+        response = format_added_records_response(added, errors)
+        await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
         await state.clear()
         return
 
-    response = format_added_records_response(added_records, errors)
-    await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    await message.answer(
+        "💳 <b>Выберите счёт:</b>",
+        reply_markup=account_select_keyboard(accounts),
+        parse_mode="HTML",
+    )
+    await state.set_state(AddRecord.waiting_for_account)
+
+
+@router.callback_query(F.data.startswith("acc_select:"), AddRecord.waiting_for_account)
+@log_exceptions("Ошибка при выборе счёта")
+async def handle_record_account_select(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Сохраняет записи с выбранным счётом."""
+    try:
+        account_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    serialized = data.get("pending_records", [])
+    errors = data.get("parse_errors", [])
+
+    records_to_add = _deserialize_records(serialized)
+    added = await save_parsed_records(user_id, records_to_add, account_id)
+
+    # Узнаём имя счёта для отображения в ответе
+    account_name: str | None = None
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        for acc in accounts:
+            if acc.id == account_id:
+                account_name = acc.name
+                break
+
+    response = format_added_records_response(added, errors, account_name=account_name)
+    await callback.message.edit_text(response, parse_mode="HTML")
+    await callback.message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
     await state.clear()
+    await callback.answer()
+
+
+@router.callback_query(F.data == "acc_skip", AddRecord.waiting_for_account)
+@log_exceptions("Ошибка при пропуске выбора счёта")
+async def handle_record_account_skip(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Сохраняет записи с первым счётом (по умолчанию)."""
+    data = await state.get_data()
+    user_id = data.get("user_id")
+    serialized = data.get("pending_records", [])
+    errors = data.get("parse_errors", [])
+
+    records_to_add = _deserialize_records(serialized)
+
+    account_id: int | None = None
+    account_name: str | None = None
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        if accounts:
+            account_id = accounts[0].id
+            account_name = accounts[0].name
+
+    added = await save_parsed_records(user_id, records_to_add, account_id)
+    response = format_added_records_response(added, errors, account_name=account_name)
+    await callback.message.edit_text(response, parse_mode="HTML")
+    await callback.message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+    await state.clear()
+    await callback.answer()
 
 
 @router.message(StateFilter(None), F.text.regexp(r"^([+-]\d|\d{1,2}\.\d{1,2}\.?\d{0,2}\s+[+-]?\d)"))
@@ -547,10 +690,15 @@ async def handle_direct_record(message: Message, **kwargs) -> None:
         await message.answer("Ошибка. Отправьте /start для регистрации.")
         return
 
-    # Сохраняем в БД
-    added_records = await save_parsed_records(user_id, records_to_add)
+    # Для быстрого ввода берём первый счёт молча (без диалога)
+    account_id: int | None = None
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        if accounts:
+            account_id = accounts[0].id
 
-    # Формируем красивый ответ
+    added_records = await save_parsed_records(user_id, records_to_add, account_id)
+
     if not added_records:
         await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
         return
@@ -583,6 +731,7 @@ def build_history_page(
     period: str = "",
     period_label: str = "",
     total_count: int = 0,
+    header: str = "",
 ) -> tuple[str, InlineKeyboardBuilder]:
     """Формирует текст истории и кнопки навигации для указанной страницы.
 
@@ -616,7 +765,10 @@ def build_history_page(
         period_name = PERIOD_NAMES.get(period, "")
 
     # Формируем заголовок
-    text = f"📊 <b>История</b> • {period_name}\n\n" if period_name else "📊 <b>История</b>\n\n"
+    if header:
+        text = f"{header} • {period_name}\n\n" if period_name else f"{header}\n\n"
+    else:
+        text = f"📊 <b>История</b> • {period_name}\n\n" if period_name else "📊 <b>История</b>\n\n"
 
     for date_str, day_records in grouped.items():
         # Итог дня
@@ -673,6 +825,7 @@ def build_history_page(
 @log_exceptions("Ошибка при показе истории")
 async def menu_history(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка История — показываем выбор периода."""
+    await state.clear()
     await message.answer(
         "За какой период показать историю?",
         reply_markup=history_period_keyboard(),
@@ -871,7 +1024,7 @@ async def menu_history_show_all(
     await callback.answer()
 
 
-@router.message(MenuStates.waiting_for_custom_period)
+@router.message(MenuStates.waiting_for_custom_period, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при обработке своего периода")
 async def menu_history_custom_period(
     message: Message, state: FSMContext, **kwargs
@@ -966,10 +1119,11 @@ async def menu_history_custom_period(
 
 # ==================== Отчёт (график) ====================
 
-@router.message(F.func(is_report))
+@router.message(StateFilter("*"), F.func(is_report))
 @log_exceptions("Произошла ошибка при формировании отчёта")
 async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка Отчёт — проверяем наличие записей, просим выбрать тип."""
+    await state.clear()
     async with async_session() as session:
         user = await get_user_by_tg_id(session, message.from_user.id)
         if not user:
@@ -1342,10 +1496,11 @@ def build_delete_keyboard(
     return kb
 
 
-@router.message(F.func(is_delete))
+@router.message(StateFilter("*"), F.func(is_delete))
 @log_exceptions("Ошибка при показе меню удаления")
 async def menu_delete(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка Удалить — показываем выбор периода."""
+    await state.clear()
     await message.answer(
         "За какой период показать записи для удаления?",
         reply_markup=delete_period_keyboard(),
@@ -1738,6 +1893,743 @@ async def menu_delete_confirm(
     # --- Неизвестный callback ---
     await callback.answer("Некорректные данные.")
     await state.clear()
+
+
+# ==================== Счета ====================
+
+def _build_accounts_text(balances: list[tuple]) -> str:
+    """Формирует текст с балансами по счетам."""
+    if not balances:
+        return "💳 <b>Мои счета</b>\n\nСчетов нет. Нажмите ➕ Создать."
+
+    lines = ["💳 <b>Мои счета</b>\n"]
+    total = Decimal("0")
+    for acc, balance in balances:
+        sign = "-" if balance < 0 else ""
+        formatted = f"{sign}{abs(balance):,.0f}₽".replace(",", " ")
+        lines.append(f"<b>{acc.name}</b>  —  {formatted}")
+        total += balance
+
+    lines.append("\n" + "─" * 22)
+    sign = "-" if total < 0 else ""
+    total_str = f"{sign}{abs(total):,.0f}₽".replace(",", " ")
+    lines.append(f"Всего:  <b>{total_str}</b>")
+    return "\n".join(lines)
+
+
+@router.message(StateFilter("*"), F.func(is_accounts))
+@log_exceptions("Ошибка при отображении счетов")
+async def handle_accounts(message: Message, state: FSMContext, **kwargs) -> None:
+    """Показывает балансы по счетам и меню управления."""
+    await state.clear()
+    user_id = await get_user_id_from_event(message, kwargs)
+    if not user_id:
+        await message.answer("Ошибка. Отправьте /start для регистрации.")
+        return
+
+    async with async_session() as session:
+        balances = await get_account_balances(session, user_id)
+
+    await message.answer(
+        _build_accounts_text(balances),
+        reply_markup=accounts_menu_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+# --- Создать счёт ---
+
+@router.callback_query(F.data == "acc_create")
+@log_exceptions("Ошибка при создании счёта")
+async def handle_acc_create(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Запрашивает название нового счёта."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    if len(accounts) >= MAX_ACCOUNTS_PER_USER:
+        await callback.answer(f"Нельзя создать более {MAX_ACCOUNTS_PER_USER} счетов.", show_alert=True)
+        return
+
+    await state.update_data(acc_user_id=user_id)
+    await callback.message.edit_text(
+        f"Введите название нового счёта (до 30 символов):"
+    )
+    await state.set_state(AccountStates.waiting_for_account_name)
+    await callback.answer()
+
+
+@router.message(AccountStates.waiting_for_account_name, ~F.func(is_main_menu_button))
+@log_exceptions("Ошибка при сохранении названия счёта")
+async def handle_new_account_name(message: Message, state: FSMContext, **kwargs) -> None:
+    """Создаёт новый счёт с введённым названием."""
+    name = message.text.strip()[:30]
+    if not name:
+        await message.answer("Название не может быть пустым. Введите снова:")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+
+    async with async_session() as session:
+        acc = await create_account(session, user_id, name)
+        if acc is None:
+            accounts = await get_accounts(session, user_id)
+            if len(accounts) >= MAX_ACCOUNTS_PER_USER:
+                await message.answer(
+                    f"Нельзя создать более {MAX_ACCOUNTS_PER_USER} счетов.",
+                    reply_markup=main_menu_keyboard(),
+                )
+            else:
+                await message.answer(
+                    f"Счёт с названием «{name}» уже существует. Введите другое название:"
+                )
+                return
+        else:
+            balances = await get_account_balances(session, user_id)
+            await message.answer(
+                f"✅ Счёт «{acc.name}» создан!\n\n" + _build_accounts_text(balances),
+                reply_markup=accounts_menu_keyboard(),
+                parse_mode="HTML",
+            )
+
+    await state.clear()
+
+
+# --- Переименовать счёт ---
+
+@router.callback_query(F.data == "acc_rename")
+@log_exceptions("Ошибка при переименовании счёта")
+async def handle_acc_rename(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Показывает список счетов для выбора переименования."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    if not accounts:
+        await callback.answer("Нет счетов для переименования.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "Выберите счёт для переименования:",
+        reply_markup=account_manage_keyboard(accounts, "rename_select"),
+    )
+    await state.update_data(acc_user_id=user_id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_rename_select:"))
+@log_exceptions("Ошибка при выборе счёта для переименования")
+async def handle_acc_rename_select(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Сохраняет выбранный счёт и запрашивает новое название."""
+    try:
+        account_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    await state.update_data(rename_account_id=account_id, acc_user_id=user_id)
+    await callback.message.edit_text("Введите новое название счёта (до 30 символов):")
+    await state.set_state(AccountStates.waiting_for_rename_name)
+    await callback.answer()
+
+
+@router.message(AccountStates.waiting_for_rename_name, ~F.func(is_main_menu_button))
+@log_exceptions("Ошибка при применении нового названия")
+async def handle_rename_name(message: Message, state: FSMContext, **kwargs) -> None:
+    """Переименовывает счёт."""
+    new_name = message.text.strip()[:30]
+    if not new_name:
+        await message.answer("Название не может быть пустым. Введите снова:")
+        return
+
+    data = await state.get_data()
+    account_id = data.get("rename_account_id")
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+
+    async with async_session() as session:
+        ok = await rename_account(session, account_id, user_id, new_name)
+        if not ok:
+            await message.answer(
+                f"Счёт с названием «{new_name}» уже существует. Введите другое название:"
+            )
+            return
+
+        balances = await get_account_balances(session, user_id)
+
+    await message.answer(
+        f"✅ Счёт переименован в «{new_name}»!\n\n" + _build_accounts_text(balances),
+        reply_markup=accounts_menu_keyboard(),
+        parse_mode="HTML",
+    )
+    await state.clear()
+
+
+# --- Удалить счёт ---
+
+@router.callback_query(F.data == "acc_delete")
+@log_exceptions("Ошибка при удалении счёта")
+async def handle_acc_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Показывает список счетов для удаления."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    if not accounts:
+        await callback.answer("Нет счетов для удаления.", show_alert=True)
+        return
+
+    if len(accounts) == 1:
+        await callback.answer("Нельзя удалить последний счёт.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "Выберите счёт для удаления:",
+        reply_markup=account_manage_keyboard(accounts, "delete_select"),
+    )
+    await state.update_data(acc_user_id=user_id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_delete_select:"))
+@log_exceptions("Ошибка при выборе счёта для удаления")
+async def handle_acc_delete_select(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Если есть записи — предлагает выбрать счёт для переноса. Иначе — простое подтверждение."""
+    try:
+        account_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        account = next((a for a in accounts if a.id == account_id), None)
+        if not account:
+            await callback.answer("Счёт не найден.")
+            return
+        record_count = await get_account_record_count(session, account_id)
+
+    targets = [a for a in accounts if a.id != account_id]
+
+    if record_count > 0:
+        await callback.message.edit_text(
+            f"⚠️ Счёт <b>«{account.name}»</b> содержит {record_count} записей.\n"
+            f"Куда перенести записи?",
+            reply_markup=account_delete_move_keyboard(account_id, targets),
+            parse_mode="HTML",
+        )
+    else:
+        await callback.message.edit_text(
+            f"Удалить счёт <b>«{account.name}»</b>?",
+            reply_markup=confirm_account_delete_keyboard(account_id),
+            parse_mode="HTML",
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_delete_move:"))
+@log_exceptions("Ошибка при переносе записей и удалении счёта")
+async def handle_acc_delete_move(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Переносит записи на выбранный счёт и удаляет исходный."""
+    try:
+        parts = callback.data.split(":")
+        from_id = int(parts[1])
+        to_id = int(parts[2])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        ok = await move_and_delete_account(session, from_id, user_id, to_id)
+        if not ok:
+            await callback.answer("Не удалось удалить счёт.", show_alert=True)
+            await state.clear()
+            return
+        balances = await get_account_balances(session, user_id)
+
+    await callback.message.edit_text(
+        "✅ Записи перенесены, счёт удалён.\n\n" + _build_accounts_text(balances),
+        reply_markup=accounts_menu_keyboard(),
+        parse_mode="HTML",
+    )
+    await state.clear()
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_delete_confirm:"))
+@log_exceptions("Ошибка при подтверждении удаления счёта")
+async def handle_acc_delete_confirm(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Удаляет счёт и обновляет список."""
+    try:
+        account_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        ok = await delete_account(session, account_id, user_id)
+        if not ok:
+            await callback.answer("Счёт не найден или уже удалён.", show_alert=True)
+            await state.clear()
+            return
+        balances = await get_account_balances(session, user_id)
+
+    await callback.message.edit_text(
+        "✅ Счёт удалён.\n\n" + _build_accounts_text(balances),
+        reply_markup=accounts_menu_keyboard(),
+        parse_mode="HTML",
+    )
+    await state.clear()
+    await callback.answer()
+
+
+@router.callback_query(F.data == "acc_delete_cancel")
+async def handle_acc_delete_cancel(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Отмена удаления счёта — возврат к списку балансов."""
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if user_id:
+        async with async_session() as session:
+            balances = await get_account_balances(session, user_id)
+        await callback.message.edit_text(
+            _build_accounts_text(balances),
+            reply_markup=accounts_menu_keyboard(),
+            parse_mode="HTML",
+        )
+    await state.clear()
+    await callback.answer()
+
+
+# --- Перевод между счетами ---
+
+@router.callback_query(F.data == "acc_transfer")
+@log_exceptions("Ошибка при переводе")
+async def handle_acc_transfer(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Показывает список счетов для выбора источника перевода."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    if len(accounts) < 2:
+        await callback.answer("Нужно минимум 2 счёта для перевода.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "↔️ <b>Перевод</b>\n\nВыберите счёт-источник:",
+        reply_markup=account_manage_keyboard(accounts, "transfer_from"),
+        parse_mode="HTML",
+    )
+    await state.update_data(acc_user_id=user_id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_transfer_from:"))
+@log_exceptions("Ошибка при выборе счёта-источника")
+async def handle_acc_transfer_from(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Показывает список счетов-назначения (исключая источник)."""
+    try:
+        from_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    from_acc = next((a for a in accounts if a.id == from_id), None)
+    if not from_acc:
+        await callback.answer("Счёт не найден.")
+        return
+
+    destinations = [a for a in accounts if a.id != from_id]
+    await state.update_data(transfer_from_id=from_id, acc_user_id=user_id)
+    await callback.message.edit_text(
+        f"↔️ <b>Перевод с «{from_acc.name}»</b>\n\nВыберите счёт-назначение:",
+        reply_markup=account_manage_keyboard(destinations, f"transfer_to:{from_id}"),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_transfer_to:"))
+@log_exceptions("Ошибка при выборе счёта-назначения")
+async def handle_acc_transfer_to(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Сохраняет счёта перевода и запрашивает сумму."""
+    try:
+        parts = callback.data.split(":")
+        from_id = int(parts[1])
+        to_id = int(parts[2])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+
+    from_acc = next((a for a in accounts if a.id == from_id), None)
+    to_acc = next((a for a in accounts if a.id == to_id), None)
+    if not from_acc or not to_acc:
+        await callback.answer("Счёт не найден.")
+        return
+
+    await state.update_data(transfer_from_id=from_id, transfer_to_id=to_id, acc_user_id=user_id)
+    await callback.message.edit_text(
+        f"↔️ <b>{from_acc.name} → {to_acc.name}</b>\n\nВведите сумму перевода:",
+        parse_mode="HTML",
+    )
+    await state.set_state(AccountStates.waiting_for_transfer_amount)
+    await callback.answer()
+
+
+@router.message(AccountStates.waiting_for_transfer_amount, ~F.func(is_main_menu_button))
+@log_exceptions("Ошибка при выполнении перевода")
+async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) -> None:
+    """Выполняет перевод между счетами."""
+    try:
+        amount = Decimal(message.text.strip().replace(",", "."))
+        if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
+            raise ValueError
+    except (InvalidOperation, ValueError):
+        await message.answer(
+            f"Некорректная сумма. Введите число от 0.01 до {MAX_AMOUNT:,}:".replace(",", " ")
+        )
+        return
+
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+    from_id = data.get("transfer_from_id")
+    to_id = data.get("transfer_to_id")
+
+    async with async_session() as session:
+        balance = await get_account_balance(session, from_id)
+        if amount > balance:
+            await message.answer(
+                f"Недостаточно средств. Баланс счёта: {balance:,.0f} ₽".replace(",", " ")
+            )
+            return
+
+        ok = await create_transfer(session, user_id, from_id, to_id, amount)
+        if not ok:
+            await message.answer("Не удалось выполнить перевод.", reply_markup=main_menu_keyboard())
+            await state.clear()
+            return
+
+        accounts = await get_accounts(session, user_id)
+        from_name = next((a.name for a in accounts if a.id == from_id), "—")
+        to_name = next((a.name for a in accounts if a.id == to_id), "—")
+        balances = await get_account_balances(session, user_id)
+
+    amount_str = f"{amount:,.0f}₽".replace(",", " ")
+    await message.answer(
+        f"✅ Перевод выполнен!\n{from_name} → {to_name}: <b>{amount_str}</b>\n\n"
+        + _build_accounts_text(balances),
+        reply_markup=accounts_menu_keyboard(),
+        parse_mode="HTML",
+    )
+    await state.clear()
+
+
+# ==================== История счёта ====================
+
+@router.callback_query(F.data == "acc_history")
+@log_exceptions("Ошибка при открытии истории счёта")
+async def handle_acc_history(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Показывает список счетов для выбора истории."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        return
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+    await callback.message.edit_text(
+        "📋 <b>История по счёту</b>\n\nВыберите счёт:",
+        reply_markup=account_manage_keyboard(accounts, "history_select"),
+        parse_mode="HTML",
+    )
+    await state.update_data(acc_user_id=user_id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_history_select:"))
+@log_exceptions("Ошибка при выборе счёта для истории")
+async def handle_acc_history_select(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Сохраняет выбранный счёт и показывает выбор периода."""
+    account_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        acc = next((a for a in accounts if a.id == account_id), None)
+        if not acc:
+            await callback.answer("Счёт не найден.")
+            return
+        balance = await get_account_balance(session, account_id)
+
+    balance_str = f"{balance:,.0f} ₽".replace(",", " ")
+    await state.update_data(
+        acc_hist_account_id=account_id,
+        acc_hist_account_name=acc.name,
+        acc_hist_balance=balance_str,
+        acc_user_id=user_id,
+    )
+    await callback.message.edit_text(
+        f"📋 <b>{acc.name}</b> — {balance_str}\n\nЗа какой период показать историю?",
+        reply_markup=history_period_keyboard(),
+        parse_mode="HTML",
+    )
+    await state.set_state(AccountStates.waiting_for_acc_hist_period)
+    await callback.answer()
+
+
+@router.callback_query(AccountStates.waiting_for_acc_hist_period)
+@log_exceptions("Ошибка при получении истории счёта")
+async def handle_acc_hist_period(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Загружает первую страницу истории выбранного счёта."""
+    try:
+        period = callback.data.split(":")[1]
+    except (IndexError, AttributeError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    account_id = data.get("acc_hist_account_id")
+    acc_name = data.get("acc_hist_account_name", "Счёт")
+    acc_balance = data.get("acc_hist_balance", "")
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await state.clear()
+            return
+        total_count, income_sum, expense_sum, records = await get_history_data(
+            session, user.id, period,
+            limit=RECORDS_PER_PAGE, offset=0,
+            account_id=account_id, include_transfers=True,
+        )
+
+    if total_count == 0:
+        await callback.message.edit_text(
+            f"📋 <b>{acc_name}</b>\nЗаписей за указанный период нет.",
+            parse_mode="HTML",
+        )
+        await state.clear()
+        await callback.answer()
+        return
+
+    total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+    await state.update_data(
+        acc_hist_period=period,
+        acc_hist_page=0,
+        acc_hist_total_pages=total_pages,
+        acc_hist_total_count=total_count,
+        acc_hist_income=str(income_sum),
+        acc_hist_expense=str(expense_sum),
+    )
+
+    header = f"📋 <b>{acc_name}</b> — {acc_balance}"
+    text, kb = build_history_page(
+        records, 0, total_pages, income_sum, expense_sum,
+        period=period, total_count=total_count, header=header,
+    )
+    if total_pages > 1:
+        await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await state.set_state(AccountStates.waiting_for_acc_hist_page)
+    else:
+        await callback.message.edit_text(text, parse_mode="HTML")
+        await state.clear()
+    await callback.answer()
+
+
+@router.callback_query(AccountStates.waiting_for_acc_hist_page, F.data.startswith("hist_page:"))
+@log_exceptions("Ошибка при навигации по истории счёта")
+async def handle_acc_hist_page(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Навигация по страницам истории счёта."""
+    try:
+        page_str = callback.data.split(":")[1]
+        if page_str == "noop":
+            await callback.answer()
+            return
+        new_page = int(page_str)
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    account_id = data.get("acc_hist_account_id")
+    acc_name = data.get("acc_hist_account_name", "Счёт")
+    acc_balance = data.get("acc_hist_balance", "")
+    period = data.get("acc_hist_period")
+    total_pages = data.get("acc_hist_total_pages", 1)
+    total_count = data.get("acc_hist_total_count", 0)
+    income_sum = Decimal(data.get("acc_hist_income", "0"))
+    expense_sum = Decimal(data.get("acc_hist_expense", "0"))
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    if new_page < 0 or new_page >= total_pages:
+        await callback.answer("Страница не существует.")
+        return
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await state.clear()
+            return
+        records = await get_records(
+            session, user.id, period,
+            limit=RECORDS_PER_PAGE, offset=new_page * RECORDS_PER_PAGE,
+            account_id=account_id, include_transfers=True,
+        )
+
+    await state.update_data(acc_hist_page=new_page)
+    header = f"📋 <b>{acc_name}</b> — {acc_balance}"
+    text, kb = build_history_page(
+        records, new_page, total_pages, income_sum, expense_sum,
+        period=period, total_count=total_count, header=header,
+    )
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+
+# ==================== Установка баланса счёта ====================
+
+@router.callback_query(F.data == "acc_set_balance")
+@log_exceptions("Ошибка при установке баланса")
+async def handle_acc_set_balance(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Показывает список счетов для выбора."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        return
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+    await callback.message.edit_text(
+        "💰 <b>Установить баланс</b>\n\nВыберите счёт:",
+        reply_markup=account_manage_keyboard(accounts, "set_balance_select"),
+        parse_mode="HTML",
+    )
+    await state.update_data(acc_user_id=user_id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_set_balance_select:"))
+@log_exceptions("Ошибка при выборе счёта для установки баланса")
+async def handle_acc_set_balance_select(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Запрашивает желаемый баланс для выбранного счёта."""
+    account_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        acc = next((a for a in accounts if a.id == account_id), None)
+        if not acc:
+            await callback.answer("Счёт не найден.")
+            return
+        current = await get_account_balance(session, account_id)
+
+    await state.update_data(set_balance_account_id=account_id, acc_user_id=user_id)
+    await callback.message.edit_text(
+        f"💰 <b>{acc.name}</b>\n"
+        f"Текущий баланс: <b>{current:,.0f} ₽</b>\n\n"
+        "Введите новый баланс:".replace(",", " "),
+        parse_mode="HTML",
+    )
+    await state.set_state(AccountStates.waiting_for_set_balance)
+    await callback.answer()
+
+
+@router.message(AccountStates.waiting_for_set_balance, ~F.func(is_main_menu_button))
+@log_exceptions("Ошибка при сохранении баланса")
+async def handle_set_balance_amount(message: Message, state: FSMContext, **kwargs) -> None:
+    """Сохраняет желаемый баланс через balance_offset."""
+    try:
+        desired = Decimal(message.text.strip().replace(",", "."))
+        if desired < 0 or desired > Decimal(str(MAX_AMOUNT)):
+            raise ValueError
+    except (InvalidOperation, ValueError):
+        await message.answer(
+            f"Некорректная сумма. Введите число от 0 до {MAX_AMOUNT:,}:".replace(",", " ")
+        )
+        return
+
+    data = await state.get_data()
+    account_id = data.get("set_balance_account_id")
+    user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+
+    async with async_session() as session:
+        ok = await set_account_balance(session, account_id, desired, user_id)
+        if not ok:
+            await message.answer("Не удалось установить баланс.", reply_markup=main_menu_keyboard())
+            await state.clear()
+            return
+        balances = await get_account_balances(session, user_id)
+        accounts = await get_accounts(session, user_id)
+        acc_name = next((a.name for a in accounts if a.id == account_id), "—")
+
+    await state.clear()
+    desired_str = f"{desired:,.0f} ₽".replace(",", " ")
+    await message.answer(
+        f"✅ Баланс <b>{acc_name}</b> установлен: <b>{desired_str}</b>\n\n"
+        + _build_accounts_text(balances),
+        reply_markup=accounts_menu_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 # ==================== Fallback для неизвестных сообщений ====================
