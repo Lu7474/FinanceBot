@@ -662,8 +662,8 @@ class RateLimiter:
         return max(0, retry_after)
 
 
-# Глобальный rate limiter: 20 запросов/мин на пользователя
-rate_limiter = RateLimiter(max_requests=20, window_seconds=60)
+# Глобальный rate limiter: 60 запросов/мин на пользователя
+rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
 
 
 # ==================== Middleware ====================

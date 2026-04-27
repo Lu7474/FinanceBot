@@ -1,0 +1,143 @@
+"""Shared helpers, command filters, and FSM state definitions."""
+
+from datetime import datetime
+from decimal import Decimal
+
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import Message, CallbackQuery
+
+from core.database.models import async_session
+from core.database.requests import add_record, get_user_by_tg_id, set_user
+
+
+async def get_user_id_from_event(
+    event: Message | CallbackQuery,
+    kwargs: dict,
+    create_if_missing: bool = False,
+) -> int | None:
+    """Получает user_id из middleware или БД."""
+    user_id = kwargs.get("user_id")
+    if user_id:
+        return user_id
+
+    tg_id = event.from_user.id if event.from_user else None
+    if not tg_id:
+        return None
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, tg_id)
+        if user:
+            return user.id
+
+        if create_if_missing:
+            name = event.from_user.full_name if event.from_user else "Unknown"
+            user = await set_user(session, tg_id, name=name)
+            if user:
+                return user.id
+
+    return None
+
+
+async def save_parsed_records(
+    user_id: int,
+    records_to_add: list[tuple],
+    account_id: int | None = None,
+) -> list[tuple]:
+    """Сохраняет распарсенные записи в БД."""
+    added_records = []
+    async with async_session() as session:
+        for operation, amount, category, record_date in records_to_add:
+            ok = await add_record(
+                session, user_id, operation, amount, category, record_date, account_id
+            )
+            if ok:
+                added_records.append((operation, amount, category, record_date))
+    return added_records
+
+
+# ==================== Фильтры команд ====================
+
+def is_income(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Доход'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("доход", "➕ доход", "+доход", "+ доход")
+
+
+def is_expense(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Расход'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("расход", "➖ расход", "-расход", "- расход")
+
+
+def is_history(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'История'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("история", "🕘 история")
+
+
+def is_report(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Отчёт'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("отчёт", "отчет", "📊 отчёт", "📊 отчет")
+
+
+def is_delete(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Удалить запись'."""
+    if not message.text:
+        return False
+    text = message.text.strip().lower()
+    return text in ("удалить запись", "удалить", "🗑️ удалить запись", "🗑️ удалить")
+
+
+def is_accounts(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Счета'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() in ("счета", "💳 счета")
+
+
+def is_main_menu_button(message: Message) -> bool:
+    """True если сообщение — кнопка главного меню."""
+    return any([
+        is_income(message), is_expense(message), is_history(message),
+        is_report(message), is_delete(message), is_accounts(message),
+    ])
+
+
+# ==================== FSM States ====================
+
+class AddRecord(StatesGroup):
+    """Состояния для добавления записи дохода/расхода."""
+    waiting_for_amount = State()
+    waiting_for_account = State()
+
+
+class MenuStates(StatesGroup):
+    """Состояния для навигации по меню."""
+    waiting_for_history_period = State()
+    waiting_for_history_page = State()
+    waiting_for_custom_period = State()
+    waiting_for_report_type = State()
+    waiting_for_report_year = State()
+    waiting_for_report_month = State()
+    waiting_for_delete_period = State()
+    waiting_for_delete_record = State()
+    waiting_for_delete_confirm = State()
+
+
+class AccountStates(StatesGroup):
+    """Состояния для управления счетами."""
+    waiting_for_account_name = State()
+    waiting_for_rename_name = State()
+    waiting_for_transfer_amount = State()
+    waiting_for_set_balance = State()
+    waiting_for_acc_hist_period = State()
+    waiting_for_acc_hist_page = State()
