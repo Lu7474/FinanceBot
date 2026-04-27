@@ -28,3 +28,4 @@
 ## Constraints
 - **Security**: NEVER read `.env` or `.sqlite3` files (already in permissions).
 - **Environment**: Always use the virtual env in `./env/Scripts/`.
+- **Git**: NEVER add `Co-Authored-By` lines to commit messages. Do not list Claude as a co-author.
