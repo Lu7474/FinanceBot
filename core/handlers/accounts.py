@@ -1,5 +1,6 @@
 """Handlers for account management, account history, and balance setting."""
 
+import html
 from decimal import Decimal, InvalidOperation
 
 from aiogram import Router, F
@@ -51,7 +52,7 @@ def _build_accounts_text(balances: list[tuple]) -> str:
     for acc, balance in balances:
         sign = "-" if balance < 0 else ""
         formatted = f"{sign}{abs(balance):,.0f}₽".replace(",", " ")
-        lines.append(f"<b>{acc.name}</b>  —  {formatted}")
+        lines.append(f"<b>{html.escape(acc.name)}</b>  —  {formatted}")
         total += balance
 
     sign = "-" if total < 0 else ""
@@ -141,7 +142,7 @@ async def handle_new_account_name(message: Message, state: FSMContext, **kwargs)
         else:
             balances = await get_account_balances(session, user_id)
             await message.answer(
-                f"✅ Счёт «{acc.name}» создан!\n\n" + _build_accounts_text(balances),
+                f"✅ Счёт «{html.escape(acc.name)}» создан!\n\n" + _build_accounts_text(balances),
                 reply_markup=accounts_menu_keyboard(),
                 parse_mode="HTML",
             )
@@ -225,7 +226,7 @@ async def handle_rename_name(message: Message, state: FSMContext, **kwargs) -> N
         balances = await get_account_balances(session, user_id)
 
     await message.answer(
-        f"✅ Счёт переименован в «{new_name}»!\n\n" + _build_accounts_text(balances),
+        f"✅ Счёт переименован в «{html.escape(new_name)}»!\n\n" + _build_accounts_text(balances),
         reply_markup=accounts_menu_keyboard(),
         parse_mode="HTML",
     )
@@ -290,14 +291,14 @@ async def handle_acc_delete_select(
 
     if record_count > 0:
         await callback.message.edit_text(
-            f"⚠️ Счёт <b>«{account.name}»</b> содержит {record_count} записей.\n"
+            f"⚠️ Счёт <b>«{html.escape(account.name)}»</b> содержит {record_count} записей.\n"
             f"Куда перенести записи?",
             reply_markup=account_delete_move_keyboard(account_id, targets),
             parse_mode="HTML",
         )
     else:
         await callback.message.edit_text(
-            f"Удалить счёт <b>«{account.name}»</b>?",
+            f"Удалить счёт <b>«{html.escape(account.name)}»</b>?",
             reply_markup=confirm_account_delete_keyboard(account_id),
             parse_mode="HTML",
         )
@@ -442,7 +443,7 @@ async def handle_acc_transfer_from(
     destinations = [a for a in accounts if a.id != from_id]
     await state.update_data(transfer_from_id=from_id, acc_user_id=user_id)
     await callback.message.edit_text(
-        f"↔️ <b>Перевод с «{from_acc.name}»</b>\n\nВыберите счёт-назначение:",
+        f"↔️ <b>Перевод с «{html.escape(from_acc.name)}»</b>\n\nВыберите счёт-назначение:",
         reply_markup=account_manage_keyboard(destinations, f"transfer_to:{from_id}"),
         parse_mode="HTML",
     )
@@ -477,7 +478,7 @@ async def handle_acc_transfer_to(
 
     await state.update_data(transfer_from_id=from_id, transfer_to_id=to_id, acc_user_id=user_id)
     await callback.message.edit_text(
-        f"↔️ <b>{from_acc.name} → {to_acc.name}</b>\n\nВведите сумму перевода:",
+        f"↔️ <b>{html.escape(from_acc.name)} → {html.escape(to_acc.name)}</b>\n\nВведите сумму перевода:",
         parse_mode="HTML",
     )
     await state.set_state(AccountStates.waiting_for_transfer_amount)
@@ -504,7 +505,7 @@ async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) 
     to_id = data.get("transfer_to_id")
 
     async with async_session() as session:
-        balance = await get_account_balance(session, from_id)
+        balance = await get_account_balance(session, from_id, user_id)
         if amount > balance:
             await message.answer(
                 f"Недостаточно средств. Баланс счёта: {balance:,.0f} ₽".replace(",", " ")
@@ -524,7 +525,7 @@ async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) 
 
     amount_str = f"{amount:,.0f}₽".replace(",", " ")
     await message.answer(
-        f"✅ Перевод выполнен!\n{from_name} → {to_name}: <b>{amount_str}</b>\n\n"
+        f"✅ Перевод выполнен!\n{html.escape(from_name)} → {html.escape(to_name)}: <b>{amount_str}</b>\n\n"
         + _build_accounts_text(balances),
         reply_markup=accounts_menu_keyboard(),
         parse_mode="HTML",
@@ -567,7 +568,7 @@ async def handle_acc_history_select(callback: CallbackQuery, state: FSMContext, 
         if not acc:
             await callback.answer("Счёт не найден.")
             return
-        balance = await get_account_balance(session, account_id)
+        balance = await get_account_balance(session, account_id, user_id)
 
     balance_str = f"{balance:,.0f} ₽".replace(",", " ")
     await state.update_data(
@@ -577,7 +578,7 @@ async def handle_acc_history_select(callback: CallbackQuery, state: FSMContext, 
         acc_user_id=user_id,
     )
     await callback.message.edit_text(
-        f"📋 <b>{acc.name}</b> — {balance_str}\n\nЗа какой период показать историю?",
+        f"📋 <b>{html.escape(acc.name)}</b> — {balance_str}\n\nЗа какой период показать историю?",
         reply_markup=history_period_keyboard(),
         parse_mode="HTML",
     )
@@ -632,7 +633,7 @@ async def handle_acc_hist_period(callback: CallbackQuery, state: FSMContext, **k
         acc_hist_expense=str(expense_sum),
     )
 
-    header = f"📋 <b>{acc_name}</b> — {acc_balance}"
+    header = f"📋 <b>{html.escape(acc_name)}</b> — {html.escape(acc_balance)}"
     text, kb = build_history_page(
         records, 0, total_pages, income_sum, expense_sum,
         period=period, total_count=total_count, header=header,
@@ -688,7 +689,7 @@ async def handle_acc_hist_page(callback: CallbackQuery, state: FSMContext, **kwa
         )
 
     await state.update_data(acc_hist_page=new_page)
-    header = f"📋 <b>{acc_name}</b> — {acc_balance}"
+    header = f"📋 <b>{html.escape(acc_name)}</b> — {html.escape(acc_balance)}"
     text, kb = build_history_page(
         records, new_page, total_pages, income_sum, expense_sum,
         period=period, total_count=total_count, header=header,
@@ -734,11 +735,11 @@ async def handle_acc_set_balance_select(
         if not acc:
             await callback.answer("Счёт не найден.")
             return
-        current = await get_account_balance(session, account_id)
+        current = await get_account_balance(session, account_id, user_id)
 
     await state.update_data(set_balance_account_id=account_id, acc_user_id=user_id)
     await callback.message.edit_text(
-        f"💰 <b>{acc.name}</b>\n"
+        f"💰 <b>{html.escape(acc.name)}</b>\n"
         f"Текущий баланс: <b>{current:,.0f} ₽</b>\n\n"
         "Введите новый баланс:".replace(",", " "),
         parse_mode="HTML",
@@ -778,7 +779,7 @@ async def handle_set_balance_amount(message: Message, state: FSMContext, **kwarg
     await state.clear()
     desired_str = f"{desired:,.0f} ₽".replace(",", " ")
     await message.answer(
-        f"✅ Баланс <b>{acc_name}</b> установлен: <b>{desired_str}</b>\n\n"
+        f"✅ Баланс <b>{html.escape(acc_name)}</b> установлен: <b>{desired_str}</b>\n\n"
         + _build_accounts_text(balances),
         reply_markup=accounts_menu_keyboard(),
         parse_mode="HTML",

@@ -626,9 +626,12 @@ async def get_account_balances(
         return []
 
 
-async def get_account_balance(session: AsyncSession, account_id: int) -> Decimal:
+async def get_account_balance(session: AsyncSession, account_id: int, user_id: int | None = None) -> Decimal:
     """Returns balance for a single account (transactions + offset)."""
-    acc_result = await session.execute(select(Account).where(Account.id == account_id))
+    conditions = [Account.id == account_id]
+    if user_id is not None:
+        conditions.append(Account.user_id == user_id)
+    acc_result = await session.execute(select(Account).where(*conditions))
     acc = acc_result.scalar_one_or_none()
     if acc is None:
         return Decimal("0")
@@ -648,7 +651,9 @@ async def set_account_balance(
 ) -> bool:
     """Sets account balance via balance_offset and creates a history record."""
     try:
-        acc_result = await session.execute(select(Account).where(Account.id == account_id))
+        acc_result = await session.execute(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
         acc = acc_result.scalar_one_or_none()
         if acc is None:
             return False

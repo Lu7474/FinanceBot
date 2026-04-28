@@ -1,6 +1,7 @@
 """
 Report text generation and DB queries for available periods.
 """
+import html
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
@@ -30,7 +31,7 @@ def make_report_text(
 
     lines.append("📁 <b>По категориям:</b>")
     for name, amount in sorted(categories.items(), key=lambda x: -x[1]):
-        lines.append(f"  {icon} {name} — {format_money(amount)}")
+        lines.append(f"  {icon} {html.escape(name)} — {format_money(amount)}")
 
     if records:
         filtered = [r for r in records if (r.operation if hasattr(r, "operation") else r["operation"]) == operation_sign]
@@ -46,7 +47,7 @@ def make_report_text(
                     category = r["category"]
                     rec_date = r["created_at"]
                 short_date = rec_date.strftime("%d.%m")
-                lines.append(f"  {short_date} — {operation_sign}{format_money(amount)} {category}")
+                lines.append(f"  {short_date} — {operation_sign}{format_money(amount)} {html.escape(category)}")
 
     lines.append(f"\n💰 <b>Итого:</b> {format_money(total)}")
 
@@ -154,7 +155,7 @@ def make_comparison_text(
             else:
                 color = "🔴" if is_income else "🟢"
                 sign = ""
-            lines.append(f"   {color} {cat}: {format_money(prev_val)} → {format_money(cur_val)} ({sign}{format_money(cat_diff)})")
+            lines.append(f"   {color} {html.escape(cat)}: {format_money(prev_val)} → {format_money(cur_val)} ({sign}{format_money(cat_diff)})")
 
     if avg_monthly:
         lines.append(f"\n📈 <b>Средний за период:</b> {format_money(avg_monthly)}/мес")

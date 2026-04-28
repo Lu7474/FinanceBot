@@ -1,5 +1,6 @@
 """Handlers for adding income/expense records."""
 
+import html
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -64,7 +65,7 @@ def format_added_records_response(
 ✅ <b>Запись добавлена!</b>
 
 {icon} {op_type}: <b>{amt:,.0f}₽</b>
-📁 Категория: {cat}{date_str}
+📁 Категория: {html.escape(cat)}{date_str}
 """.replace(",", " ")
     else:
         total_income = sum(amt for op, amt, _, _ in added_records if op == "+")
@@ -77,7 +78,7 @@ def format_added_records_response(
             date_suffix = ""
             if record_date and record_date.date() != today:
                 date_suffix = f" ({record_date.strftime('%d.%m')})"
-            response += f"{icon} {sign}{amt:,.0f}₽ — {cat}{date_suffix}\n".replace(",", " ")
+            response += f"{icon} {sign}{amt:,.0f}₽ — {html.escape(cat)}{date_suffix}\n".replace(",", " ")
 
         response += "\n"
         if total_income > 0:
@@ -86,7 +87,7 @@ def format_added_records_response(
             response += f"📉 Расходы: -{total_expense:,.0f}₽".replace(",", " ")
 
     if account_name:
-        response += f"\n💳 Счёт: {account_name}"
+        response += f"\n💳 Счёт: {html.escape(account_name)}"
 
     if errors:
         response += "\n\n⚠️ <b>Ошибки:</b>\n" + "\n".join(errors)
@@ -163,7 +164,7 @@ def parse_record_line(
         category = category.capitalize()
 
     if len(category) > MAX_CATEGORY_LENGTH:
-        category = category[:MAX_CATEGORY_LENGTH]
+        return None
 
     return operation, amount, category, record_date
 

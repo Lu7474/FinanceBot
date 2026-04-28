@@ -1,5 +1,6 @@
 """Handlers for main menu commands: /start, /help, /cancel."""
 
+import html
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -28,7 +29,7 @@ async def handle_start(message: Message, **kwargs) -> None:
         if not accounts:
             await create_account(session, user.id, "Наличные")
 
-    first_name = message.from_user.first_name or "друг"
+    first_name = html.escape(message.from_user.first_name or "друг")
 
     welcome_text = f"""
 💰 <b>Привет, {first_name}!</b>

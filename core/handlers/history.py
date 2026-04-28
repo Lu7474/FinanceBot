@@ -1,5 +1,6 @@
 """Handlers for operation history."""
 
+import html
 import re
 from datetime import datetime
 from decimal import Decimal
@@ -76,7 +77,7 @@ def build_history_page(
 
         for r in day_records:
             sign = "+" if r.operation == "+" else "-"
-            category = r.category or ""
+            category = html.escape(r.category or "")
             text += f"   {sign}{float(r.amount):,.0f}₽ {category}\n".replace(",", " ")
 
         text += "\n"
