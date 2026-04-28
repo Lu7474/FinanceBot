@@ -24,6 +24,7 @@ from core.database.requests import (
     MAX_ACCOUNTS_PER_USER,
 )
 from core.database.models import Record
+from config import MAX_ACCOUNT_NAME_LENGTH
 
 
 # ==================== Helpers ====================
@@ -37,6 +38,34 @@ async def _make_user(session, tg_id: int = 111) -> int:
 async def _make_account(session, user_id: int, name: str = "Наличные") -> int:
     acc = await create_account(session, user_id, name)
     return acc.id  # fresh after create_account's refresh
+
+
+# ==================== name validation (handler-level limit) ====================
+
+def test_max_account_name_length_constant():
+    assert MAX_ACCOUNT_NAME_LENGTH == 40
+
+
+@pytest.mark.asyncio
+async def test_create_account_name_at_limit(session):
+    """DB accepts a name exactly at the 40-char handler limit."""
+    user_id = await _make_user(session)
+    name = "А" * MAX_ACCOUNT_NAME_LENGTH
+    acc = await create_account(session, user_id, name)
+    assert acc is not None
+    assert acc.name == name
+
+
+@pytest.mark.asyncio
+async def test_rename_account_name_at_limit(session):
+    """DB accepts a renamed name exactly at the 40-char handler limit."""
+    user_id = await _make_user(session)
+    acc_id = await _make_account(session, user_id, "Старое")
+    new_name = "Б" * MAX_ACCOUNT_NAME_LENGTH
+    ok = await rename_account(session, acc_id, user_id, new_name)
+    assert ok is True
+    accounts = await get_accounts(session, user_id)
+    assert accounts[0].name == new_name
 
 
 # ==================== create_account ====================

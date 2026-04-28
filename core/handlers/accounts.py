@@ -33,7 +33,7 @@ from core.keyboards import (
     main_menu_keyboard,
 )
 from core.utils import log_exceptions
-from config import MAX_AMOUNT, RECORDS_PER_PAGE
+from config import MAX_ACCOUNT_NAME_LENGTH, MAX_AMOUNT, RECORDS_PER_PAGE
 
 from .common import AccountStates, get_user_id_from_event, is_accounts, is_main_menu_button
 from .history import build_history_page
@@ -102,7 +102,7 @@ async def handle_acc_create(callback: CallbackQuery, state: FSMContext, **kwargs
 
     await state.update_data(acc_user_id=user_id)
     await callback.message.edit_text(
-        f"Введите название нового счёта (до 30 символов):"
+        f"Введите название нового счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):"
     )
     await state.set_state(AccountStates.waiting_for_account_name)
     await callback.answer()
@@ -112,9 +112,14 @@ async def handle_acc_create(callback: CallbackQuery, state: FSMContext, **kwargs
 @log_exceptions("Ошибка при сохранении названия счёта")
 async def handle_new_account_name(message: Message, state: FSMContext, **kwargs) -> None:
     """Создаёт новый счёт с введённым названием."""
-    name = message.text.strip()[:30]
+    name = message.text.strip()
     if not name:
         await message.answer("Название не может быть пустым. Введите снова:")
+        return
+    if len(name) > MAX_ACCOUNT_NAME_LENGTH:
+        await message.answer(
+            f"Название слишком длинное. Максимум {MAX_ACCOUNT_NAME_LENGTH} символов. Введите название снова:"
+        )
         return
 
     data = await state.get_data()
@@ -187,7 +192,7 @@ async def handle_acc_rename_select(
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
     await state.update_data(rename_account_id=account_id, acc_user_id=user_id)
-    await callback.message.edit_text("Введите новое название счёта (до 30 символов):")
+    await callback.message.edit_text(f"Введите новое название счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):")
     await state.set_state(AccountStates.waiting_for_rename_name)
     await callback.answer()
 
@@ -196,9 +201,14 @@ async def handle_acc_rename_select(
 @log_exceptions("Ошибка при применении нового названия")
 async def handle_rename_name(message: Message, state: FSMContext, **kwargs) -> None:
     """Переименовывает счёт."""
-    new_name = message.text.strip()[:30]
+    new_name = message.text.strip()
     if not new_name:
         await message.answer("Название не может быть пустым. Введите снова:")
+        return
+    if len(new_name) > MAX_ACCOUNT_NAME_LENGTH:
+        await message.answer(
+            f"Название слишком длинное. Максимум {MAX_ACCOUNT_NAME_LENGTH} символов. Введите название снова:"
+        )
         return
 
     data = await state.get_data()
