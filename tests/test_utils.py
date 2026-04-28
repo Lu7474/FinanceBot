@@ -8,12 +8,9 @@ from datetime import datetime
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from core.utils import (
-    build_report_pie,
-    make_report_text,
-    format_money,
-    RU_MONTHS,
-)
+from core.utils import format_money, RU_MONTHS
+from core.charts import build_report_pie
+from core.reports import make_report_text
 
 
 # ==================== format_money ====================

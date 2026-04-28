@@ -18,7 +18,6 @@ from core.database.requests import (
     get_records,
     get_user_by_tg_id,
 )
-from core.utils import get_available_years_and_months
 from core.keyboards import (
     confirm_delete_keyboard,
     delete_period_keyboard,
@@ -26,6 +25,7 @@ from core.keyboards import (
     get_delete_years_keyboard,
 )
 from core.utils import RU_MONTHS, log_exceptions
+from core.reports import get_available_years_and_months
 from config import RECORDS_PER_PAGE, TIMEZONE
 
 from .common import MenuStates, is_delete

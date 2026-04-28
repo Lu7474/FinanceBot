@@ -17,7 +17,7 @@ from core.database.requests import (
     get_records,
     delete_record,
 )
-from core.utils import get_available_years_and_months
+from core.reports import get_available_years_and_months
 
 
 # ==================== get_available_years_and_months ====================

@@ -10,7 +10,8 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from core.handlers import router
 from core.database.models import async_main, engine
-from core.utils import RateLimitMiddleware, UserMiddleware, shutdown_executor
+from core.middleware import RateLimitMiddleware, UserMiddleware
+from core.charts import shutdown_executor
 from config import BOT_TOKEN, PROXY_URL
 
 

@@ -18,7 +18,9 @@ from core.database.requests import (
     get_user_by_tg_id,
 )
 from core.keyboards import get_months_keyboard, get_years_keyboard, main_menu_keyboard, report_type_keyboard
-from core.utils import RU_MONTHS, build_report_pie, build_trend_chart, get_available_years_and_months, log_exceptions, make_comparison_text
+from core.utils import RU_MONTHS, log_exceptions
+from core.charts import build_report_pie, build_trend_chart
+from core.reports import get_available_years_and_months, make_comparison_text
 from config import TIMEZONE
 
 from .common import MenuStates, is_expense, is_income, is_report
