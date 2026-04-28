@@ -54,10 +54,9 @@ def _build_accounts_text(balances: list[tuple]) -> str:
         lines.append(f"<b>{acc.name}</b>  —  {formatted}")
         total += balance
 
-    lines.append("\n" + "─" * 22)
     sign = "-" if total < 0 else ""
     total_str = f"{sign}{abs(total):,.0f}₽".replace(",", " ")
-    lines.append(f"Всего:  <b>{total_str}</b>")
+    lines.append(f"\n<b>Всего:  {total_str}</b>")
     return "\n".join(lines)
 
 
