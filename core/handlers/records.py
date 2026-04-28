@@ -318,7 +318,7 @@ async def handle_record_account_skip(
 
 @router.message(StateFilter(None), F.text.regexp(r"^([+-]\d|\d{1,2}\.\d{1,2}\.?\d{0,2}\s+[+-]?\d)"))
 @log_exceptions("Ошибка при добавлении записи")
-async def handle_direct_record(message: Message, **kwargs) -> None:
+async def handle_direct_record(message: Message, state: FSMContext, **kwargs) -> None:
     """Прямой ввод записей без нажатия кнопки (если начинается с +/- или с даты)."""
     lines = message.text.strip().split("\n")
 
@@ -348,17 +348,26 @@ async def handle_direct_record(message: Message, **kwargs) -> None:
         await message.answer("Ошибка. Отправьте /start для регистрации.")
         return
 
-    account_id: int | None = None
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
-        if accounts:
-            account_id = accounts[0].id
 
-    added_records = await save_parsed_records(user_id, records_to_add, account_id)
-
-    if not added_records:
-        await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
+    if not accounts:
+        added = await save_parsed_records(user_id, records_to_add)
+        if not added:
+            await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
+            return
+        response = format_added_records_response(added, errors)
+        await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
         return
 
-    response = format_added_records_response(added_records, errors)
-    await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    serialized = [
+        {"op": op, "amount": str(amt), "cat": cat, "date": dt.isoformat() if dt else None}
+        for op, amt, cat, dt in records_to_add
+    ]
+    await state.update_data(pending_records=serialized, parse_errors=errors, user_id=user_id)
+    await message.answer(
+        "💳 <b>Выберите счёт:</b>",
+        reply_markup=account_select_keyboard(accounts),
+        parse_mode="HTML",
+    )
+    await state.set_state(AddRecord.waiting_for_account)
