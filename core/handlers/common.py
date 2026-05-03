@@ -1,10 +1,8 @@
 """Shared helpers, command filters, and FSM state definitions."""
 
-from datetime import datetime
-from decimal import Decimal
 
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
 from core.database.models import async_session
 from core.database.requests import add_record, get_user_by_tg_id, set_user
@@ -141,3 +139,10 @@ class AccountStates(StatesGroup):
     waiting_for_set_balance = State()
     waiting_for_acc_hist_period = State()
     waiting_for_acc_hist_page = State()
+
+
+class AdminStates(StatesGroup):
+    """Состояния для режима администратора."""
+    in_admin = State()
+    broadcast_text = State()
+    search_query = State()

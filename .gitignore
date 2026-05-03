@@ -22,3 +22,6 @@ test_db.sqlite3
 
 # Claude Code (локальные настройки)
 .claude/settings.local.json
+
+# Временные файлы Claude
+tmp/

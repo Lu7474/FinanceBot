@@ -6,12 +6,20 @@ from decimal import Decimal
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import String, DECIMAL, ForeignKey, BigInteger, DateTime, Index, text
+from sqlalchemy import (
+    DECIMAL,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from config import DATABASE_URL, TIMEZONE
-
 
 # ==================== Подключение к БД ====================
 
@@ -38,6 +46,7 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)  # Telegram ID
     name: Mapped[str] = mapped_column(String, nullable=True)       # Имя пользователя
     phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     records = relationship("Record", back_populates="user")        # Связь с записями
     accounts = relationship("Account", back_populates="user", cascade="all, delete-orphan")
@@ -109,6 +118,10 @@ async def _migrate(conn) -> None:
     acc_columns = {row[1] for row in result.fetchall()}
     if "balance_offset" not in acc_columns:
         await conn.execute(text("ALTER TABLE accounts ADD COLUMN balance_offset DECIMAL(10,2) NOT NULL DEFAULT 0"))
+    result = await conn.execute(text("PRAGMA table_info(users)"))
+    user_columns = {row[1] for row in result.fetchall()}
+    if "is_banned" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0"))
 
 
 # Создаёт таблицы в БД и применяет миграции (вызывается при старте бота)

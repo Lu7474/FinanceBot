@@ -81,6 +81,10 @@ class RateLimitMiddleware(BaseMiddleware):
         elif isinstance(event, CallbackQuery) and event.from_user:
             user_id = event.from_user.id
 
+        from config import ADMIN_ID
+        if user_id and user_id == ADMIN_ID:
+            return await handler(event, data)
+
         if user_id and not rate_limiter.is_allowed(user_id):
             retry_after = rate_limiter.get_retry_after(user_id)
             logging.warning(f"Rate limit для user_id={user_id}, retry_after={retry_after}s")
@@ -112,9 +116,16 @@ class UserMiddleware(BaseMiddleware):
             tg_id = event.from_user.id
 
         if tg_id:
+            from config import ADMIN_ID
             async with async_session() as session:
                 user = await get_user_by_tg_id(session, tg_id)
                 if user:
+                    if user.is_banned and tg_id != ADMIN_ID:
+                        if isinstance(event, Message):
+                            await event.answer("⛔ Ваш аккаунт заблокирован.")
+                        elif isinstance(event, CallbackQuery):
+                            await event.answer("⛔ Ваш аккаунт заблокирован.", show_alert=True)
+                        return None
                     data["user_id"] = user.id
                     data["user_tg_id"] = tg_id
 
