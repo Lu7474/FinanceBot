@@ -4,12 +4,14 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from config import TIMEZONE
+from core.charts import build_report_pie, build_trend_chart
 from core.database.models import async_session
 from core.database.requests import (
     get_categories_summary,
@@ -17,11 +19,14 @@ from core.database.requests import (
     get_records,
     get_user_by_tg_id,
 )
-from core.keyboards import get_months_keyboard, get_years_keyboard, main_menu_keyboard, report_type_keyboard
-from core.utils import RU_MONTHS, log_exceptions
-from core.charts import build_report_pie, build_trend_chart
+from core.keyboards import (
+    get_months_keyboard,
+    get_years_keyboard,
+    main_menu_keyboard,
+    report_type_keyboard,
+)
 from core.reports import get_available_years_and_months, make_comparison_text
-from config import TIMEZONE
+from core.utils import RU_MONTHS, log_exceptions
 
 from .common import MenuStates, is_expense, is_income, is_report
 
@@ -86,7 +91,9 @@ async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> 
 
     await state.update_data(report_years_months=years_months)
 
-    await message.answer("Тип отчёта: " + report_type, reply_markup=main_menu_keyboard())
+    await message.answer(
+        "Тип отчёта: " + report_type, reply_markup=main_menu_keyboard()
+    )
     keyboard = get_years_keyboard(list(years_months.keys()))
     await message.answer("Выберите год:", reply_markup=keyboard)
     await state.set_state(MenuStates.waiting_for_report_year)
@@ -139,7 +146,9 @@ async def menu_report_year(
 
 @router.callback_query(MenuStates.waiting_for_report_month)
 @log_exceptions("Ошибка при формировании отчёта")
-async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def menu_report_month(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Выбран месяц — генерируем график и текстовый отчёт."""
     try:
         parts = callback.data.split(":")
@@ -173,11 +182,15 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         await callback.answer()
         return
 
-    date_from = datetime(year, month, 1)
+    date_from = datetime(year, month, 1, tzinfo=ZoneInfo(TIMEZONE))
     if month == 12:
-        date_to = datetime(year + 1, 1, 1) - timedelta(seconds=1)
+        date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
+            seconds=1
+        )
     else:
-        date_to = datetime(year, month + 1, 1) - timedelta(seconds=1)
+        date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
+            seconds=1
+        )
 
     await callback.message.edit_text("⏳ Генерация отчёта...")
     await callback.answer()
@@ -197,7 +210,9 @@ async def menu_report_month(callback: CallbackQuery, state: FSMContext, **kwargs
         records = await get_records(session, user.id, "range", date_from, date_to)
 
         if categories:
-            buf, caption = await build_report_pie(categories, total, date_from, report_type, records)
+            buf, caption = await build_report_pie(
+                categories, total, date_from, report_type, records
+            )
 
             compare_kb = InlineKeyboardBuilder()
             compare_kb.button(
@@ -251,15 +266,23 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
 
     cur_date_from = datetime(year, month, 1, tzinfo=ZoneInfo(TIMEZONE))
     if month == 12:
-        cur_date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
+        cur_date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
+            seconds=1
+        )
     else:
-        cur_date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
+        cur_date_to = datetime(
+            year, month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)
+        ) - timedelta(seconds=1)
 
     prev_date_from = datetime(prev_year, prev_month, 1, tzinfo=ZoneInfo(TIMEZONE))
     if prev_month == 12:
-        prev_date_to = datetime(prev_year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
+        prev_date_to = datetime(
+            prev_year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)
+        ) - timedelta(seconds=1)
     else:
-        prev_date_to = datetime(prev_year, prev_month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(seconds=1)
+        prev_date_to = datetime(
+            prev_year, prev_month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)
+        ) - timedelta(seconds=1)
 
     await callback.answer("⏳ Формирую сравнение...")
 
