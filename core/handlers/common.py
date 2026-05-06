@@ -1,6 +1,5 @@
 """Shared helpers, command filters, and FSM state definitions."""
 
-
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
@@ -41,19 +40,31 @@ async def save_parsed_records(
     records_to_add: list[tuple],
     account_id: int | None = None,
 ) -> list[tuple]:
-    """Сохраняет распарсенные записи в БД."""
+    """Сохраняет распарсенные записи в БД атомарно (все или ни одной)."""
     added_records = []
     async with async_session() as session:
-        for operation, amount, category, record_date in records_to_add:
-            ok = await add_record(
-                session, user_id, operation, amount, category, record_date, account_id
-            )
-            if ok:
-                added_records.append((operation, amount, category, record_date))
+        try:
+            for operation, amount, category, record_date in records_to_add:
+                ok = await add_record(
+                    session,
+                    user_id,
+                    operation,
+                    amount,
+                    category,
+                    record_date,
+                    account_id,
+                )
+                if ok:
+                    added_records.append((operation, amount, category, record_date))
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            return []
     return added_records
 
 
 # ==================== Фильтры команд ====================
+
 
 def is_income(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Доход'."""
@@ -104,22 +115,31 @@ def is_accounts(message: Message) -> bool:
 
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
-    return any([
-        is_income(message), is_expense(message), is_history(message),
-        is_report(message), is_delete(message), is_accounts(message),
-    ])
+    return any(
+        [
+            is_income(message),
+            is_expense(message),
+            is_history(message),
+            is_report(message),
+            is_delete(message),
+            is_accounts(message),
+        ]
+    )
 
 
 # ==================== FSM States ====================
 
+
 class AddRecord(StatesGroup):
     """Состояния для добавления записи дохода/расхода."""
+
     waiting_for_amount = State()
     waiting_for_account = State()
 
 
 class MenuStates(StatesGroup):
     """Состояния для навигации по меню."""
+
     waiting_for_history_period = State()
     waiting_for_history_page = State()
     waiting_for_custom_period = State()
@@ -133,6 +153,7 @@ class MenuStates(StatesGroup):
 
 class AccountStates(StatesGroup):
     """Состояния для управления счетами."""
+
     waiting_for_account_name = State()
     waiting_for_rename_name = State()
     waiting_for_transfer_amount = State()
@@ -143,6 +164,7 @@ class AccountStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     """Состояния для режима администратора."""
+
     in_admin = State()
     broadcast_text = State()
     search_query = State()
