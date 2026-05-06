@@ -1,5 +1,7 @@
 """Admin panel — fully inline-button driven interface."""
+
 import asyncio
+import html
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -31,33 +33,44 @@ async def _safe_edit(message, text: str, **kwargs) -> None:
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e):
             raise
+
+
 router.message.filter(F.from_user.id == ADMIN_ID)
 router.callback_query.filter(F.from_user.id == ADMIN_ID)
 
 
 # ==================== Клавиатуры ====================
 
+
 def _main_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📊 Статистика", callback_data="adm_stats"),
-            InlineKeyboardButton(text="👥 Пользователи", callback_data="adm_users_0"),
-        ],
-        [
-            InlineKeyboardButton(text="🔍 Поиск", callback_data="adm_search"),
-            InlineKeyboardButton(text="🏆 Топ", callback_data="adm_top"),
-        ],
-        [
-            InlineKeyboardButton(text="📢 Рассылка", callback_data="adm_bc"),
-            InlineKeyboardButton(text="🚪 Выйти", callback_data="adm_exit"),
-        ],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="adm_stats"),
+                InlineKeyboardButton(
+                    text="👥 Пользователи", callback_data="adm_users_0"
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="🔍 Поиск", callback_data="adm_search"),
+                InlineKeyboardButton(text="🏆 Топ", callback_data="adm_top"),
+            ],
+            [
+                InlineKeyboardButton(text="📢 Рассылка", callback_data="adm_bc"),
+                InlineKeyboardButton(text="🚪 Выйти", callback_data="adm_exit"),
+            ],
+        ]
+    )
 
 
 def _back_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="↩ Главное меню", callback_data="adm_menu"),
-    ]])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="↩ Главное меню", callback_data="adm_menu"),
+            ]
+        ]
+    )
 
 
 FILTER_LABELS = {"all": "Все", "active": "Активные", "banned": "Забаненные"}
@@ -68,26 +81,36 @@ def _list_controls(page: int, total_pages: int, flt: str, srt: str) -> list[list
     rows = []
     flt_row = []
     for key, label in FILTER_LABELS.items():
-        flt_row.append(InlineKeyboardButton(
-            text=f"✓ {label}" if key == flt else label,
-            callback_data=f"adm_flt_{key}",
-        ))
+        flt_row.append(
+            InlineKeyboardButton(
+                text=f"✓ {label}" if key == flt else label,
+                callback_data=f"adm_flt_{key}",
+            )
+        )
     rows.append(flt_row)
 
     srt_row = []
     for key, label in SORT_LABELS.items():
-        srt_row.append(InlineKeyboardButton(
-            text=f"✓ {label}" if key == srt else label,
-            callback_data=f"adm_srt_{key}",
-        ))
+        srt_row.append(
+            InlineKeyboardButton(
+                text=f"✓ {label}" if key == srt else label,
+                callback_data=f"adm_srt_{key}",
+            )
+        )
     rows.append(srt_row)
 
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="◀", callback_data=f"adm_users_{page - 1}"))
-    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="adm_noop"))
+        nav.append(
+            InlineKeyboardButton(text="◀", callback_data=f"adm_users_{page - 1}")
+        )
+    nav.append(
+        InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="adm_noop")
+    )
     if page + 1 < total_pages:
-        nav.append(InlineKeyboardButton(text="▶", callback_data=f"adm_users_{page + 1}"))
+        nav.append(
+            InlineKeyboardButton(text="▶", callback_data=f"adm_users_{page + 1}")
+        )
     if len(nav) > 1:
         rows.append(nav)
 
@@ -96,6 +119,7 @@ def _list_controls(page: int, total_pages: int, flt: str, srt: str) -> list[list
 
 
 # ==================== Вход ====================
+
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext) -> None:
@@ -109,9 +133,11 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
 
 # ==================== Главное меню ====================
 
+
 @router.callback_query(AdminStates.in_admin, F.data == "adm_menu")
 async def cb_main_menu(query: CallbackQuery) -> None:
-    await _safe_edit(query.message,
+    await _safe_edit(
+        query.message,
         "🔐 <b>Режим администратора</b>\n\nВыбери действие:",
         parse_mode="HTML",
         reply_markup=_main_menu_kb(),
@@ -122,7 +148,7 @@ async def cb_main_menu(query: CallbackQuery) -> None:
 @router.callback_query(AdminStates.in_admin, F.data == "adm_exit")
 async def cb_exit(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await _safe_edit(query.message,"Вышел из режима администратора.")
+    await _safe_edit(query.message, "Вышел из режима администратора.")
     await query.answer()
 
 
@@ -133,7 +159,10 @@ async def cb_noop(query: CallbackQuery) -> None:
 
 # ==================== Статистика ====================
 
-@router.callback_query(AdminStates.in_admin, F.data.in_({"adm_stats", "adm_stats_refresh"}))
+
+@router.callback_query(
+    AdminStates.in_admin, F.data.in_({"adm_stats", "adm_stats_refresh"})
+)
 async def cb_stats(query: CallbackQuery) -> None:
     async with async_session() as session:
         stats = await db.get_bot_stats(session)
@@ -147,15 +176,22 @@ async def cb_stats(query: CallbackQuery) -> None:
         f"📅 Новых за неделю: <b>{stats['new_week']}</b>\n"
         f"🔥 Активных за неделю: <b>{stats['active_week']}</b>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🔄 Обновить", callback_data="adm_stats_refresh"),
-        InlineKeyboardButton(text="↩ Главное меню", callback_data="adm_menu"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Обновить", callback_data="adm_stats_refresh"
+                ),
+                InlineKeyboardButton(text="↩ Главное меню", callback_data="adm_menu"),
+            ]
+        ]
+    )
     await _safe_edit(query.message, text, parse_mode="HTML", reply_markup=kb)
     await query.answer("Обновлено ✓" if query.data == "adm_stats_refresh" else "")
 
 
 # ==================== Список пользователей ====================
+
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_users_"))
 async def cb_users(query: CallbackQuery, state: FSMContext) -> None:
@@ -181,7 +217,9 @@ async def cb_sort(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-async def _render_users_page(query: CallbackQuery, state: FSMContext, page: int) -> None:
+async def _render_users_page(
+    query: CallbackQuery, state: FSMContext, page: int
+) -> None:
     fsm = await state.get_data()
     flt = fsm.get("users_filter", "all")
     srt = fsm.get("users_sort", "date")
@@ -189,14 +227,18 @@ async def _render_users_page(query: CallbackQuery, state: FSMContext, page: int)
     async with async_session() as session:
         total = await db.count_users(session, filter_mode=flt)
         users = await db.get_all_users(
-            session, offset=page * USERS_PER_PAGE, limit=USERS_PER_PAGE,
-            filter_mode=flt, sort_by=srt,
+            session,
+            offset=page * USERS_PER_PAGE,
+            limit=USERS_PER_PAGE,
+            filter_mode=flt,
+            sort_by=srt,
         )
 
     total_pages = max(1, (total + USERS_PER_PAGE - 1) // USERS_PER_PAGE)
 
     if not users:
-        await _safe_edit(query.message,
+        await _safe_edit(
+            query.message,
             f"👥 Нет пользователей ({FILTER_LABELS.get(flt, flt)}).",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=_list_controls(0, 1, flt, srt)
@@ -213,19 +255,26 @@ async def _render_users_page(query: CallbackQuery, state: FSMContext, page: int)
     rows = []
     for u in users:
         ban_mark = " ⛔" if u.is_banned else ""
-        rows.append([InlineKeyboardButton(
-            text=f"👤 {u.name or '—'}{ban_mark}  |  {u.tg_id}",
-            callback_data=f"adm_user_{u.tg_id}",
-        )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"👤 {u.name or '—'}{ban_mark}  |  {u.tg_id}",
+                    callback_data=f"adm_user_{u.tg_id}",
+                )
+            ]
+        )
     rows.extend(_list_controls(page, total_pages, flt, srt))
 
-    await _safe_edit(query.message,
-        text, parse_mode="HTML",
+    await _safe_edit(
+        query.message,
+        text,
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 
 # ==================== Карточка пользователя ====================
+
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_user_"))
 async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
@@ -271,16 +320,34 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
         if user.is_banned
         else InlineKeyboardButton(text="⛔ Забанить", callback_data=f"adm_ban_{tg_id}")
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [ban_btn, InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"adm_del1_{tg_id}")],
-        [InlineKeyboardButton(text="📥 Скачать CSV", callback_data=f"adm_csv_{tg_id}")],
-        [InlineKeyboardButton(text="↩ К списку", callback_data=f"adm_users_{page}")],
-    ])
-    await _safe_edit(query.message,"\n".join(lines), parse_mode="HTML", reply_markup=kb)
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                ban_btn,
+                InlineKeyboardButton(
+                    text="🗑️ Удалить", callback_data=f"adm_del1_{tg_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📥 Скачать CSV", callback_data=f"adm_csv_{tg_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="↩ К списку", callback_data=f"adm_users_{page}"
+                )
+            ],
+        ]
+    )
+    await _safe_edit(
+        query.message, "\n".join(lines), parse_mode="HTML", reply_markup=kb
+    )
     await query.answer()
 
 
 # ==================== CSV экспорт ====================
+
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_csv_"))
 async def cb_csv(query: CallbackQuery) -> None:
@@ -303,16 +370,27 @@ async def cb_csv(query: CallbackQuery) -> None:
 
 # ==================== Бан / Разбан ====================
 
+
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_ban_"))
 async def cb_ban_ask(query: CallbackQuery) -> None:
     tg_id = int(query.data[8:])  # "adm_ban_" = 8 chars
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Забанить", callback_data=f"adm_bando_{tg_id}"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data=f"adm_user_{tg_id}"),
-    ]])
-    await _safe_edit(query.message,
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Забанить", callback_data=f"adm_bando_{tg_id}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена", callback_data=f"adm_user_{tg_id}"
+                ),
+            ]
+        ]
+    )
+    await _safe_edit(
+        query.message,
         f"Забанить <code>{tg_id}</code>?\nПользователь не сможет пользоваться ботом.",
-        parse_mode="HTML", reply_markup=kb,
+        parse_mode="HTML",
+        reply_markup=kb,
     )
     await query.answer()
 
@@ -323,12 +401,23 @@ async def cb_ban_do(query: CallbackQuery, state: FSMContext) -> None:
     async with async_session() as session:
         await db.ban_user(session, tg_id, is_banned=True)
     page = (await state.get_data()).get("users_page", 0)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="↩ К пользователю", callback_data=f"adm_user_{tg_id}"),
-        InlineKeyboardButton(text="↩ К списку", callback_data=f"adm_users_{page}"),
-    ]])
-    await _safe_edit(query.message,
-        f"⛔ Пользователь <code>{tg_id}</code> забанен.", parse_mode="HTML", reply_markup=kb
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="↩ К пользователю", callback_data=f"adm_user_{tg_id}"
+                ),
+                InlineKeyboardButton(
+                    text="↩ К списку", callback_data=f"adm_users_{page}"
+                ),
+            ]
+        ]
+    )
+    await _safe_edit(
+        query.message,
+        f"⛔ Пользователь <code>{tg_id}</code> забанен.",
+        parse_mode="HTML",
+        reply_markup=kb,
     )
     await query.answer()
 
@@ -339,17 +428,29 @@ async def cb_unban_do(query: CallbackQuery, state: FSMContext) -> None:
     async with async_session() as session:
         await db.ban_user(session, tg_id, is_banned=False)
     page = (await state.get_data()).get("users_page", 0)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="↩ К пользователю", callback_data=f"adm_user_{tg_id}"),
-        InlineKeyboardButton(text="↩ К списку", callback_data=f"adm_users_{page}"),
-    ]])
-    await _safe_edit(query.message,
-        f"✅ Пользователь <code>{tg_id}</code> разбанен.", parse_mode="HTML", reply_markup=kb
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="↩ К пользователю", callback_data=f"adm_user_{tg_id}"
+                ),
+                InlineKeyboardButton(
+                    text="↩ К списку", callback_data=f"adm_users_{page}"
+                ),
+            ]
+        ]
+    )
+    await _safe_edit(
+        query.message,
+        f"✅ Пользователь <code>{tg_id}</code> разбанен.",
+        parse_mode="HTML",
+        reply_markup=kb,
     )
     await query.answer()
 
 
 # ==================== Удаление ====================
+
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_del1_"))
 async def cb_del1(query: CallbackQuery) -> None:
@@ -360,15 +461,25 @@ async def cb_del1(query: CallbackQuery) -> None:
             await query.answer("Не найден.", show_alert=True)
             return
         stats = await db.get_user_stats(session, user.id)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⚠️ Да, удалить", callback_data=f"adm_del2_{tg_id}"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data=f"adm_user_{tg_id}"),
-    ]])
-    await _safe_edit(query.message,
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚠️ Да, удалить", callback_data=f"adm_del2_{tg_id}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена", callback_data=f"adm_user_{tg_id}"
+                ),
+            ]
+        ]
+    )
+    await _safe_edit(
+        query.message,
         f"⚠️ Удалить <code>{tg_id}</code>?\n"
         f"Записей: {stats['total_records']}, все счета — будут удалены.\n\n"
         f"<b>Необратимо!</b>",
-        parse_mode="HTML", reply_markup=kb,
+        parse_mode="HTML",
+        reply_markup=kb,
     )
     await query.answer()
 
@@ -376,14 +487,24 @@ async def cb_del1(query: CallbackQuery) -> None:
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_del2_"))
 async def cb_del2(query: CallbackQuery) -> None:
     tg_id = int(query.data[9:])  # "adm_del2_" = 9 chars
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🗑️ УДАЛИТЬ НАВСЕГДА", callback_data=f"adm_deldo_{tg_id}"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data=f"adm_user_{tg_id}"),
-    ]])
-    await _safe_edit(query.message,
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗑️ УДАЛИТЬ НАВСЕГДА", callback_data=f"adm_deldo_{tg_id}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена", callback_data=f"adm_user_{tg_id}"
+                ),
+            ]
+        ]
+    )
+    await _safe_edit(
+        query.message,
         f"🗑️ <b>Последнее предупреждение!</b>\n\n"
         f"Удалить <code>{tg_id}</code> без восстановления?",
-        parse_mode="HTML", reply_markup=kb,
+        parse_mode="HTML",
+        reply_markup=kb,
     )
     await query.answer()
 
@@ -394,14 +515,14 @@ async def cb_deldo(query: CallbackQuery) -> None:
     async with async_session() as session:
         ok = await db.delete_user_cascade(session, tg_id)
     text = (
-        f"🗑️ Пользователь <code>{tg_id}</code> удалён."
-        if ok else "Ошибка при удалении."
+        f"🗑️ Пользователь <code>{tg_id}</code> удалён." if ok else "Ошибка при удалении."
     )
-    await _safe_edit(query.message,text, parse_mode="HTML", reply_markup=_back_kb())
+    await _safe_edit(query.message, text, parse_mode="HTML", reply_markup=_back_kb())
     await query.answer()
 
 
 # ==================== Топ ====================
+
 
 @router.callback_query(AdminStates.in_admin, F.data == "adm_top")
 async def cb_top(query: CallbackQuery) -> None:
@@ -409,24 +530,30 @@ async def cb_top(query: CallbackQuery) -> None:
         top = await db.get_top_users(session, limit=5)
 
     if not top:
-        await _safe_edit(query.message,"Нет данных.", reply_markup=_back_kb())
+        await _safe_edit(query.message, "Нет данных.", reply_markup=_back_kb())
         await query.answer()
         return
 
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
     lines = ["🏆 <b>Топ-5 активных пользователей</b>\n"]
     for i, (user, count) in enumerate(top):
-        lines.append(f"{medals[i]} {user.name or '—'} | <code>{user.tg_id}</code> | {count} зап.")
-    await _safe_edit(query.message,"\n".join(lines), parse_mode="HTML", reply_markup=_back_kb())
+        lines.append(
+            f"{medals[i]} {user.name or '—'} | <code>{user.tg_id}</code> | {count} зап."
+        )
+    await _safe_edit(
+        query.message, "\n".join(lines), parse_mode="HTML", reply_markup=_back_kb()
+    )
     await query.answer()
 
 
 # ==================== Поиск ====================
 
+
 @router.callback_query(AdminStates.in_admin, F.data == "adm_search")
 async def cb_search_start(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.search_query)
-    await _safe_edit(query.message,
+    await _safe_edit(
+        query.message,
         "🔍 <b>Поиск пользователя</b>\n\nВведи имя или часть имени.\n/cancel — отмена.",
         parse_mode="HTML",
     )
@@ -453,7 +580,7 @@ async def search_text(message: Message, state: FSMContext) -> None:
 
     if not users:
         await message.answer(
-            f"По запросу «{query_str}» никого не нашёл.",
+            f"По запросу «{html.escape(query_str)}» никого не нашёл.",
             reply_markup=_back_kb(),
         )
         return
@@ -461,13 +588,17 @@ async def search_text(message: Message, state: FSMContext) -> None:
     rows = []
     for u in users:
         ban_mark = " ⛔" if u.is_banned else ""
-        rows.append([InlineKeyboardButton(
-            text=f"👤 {u.name or '—'}{ban_mark}  |  {u.tg_id}",
-            callback_data=f"adm_user_{u.tg_id}",
-        )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"👤 {u.name or '—'}{ban_mark}  |  {u.tg_id}",
+                    callback_data=f"adm_user_{u.tg_id}",
+                )
+            ]
+        )
     rows.append([InlineKeyboardButton(text="↩ Главное меню", callback_data="adm_menu")])
     await message.answer(
-        f"🔍 <b>Результаты «{query_str}»:</b> найдено {len(users)}",
+        f"🔍 <b>Результаты «{html.escape(query_str)}»:</b> найдено {len(users)}",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
@@ -475,17 +606,30 @@ async def search_text(message: Message, state: FSMContext) -> None:
 
 # ==================== Broadcast ====================
 
+
 @router.callback_query(AdminStates.in_admin, F.data == "adm_bc")
 async def cb_bc_start(query: CallbackQuery) -> None:
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 Всем", callback_data="adm_bc_tgt_all")],
-        [InlineKeyboardButton(text="🔥 Активным за 7 дней", callback_data="adm_bc_tgt_active")],
-        [InlineKeyboardButton(text="⭐ С 10+ записями", callback_data="adm_bc_tgt_power")],
-        [InlineKeyboardButton(text="↩ Отмена", callback_data="adm_menu")],
-    ])
-    await _safe_edit(query.message,
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👥 Всем", callback_data="adm_bc_tgt_all")],
+            [
+                InlineKeyboardButton(
+                    text="🔥 Активным за 7 дней", callback_data="adm_bc_tgt_active"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⭐ С 10+ записями", callback_data="adm_bc_tgt_power"
+                )
+            ],
+            [InlineKeyboardButton(text="↩ Отмена", callback_data="adm_menu")],
+        ]
+    )
+    await _safe_edit(
+        query.message,
         "📢 <b>Рассылка</b>\n\nКому отправить?",
-        parse_mode="HTML", reply_markup=kb,
+        parse_mode="HTML",
+        reply_markup=kb,
     )
     await query.answer()
 
@@ -496,8 +640,13 @@ async def cb_bc_target(query: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(broadcast_target=target)
     await state.set_state(AdminStates.broadcast_text)
 
-    labels = {"all": "всем пользователям", "active": "активным за 7 дней", "power": "с 10+ записями"}
-    await _safe_edit(query.message,
+    labels = {
+        "all": "всем пользователям",
+        "active": "активным за 7 дней",
+        "power": "с 10+ записями",
+    }
+    await _safe_edit(
+        query.message,
         f"📢 Рассылка {labels.get(target, '')}.\n\nВведи текст сообщения.\n/cancel — отмена.",
         parse_mode="HTML",
     )
@@ -532,10 +681,16 @@ async def bc_text_received(message: Message, state: FSMContext) -> None:
     await state.update_data(broadcast_text=text, broadcast_tg_ids=tg_ids)
     await state.set_state(AdminStates.in_admin)
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Отправить", callback_data="adm_bc_confirm"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="adm_menu"),
-    ]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Отправить", callback_data="adm_bc_confirm"
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="adm_menu"),
+            ]
+        ]
+    )
     await message.answer(
         f"📢 <b>Рассылка {labels.get(target, '')} ({len(tg_ids)} чел.):</b>\n\n{text}\n\nОтправить?",
         parse_mode="HTML",
@@ -552,7 +707,7 @@ async def cb_bc_confirm(query: CallbackQuery, state: FSMContext) -> None:
         await query.answer("Данные не найдены.", show_alert=True)
         return
 
-    await _safe_edit(query.message,f"📢 Рассылка запущена... (0/{len(tg_ids)})")
+    await _safe_edit(query.message, f"📢 Рассылка запущена... (0/{len(tg_ids)})")
     await query.answer()
 
     sent, failed = 0, 0
