@@ -1,6 +1,7 @@
 """
 Rate limiting and user context middleware.
 """
+
 import logging
 import time
 from typing import Any, Awaitable, Callable, Dict
@@ -25,7 +26,8 @@ class RateLimiter:
 
         window_start = now - self.window_seconds
         inactive_users = [
-            uid for uid, timestamps in self._requests.items()
+            uid
+            for uid, timestamps in self._requests.items()
             if not timestamps or max(timestamps) < window_start
         ]
         for uid in inactive_users:
@@ -33,7 +35,9 @@ class RateLimiter:
 
         self._last_cleanup = now
         if inactive_users:
-            logging.debug(f"RateLimiter: очищено {len(inactive_users)} неактивных пользователей")
+            logging.debug(
+                f"RateLimiter: очищено {len(inactive_users)} неактивных пользователей"
+            )
 
     def is_allowed(self, user_id: int) -> bool:
         self._cleanup_inactive_users()
@@ -68,7 +72,6 @@ rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
 
 
 class RateLimitMiddleware(BaseMiddleware):
-
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
@@ -82,14 +85,19 @@ class RateLimitMiddleware(BaseMiddleware):
             user_id = event.from_user.id
 
         from config import ADMIN_ID
+
         if user_id and user_id == ADMIN_ID:
             return await handler(event, data)
 
         if user_id and not rate_limiter.is_allowed(user_id):
             retry_after = rate_limiter.get_retry_after(user_id)
-            logging.warning(f"Rate limit для user_id={user_id}, retry_after={retry_after}s")
+            logging.warning(
+                f"Rate limit для user_id={user_id}, retry_after={retry_after}s"
+            )
             if isinstance(event, Message):
-                await event.answer(f"Слишком много запросов. Подождите {retry_after} сек.")
+                await event.answer(
+                    f"Слишком много запросов. Подождите {retry_after} сек."
+                )
             elif isinstance(event, CallbackQuery):
                 await event.answer(f"Подождите {retry_after} сек.", show_alert=True)
             return None
@@ -117,6 +125,7 @@ class UserMiddleware(BaseMiddleware):
 
         if tg_id:
             from config import ADMIN_ID
+
             async with async_session() as session:
                 user = await get_user_by_tg_id(session, tg_id)
                 if user:
@@ -124,9 +133,25 @@ class UserMiddleware(BaseMiddleware):
                         if isinstance(event, Message):
                             await event.answer("⛔ Ваш аккаунт заблокирован.")
                         elif isinstance(event, CallbackQuery):
-                            await event.answer("⛔ Ваш аккаунт заблокирован.", show_alert=True)
+                            await event.answer(
+                                "⛔ Ваш аккаунт заблокирован.", show_alert=True
+                            )
                         return None
                     data["user_id"] = user.id
                     data["user_tg_id"] = tg_id
+                else:
+                    is_start_cmd = (
+                        isinstance(event, Message)
+                        and event.text
+                        and event.text.startswith("/start")
+                    )
+                    if not is_start_cmd:
+                        if isinstance(event, Message):
+                            await event.answer("Для начала работы отправьте /start")
+                        elif isinstance(event, CallbackQuery):
+                            await event.answer(
+                                "Отправьте /start для регистрации", show_alert=True
+                            )
+                        return None
 
         return await handler(event, data)
