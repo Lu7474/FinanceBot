@@ -455,8 +455,7 @@ async def get_monthly_totals(
     """
     try:
         now = datetime.now(ZoneInfo(TIMEZONE))
-        # 365 дней назад
-        start_date = now - timedelta(days=365)
+        start_date = now - timedelta(days=months_back * 30)
 
         query = (
             select(
