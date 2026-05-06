@@ -794,25 +794,35 @@ async def count_users(session: AsyncSession, filter_mode: str = "all") -> int:
 
 
 async def get_user_stats(session: AsyncSession, user_id: int) -> dict:
-    """Returns record counts and totals for a user."""
-    total = await count_records(session, user_id)
-    income_sum, expense_sum = await get_totals(session, user_id)
-    income_count = (
-        await session.scalar(
-            select(func.count(Record.id)).where(
-                Record.user_id == user_id,
-                Record.operation == "+",
-                Record.category.not_in(SYSTEM_CATEGORIES),
-            )
+    """Returns record counts, totals and last activity for a user in one query."""
+    result = await session.execute(
+        select(
+            func.count(Record.id).label("total"),
+            func.coalesce(
+                func.sum(case((Record.operation == "+", 1), else_=0)), 0
+            ).label("income_count"),
+            func.coalesce(
+                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+            ).label("income_sum"),
+            func.coalesce(
+                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+            ).label("expense_sum"),
+            func.max(Record.created_at).label("last_activity"),
+        ).where(
+            Record.user_id == user_id,
+            Record.category.not_in(SYSTEM_CATEGORIES),
         )
-        or 0
     )
+    row = result.one()
+    total = row.total or 0
+    income_count = row.income_count or 0
     return {
         "total_records": total,
         "income_count": income_count,
         "expense_count": total - income_count,
-        "income_sum": income_sum,
-        "expense_sum": expense_sum,
+        "income_sum": Decimal(str(row.income_sum)),
+        "expense_sum": Decimal(str(row.expense_sum)),
+        "last_activity": row.last_activity,
     }
 
 

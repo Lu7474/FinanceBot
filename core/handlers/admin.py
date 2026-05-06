@@ -289,9 +289,9 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
             return
         stats = await db.get_user_stats(session, user.id)
         balances = await db.get_account_balances(session, user.id)
-        last_active = await db.get_user_last_activity(session, user.id)
 
     ban_status = "⛔ Да" if user.is_banned else "✅ Нет"
+    last_active = stats.get("last_activity")
     last_str = last_active.strftime("%d.%m.%Y %H:%M") if last_active else "нет записей"
 
     lines = [
