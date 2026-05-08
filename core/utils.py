@@ -1,7 +1,10 @@
 """
 Common utilities: money formatting, locale constants, exception decorator.
 """
+import html
 import logging
+from datetime import date as date_type
+from decimal import Decimal
 from functools import wraps
 from typing import Callable
 
@@ -37,6 +40,85 @@ RU_WEEKDAYS = {
     5: "Сб",
     6: "Вс",
 }
+
+
+RU_MONTHS_GEN = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+    5: "мая", 6: "июня", 7: "июля", 8: "августа",
+    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+}
+
+
+def format_date_ru(d: date_type) -> str:
+    """Formats date as '15 марта 2025'."""
+    return f"{d.day} {RU_MONTHS_GEN[d.month]} {d.year}"
+
+
+def format_snapshot(items: list, prev_items: list | None, snapshot_date: date_type) -> str:
+    """Formats savings snapshot text with dynamic comparison to previous snapshot."""
+    prev_map: dict[str, Decimal] = {}
+    if prev_items:
+        for item in prev_items:
+            prev_map[item.name] = item.amount
+
+    date_str = format_date_ru(snapshot_date)
+    lines = [f"💰 <b>Накопления</b>\n\n📅 {date_str}\n"]
+
+    total = Decimal("0")
+    for item in items:
+        amount_str = format_money(float(item.amount))
+        if item.name in prev_map:
+            diff = item.amount - prev_map[item.name]
+            if diff > 0:
+                diff_str = f"  <i>(+{format_money(float(diff))})</i>"
+            elif diff < 0:
+                diff_str = f"  <i>(−{format_money(float(abs(diff)))})</i>"
+            else:
+                diff_str = "  <i>(=)</i>"
+        else:
+            diff_str = ""
+        lines.append(f"{html.escape(item.name)}:  <b>{amount_str}</b>{diff_str}")
+        total += item.amount
+
+    lines.append(f"\n<b>Итого:  {format_money(float(total))}</b>")
+    return "\n".join(lines)
+
+
+def format_wealth(items: list) -> str:
+    """Formats wealth items with assets/liabilities breakdown and net worth."""
+    assets = [i for i in items if i.type == "A"]
+    liabilities = [i for i in items if i.type == "P"]
+
+    lines = ["📊 <b>Финансовый баланс</b>\n"]
+
+    lines.append("💚 <b>АКТИВЫ</b>")
+    total_assets = Decimal("0")
+    if assets:
+        for item in assets:
+            note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
+            lines.append(f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}")
+            total_assets += item.amount
+    else:
+        lines.append("  <i>Нет данных</i>")
+    lines.append(f"  <b>Итого активов:  {format_money(float(total_assets))}</b>")
+
+    lines.append("")
+    lines.append("🔴 <b>ПАССИВЫ</b>")
+    total_liabilities = Decimal("0")
+    if liabilities:
+        for item in liabilities:
+            note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
+            lines.append(f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}")
+            total_liabilities += item.amount
+    else:
+        lines.append("  <i>Нет данных</i>")
+    lines.append(f"  <b>Итого пассивов:  {format_money(float(total_liabilities))}</b>")
+
+    net = total_assets - total_liabilities
+    sign = "+" if net >= 0 else ""
+    lines.append(f"<b>Чистый капитал:  {sign}{format_money(float(net))}</b>")
+
+    return "\n".join(lines)
 
 
 def log_exceptions(error_text: str) -> Callable:

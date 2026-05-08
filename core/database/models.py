@@ -1,7 +1,7 @@
 """
-SQLAlchemy модели: User, Account и Record. Настройка подключения к БД.
+SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem.
 """
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -10,6 +10,7 @@ from sqlalchemy import (
     DECIMAL,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -101,6 +102,48 @@ class Record(Base):
         if include_id:
             result["id"] = self.id
         return result
+
+
+# Снимок накоплений за один день
+class SavingsSnapshot(Base):
+    __tablename__ = "savings_snapshots"
+    __table_args__ = (
+        Index("ix_savings_user_date", "user_id", "date", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    items = relationship("SavingsItem", back_populates="snapshot", cascade="all, delete-orphan")
+
+
+# Одна строка снимка (название счёта + сумма)
+class SavingsItem(Base):
+    __tablename__ = "savings_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("savings_snapshots.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+
+    snapshot = relationship("SavingsSnapshot", back_populates="items")
+
+
+# Актив или пассив пользователя
+class WealthItem(Base):
+    __tablename__ = "wealth_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    type: Mapped[str] = mapped_column(String(1), nullable=False)      # "A" = актив, "P" = пассив
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
 
 # ==================== Инициализация ====================

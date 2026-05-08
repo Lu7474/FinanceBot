@@ -5,15 +5,14 @@ from functools import lru_cache
 from typing import List
 
 from aiogram.types import (
-    InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ReplyKeyboardMarkup,
+    InlineKeyboardMarkup,
     KeyboardButton,
+    ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from core.utils import RU_MONTHS
-
+from core.utils import RU_MONTHS, format_money
 
 # Кнопка отмены для inline-клавиатур
 CANCEL_BUTTON = InlineKeyboardButton(text="Отмена", callback_data="cancel")
@@ -27,6 +26,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Доход"), KeyboardButton(text="Расход")],
             [KeyboardButton(text="История"), KeyboardButton(text="Отчёт")],
             [KeyboardButton(text="Счета"), KeyboardButton(text="Удалить запись")],
+            [KeyboardButton(text="Накопления")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -213,5 +213,121 @@ def account_delete_move_keyboard(from_id: int, targets: List) -> InlineKeyboardM
     for acc in targets:
         builder.button(text=acc.name, callback_data=f"acc_delete_move:{from_id}:{acc.id}")
     builder.button(text="Отмена", callback_data="acc_delete_cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+# ==================== Накопления ====================
+
+
+def savings_view_keyboard(
+    prev_date=None,
+    next_date=None,
+    snapshot_id: int | None = None,
+) -> InlineKeyboardMarkup:
+    """Main savings view keyboard with navigation, actions, and wealth link."""
+    rows = []
+
+    nav_btns = []
+    if prev_date:
+        nav_btns.append(InlineKeyboardButton(text="◀", callback_data=f"sav_date:{prev_date.isoformat()}"))
+    if next_date:
+        nav_btns.append(InlineKeyboardButton(text="▶", callback_data=f"sav_date:{next_date.isoformat()}"))
+    if nav_btns:
+        rows.append(nav_btns)
+
+    if snapshot_id is not None:
+        rows.append([
+            InlineKeyboardButton(text="➕ Добавить запись", callback_data="sav_add"),
+            InlineKeyboardButton(text="➕ Добавить поле", callback_data=f"sav_add_field:{snapshot_id}"),
+        ])
+        rows.append([
+            InlineKeyboardButton(text="✏️ Изменить", callback_data=f"sav_edit:{snapshot_id}"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"sav_delete:{snapshot_id}"),
+        ])
+    else:
+        rows.append([InlineKeyboardButton(text="➕ Добавить запись", callback_data="sav_add")])
+
+    rows.append([
+        InlineKeyboardButton(text="💰 Активы/Пассивы", callback_data="sav_wealth"),
+        InlineKeyboardButton(text="← Назад", callback_data="sav_back"),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def savings_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Confirm keyboard shown after all amounts are entered before saving."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Сохранить", callback_data="sav_confirm_save"),
+            InlineKeyboardButton(text="➕ Добавить поле", callback_data="sav_confirm_add_field"),
+        ],
+        [InlineKeyboardButton(text="Отмена", callback_data="sav_cancel_action")],
+    ])
+
+
+def savings_items_keyboard(
+    items: List, action: str, snapshot_id: int | None = None
+) -> InlineKeyboardMarkup:
+    """Shows savings items as selectable buttons for edit or delete."""
+    builder = InlineKeyboardBuilder()
+    for item in items:
+        builder.button(
+            text=f"{item.name}  —  {format_money(float(item.amount))}",
+            callback_data=f"sav_{action}_item:{item.id}",
+        )
+    if action == "delete":
+        sid = snapshot_id if snapshot_id is not None else (items[0].snapshot_id if items else None)
+        if sid is not None:
+            builder.button(
+                text="🗑 Удалить весь снимок",
+                callback_data=f"sav_delete_all:{sid}",
+            )
+    builder.button(text="← Назад", callback_data="sav_cancel_action")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+# ==================== Активы / Пассивы ====================
+
+
+@lru_cache(maxsize=1)
+def wealth_menu_keyboard() -> InlineKeyboardMarkup:
+    """Wealth section main keyboard."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➕ Добавить", callback_data="wealth_add"),
+            InlineKeyboardButton(text="✏️ Изменить", callback_data="wealth_edit"),
+        ],
+        [
+            InlineKeyboardButton(text="🗑 Удалить", callback_data="wealth_delete"),
+            InlineKeyboardButton(text="← Назад", callback_data="wealth_back"),
+        ],
+    ])
+
+
+@lru_cache(maxsize=1)
+def wealth_type_keyboard() -> InlineKeyboardMarkup:
+    """Select asset (A) or liability (P) type."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💚 Актив", callback_data="wealth_type:A"),
+            InlineKeyboardButton(text="🔴 Пассив", callback_data="wealth_type:P"),
+        ],
+        [CANCEL_BUTTON],
+    ])
+
+
+def wealth_items_keyboard(items: List, action: str) -> InlineKeyboardMarkup:
+    """Shows wealth items as selectable buttons for edit or delete."""
+    builder = InlineKeyboardBuilder()
+    for item in items:
+        icon = "💚" if item.type == "A" else "🔴"
+        builder.button(
+            text=f"{icon} {item.name}  —  {format_money(float(item.amount))}",
+            callback_data=f"wealth_{action}_item:{item.id}",
+        )
+    builder.button(text="← Назад", callback_data="wealth_back")
     builder.adjust(1)
     return builder.as_markup()

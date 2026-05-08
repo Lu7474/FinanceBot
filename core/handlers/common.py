@@ -113,6 +113,13 @@ def is_accounts(message: Message) -> bool:
     return message.text.strip().lower() in ("счета", "💳 счета")
 
 
+def is_savings(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Накопления'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() in ("накопления", "💰 накопления")
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -123,6 +130,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_report(message),
             is_delete(message),
             is_accounts(message),
+            is_savings(message),
         ]
     )
 
@@ -168,3 +176,24 @@ class AdminStates(StatesGroup):
     in_admin = State()
     broadcast_text = State()
     search_query = State()
+
+
+class SavingsStates(StatesGroup):
+    """States for savings snapshots workflow."""
+
+    choosing_names_source = State()   # choose: use last names or enter new
+    entering_amounts = State()         # iterative amount input from template
+    confirming_snapshot = State()      # review before saving
+    entering_new_field_name = State()  # new field name (create or add to existing)
+    entering_new_field_amount = State()
+    editing_item_amount = State()
+
+
+class WealthStates(StatesGroup):
+    """States for wealth items (assets/liabilities) workflow."""
+
+    choosing_type = State()
+    entering_name = State()
+    entering_amount = State()
+    entering_note = State()
+    editing_amount = State()
