@@ -6,18 +6,18 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from core.database.models import async_session, Record
+from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE, TIMEZONE
+from core.database.models import Record, async_session
 from core.database.requests import get_history_data, get_records, get_user_by_tg_id
 from core.keyboards import history_period_keyboard, main_menu_keyboard
 from core.utils import RU_WEEKDAYS, format_money, log_exceptions
-from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE, TIMEZONE
 
-from .common import MenuStates, get_user_id_from_event, is_history, is_main_menu_button
+from .common import MenuStates, is_history, is_main_menu_button
 
 router = Router()
 
@@ -62,7 +62,11 @@ def build_history_page(
     if header:
         text = f"{header} • {period_name}\n\n" if period_name else f"{header}\n\n"
     else:
-        text = f"📊 <b>История</b> • {period_name}\n\n" if period_name else "📊 <b>История</b>\n\n"
+        text = (
+            f"📊 <b>История</b> • {period_name}\n\n"
+            if period_name
+            else "📊 <b>История</b>\n\n"
+        )
 
     for date_str, day_records in grouped.items():
         day_income = sum(float(r.amount) for r in day_records if r.operation == "+")
@@ -73,7 +77,9 @@ def build_history_page(
         short_date = ".".join(date_str.split(".")[:2])
 
         total_sign = "+" if day_total >= 0 else ""
-        text += f"▸ <b>{weekday}, {short_date}</b> │ {total_sign}{day_total:,.0f}₽\n".replace(",", " ")
+        text += f"▸ <b>{weekday}, {short_date}</b> │ {total_sign}{day_total:,.0f}₽\n".replace(
+            ",", " "
+        )
 
         for r in day_records:
             sign = "+" if r.operation == "+" else "-"
@@ -102,8 +108,15 @@ def build_history_page(
         kb.adjust(len(nav_buttons))
 
         if total_count > 0 and total_count <= MAX_SHOW_ALL_RECORDS:
-            kb.button(text=f"Показать все ({total_count})", callback_data="hist_show_all")
+            kb.button(
+                text=f"Показать все ({total_count})", callback_data="hist_show_all"
+            )
             kb.adjust(len(nav_buttons), 1)
+
+        kb.button(text="📋 Открыть запись", callback_data="hist_open_record")
+        kb.adjust(len(nav_buttons), 1, 1)
+    else:
+        kb.button(text="📋 Открыть запись", callback_data="hist_open_record")
 
     return text, kb
 
@@ -172,18 +185,26 @@ async def menu_history_period(
         history_expense=str(expense_sum),
     )
 
-    text, kb = build_history_page(records, 0, total_pages, income_sum, expense_sum, period=period, total_count=total_count)
+    text, kb = build_history_page(
+        records,
+        0,
+        total_pages,
+        income_sum,
+        expense_sum,
+        period=period,
+        total_count=total_count,
+    )
 
-    if total_pages > 1:
-        await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
-        await state.set_state(MenuStates.waiting_for_history_page)
-    else:
-        await callback.message.edit_text(text, parse_mode="HTML")
-        await state.clear()
+    await callback.message.edit_text(
+        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
+    await state.set_state(MenuStates.waiting_for_history_page)
     await callback.answer()
 
 
-@router.callback_query(MenuStates.waiting_for_history_page, F.data.startswith("hist_page:"))
+@router.callback_query(
+    MenuStates.waiting_for_history_page, F.data.startswith("hist_page:")
+)
 @log_exceptions("Ошибка при навигации по истории")
 async def menu_history_page(
     callback: CallbackQuery, state: FSMContext, **kwargs
@@ -233,14 +254,33 @@ async def menu_history_page(
             return
 
         offset = new_page * RECORDS_PER_PAGE
-        records = await get_records(session, user.id, period, date_from, date_to, limit=RECORDS_PER_PAGE, offset=offset)
+        records = await get_records(
+            session,
+            user.id,
+            period,
+            date_from,
+            date_to,
+            limit=RECORDS_PER_PAGE,
+            offset=offset,
+        )
 
     period_label = data.get("history_period_label", "")
     total_count = data.get("history_total_count", 0)
 
     await state.update_data(history_page=new_page)
-    text, kb = build_history_page(records, new_page, total_pages, income_sum, expense_sum, period=period, period_label=period_label, total_count=total_count)
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    text, kb = build_history_page(
+        records,
+        new_page,
+        total_pages,
+        income_sum,
+        expense_sum,
+        period=period,
+        period_label=period_label,
+        total_count=total_count,
+    )
+    await callback.message.edit_text(
+        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -280,15 +320,29 @@ async def menu_history_show_all(
             await callback.answer()
             return
 
-        records = await get_records(session, user.id, period, date_from, date_to, limit=MAX_SHOW_ALL_RECORDS, offset=0)
+        records = await get_records(
+            session,
+            user.id,
+            period,
+            date_from,
+            date_to,
+            limit=MAX_SHOW_ALL_RECORDS,
+            offset=0,
+        )
 
     text, _ = build_history_page(
-        records, 0, 1, income_sum, expense_sum,
-        period=period, period_label=period_label, total_count=total_count
+        records,
+        0,
+        1,
+        income_sum,
+        expense_sum,
+        period=period,
+        period_label=period_label,
+        total_count=total_count,
     )
 
     if len(text) > MAX_MESSAGE_LENGTH - 100:
-        text = text[:MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
+        text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
 
     await callback.message.edit_text(text, parse_mode="HTML")
     await state.clear()
@@ -303,7 +357,9 @@ async def menu_history_custom_period(
     """Обработка текстового ввода дат для своего периода."""
     text = message.text.strip()
 
-    match = re.match(r"(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[-–—]\s*(\d{1,2}\.\d{1,2}\.\d{2,4})", text)
+    match = re.match(
+        r"(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[-–—]\s*(\d{1,2}\.\d{1,2}\.\d{2,4})", text
+    )
     if not match:
         await message.answer(
             "Неверный формат. Введите период в формате:\n"
@@ -316,8 +372,14 @@ async def menu_history_custom_period(
     date_from_str, date_to_str = match.groups()
 
     try:
-        date_from = datetime.strptime(date_from_str, "%d.%m.%y" if len(date_from_str.split(".")[-1]) == 2 else "%d.%m.%Y")
-        date_to = datetime.strptime(date_to_str, "%d.%m.%y" if len(date_to_str.split(".")[-1]) == 2 else "%d.%m.%Y")
+        date_from = datetime.strptime(
+            date_from_str,
+            "%d.%m.%y" if len(date_from_str.split(".")[-1]) == 2 else "%d.%m.%Y",
+        )
+        date_to = datetime.strptime(
+            date_to_str,
+            "%d.%m.%y" if len(date_to_str.split(".")[-1]) == 2 else "%d.%m.%Y",
+        )
     except ValueError:
         await message.answer(
             "Неверный формат даты. Используйте формат ДД.ММ.ГГ или ДД.ММ.ГГГГ\n"
@@ -335,8 +397,12 @@ async def menu_history_custom_period(
         await message.answer("Начальная дата не может быть в будущем.")
         return
 
-    date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(TIMEZONE))
-    date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE))
+    date_from = date_from.replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(TIMEZONE)
+    )
+    date_to = date_to.replace(
+        hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE)
+    )
 
     async with async_session() as session:
         user = await get_user_by_tg_id(session, message.from_user.id)
@@ -346,11 +412,20 @@ async def menu_history_custom_period(
             return
 
         total_count, income_sum, expense_sum, records = await get_history_data(
-            session, user.id, "range", date_from, date_to, limit=RECORDS_PER_PAGE, offset=0
+            session,
+            user.id,
+            "range",
+            date_from,
+            date_to,
+            limit=RECORDS_PER_PAGE,
+            offset=0,
         )
 
         if total_count == 0:
-            await message.answer("Записей не найдено за указанный период.", reply_markup=main_menu_keyboard())
+            await message.answer(
+                "Записей не найдено за указанный период.",
+                reply_markup=main_menu_keyboard(),
+            )
             await state.clear()
             return
 
@@ -370,11 +445,16 @@ async def menu_history_custom_period(
         history_expense=str(expense_sum),
     )
 
-    text, kb = build_history_page(records, 0, total_pages, income_sum, expense_sum, period="range", period_label=period_label, total_count=total_count)
+    text, kb = build_history_page(
+        records,
+        0,
+        total_pages,
+        income_sum,
+        expense_sum,
+        period="range",
+        period_label=period_label,
+        total_count=total_count,
+    )
 
-    if total_pages > 1:
-        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
-        await state.set_state(MenuStates.waiting_for_history_page)
-    else:
-        await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
-        await state.clear()
+    await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await state.set_state(MenuStates.waiting_for_history_page)

@@ -181,9 +181,9 @@ class AdminStates(StatesGroup):
 class SavingsStates(StatesGroup):
     """States for savings snapshots workflow."""
 
-    choosing_names_source = State()   # choose: use last names or enter new
-    entering_amounts = State()         # iterative amount input from template
-    confirming_snapshot = State()      # review before saving
+    choosing_names_source = State()  # choose: use last names or enter new
+    entering_amounts = State()  # iterative amount input from template
+    confirming_snapshot = State()  # review before saving
     entering_new_field_name = State()  # new field name (create or add to existing)
     entering_new_field_amount = State()
     editing_item_amount = State()
@@ -197,3 +197,9 @@ class WealthStates(StatesGroup):
     entering_amount = State()
     entering_note = State()
     editing_amount = State()
+
+
+class RecordEditStates(StatesGroup):
+    """States for viewing and editing individual records."""
+
+    waiting_for_record_edit_value = State()

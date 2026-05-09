@@ -1,10 +1,12 @@
 """
 Common utilities: money formatting, locale constants, exception decorator.
 """
+
 import html
 import logging
 from datetime import date as date_type
-from decimal import Decimal
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 from typing import Callable
 
@@ -43,9 +45,18 @@ RU_WEEKDAYS = {
 
 
 RU_MONTHS_GEN = {
-    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-    5: "мая", 6: "июня", 7: "июля", 8: "августа",
-    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
 }
 
 
@@ -54,7 +65,9 @@ def format_date_ru(d: date_type) -> str:
     return f"{d.day} {RU_MONTHS_GEN[d.month]} {d.year}"
 
 
-def format_snapshot(items: list, prev_items: list | None, snapshot_date: date_type) -> str:
+def format_snapshot(
+    items: list, prev_items: list | None, snapshot_date: date_type
+) -> str:
     """Formats savings snapshot text with dynamic comparison to previous snapshot."""
     prev_map: dict[str, Decimal] = {}
     if prev_items:
@@ -96,7 +109,9 @@ def format_wealth(items: list) -> str:
     if assets:
         for item in assets:
             note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
-            lines.append(f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}")
+            lines.append(
+                f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}"
+            )
             total_assets += item.amount
     else:
         lines.append("  <i>Нет данных</i>")
@@ -108,7 +123,9 @@ def format_wealth(items: list) -> str:
     if liabilities:
         for item in liabilities:
             note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
-            lines.append(f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}")
+            lines.append(
+                f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}"
+            )
             total_liabilities += item.amount
     else:
         lines.append("  <i>Нет данных</i>")
@@ -121,8 +138,88 @@ def format_wealth(items: list) -> str:
     return "\n".join(lines)
 
 
+def normalize_category(text: str) -> str:
+    """Capitalizes first letter, strips whitespace."""
+    text = text.strip()
+    return text[0].upper() + text[1:] if text else text
+
+
+def parse_edit_amount(text: str):
+    """Parse amount string: '1500', '1 500', '1500.50', '1500,50'.
+
+    Returns Decimal on success or None if invalid.
+    """
+    cleaned = text.strip().replace(" ", "").replace(",", ".")
+    try:
+        value = Decimal(cleaned)
+    except InvalidOperation:
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def parse_edit_date(text: str, tz: str):
+    """Parse 'DD.MM' (current year) or 'DD.MM.YY' date strings.
+
+    Returns timezone-aware datetime at 12:00 or None if invalid/future.
+    """
+    from zoneinfo import ZoneInfo as _ZI
+
+    text = text.strip()
+    parts = text.split(".")
+    now = datetime.now(_ZI(tz))
+
+    if len(parts) == 2:
+        fmt = "%d.%m"
+        try:
+            parsed = datetime.strptime(text, fmt).replace(year=now.year)
+        except ValueError:
+            return None
+    elif len(parts) == 3 and len(parts[2]) == 2:
+        fmt = "%d.%m.%y"
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            return None
+    elif len(parts) == 3 and len(parts[2]) == 4:
+        fmt = "%d.%m.%Y"
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            return None
+    else:
+        return None
+
+    aware = parsed.replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=_ZI(tz))
+    if aware > now:
+        return None
+    return aware
+
+
+def format_record_card(record) -> str:
+    """Render a record detail card for Telegram HTML mode."""
+    op_label = "Доход" if record.operation == "+" else "Расход"
+    sign = "+" if record.operation == "+" else "−"
+    amount_str = f"{sign}{float(record.amount):,.0f}₽".replace(",", " ")
+
+    date_str = record.created_at.strftime("%d.%m.%Y")
+    category = html.escape(record.category or "не указано")
+    account_str = html.escape(record.account.name) if record.account else "—"
+
+    return (
+        f"📋 <b>Запись #{record.id}</b>\n\n"
+        f"Тип: {op_label}\n"
+        f"Сумма: <b>{amount_str}</b>\n"
+        f"Категория: {category}\n"
+        f"Дата: {date_str}\n"
+        f"Счёт: {account_str}"
+    )
+
+
 def log_exceptions(error_text: str) -> Callable:
     """Декоратор: логирует исключения и отправляет сообщение пользователю."""
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -133,7 +230,10 @@ def log_exceptions(error_text: str) -> Callable:
                 state = args[1] if len(args) > 1 else None
 
                 user_id = None
-                if hasattr(message_or_callback, "from_user") and message_or_callback.from_user:
+                if (
+                    hasattr(message_or_callback, "from_user")
+                    and message_or_callback.from_user
+                ):
                     user_id = message_or_callback.from_user.id
 
                 logging.exception(f"{error_text} [user_id={user_id}]")

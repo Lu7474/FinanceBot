@@ -1022,7 +1022,9 @@ async def get_snapshot(
     result = await session.execute(
         select(SavingsSnapshot)
         .options(selectinload(SavingsSnapshot.items))
-        .where(SavingsSnapshot.user_id == user_id, SavingsSnapshot.date == snapshot_date)
+        .where(
+            SavingsSnapshot.user_id == user_id, SavingsSnapshot.date == snapshot_date
+        )
     )
     return result.scalar_one_or_none()
 
@@ -1039,7 +1041,9 @@ async def get_snapshot_by_id(
     return result.scalar_one_or_none()
 
 
-async def get_latest_snapshot(session: AsyncSession, user_id: int) -> SavingsSnapshot | None:
+async def get_latest_snapshot(
+    session: AsyncSession, user_id: int
+) -> SavingsSnapshot | None:
     """Returns the most recent snapshot with items."""
     result = await session.execute(
         select(SavingsSnapshot)
@@ -1060,8 +1064,10 @@ async def upsert_snapshot(
     """Creates or replaces snapshot for the given date. items = [(name, amount), ...]."""
     try:
         result = await session.execute(
-            select(SavingsSnapshot)
-            .where(SavingsSnapshot.user_id == user_id, SavingsSnapshot.date == snapshot_date)
+            select(SavingsSnapshot).where(
+                SavingsSnapshot.user_id == user_id,
+                SavingsSnapshot.date == snapshot_date,
+            )
         )
         snapshot = result.scalar_one_or_none()
         if snapshot:
@@ -1198,7 +1204,9 @@ async def add_wealth_item(
 ) -> WealthItem | None:
     """Creates a new wealth item."""
     try:
-        item = WealthItem(user_id=user_id, type=type_, name=name, amount=amount, note=note)
+        item = WealthItem(
+            user_id=user_id, type=type_, name=name, amount=amount, note=note
+        )
         session.add(item)
         await session.commit()
         return item
@@ -1246,6 +1254,71 @@ async def delete_wealth_item(
         await session.rollback()
         logging.exception(f"Error in delete_wealth_item: {e}")
         return False
+
+
+_ALLOWED_EDIT_FIELDS = frozenset({"amount", "category", "created_at", "account_id"})
+
+
+async def get_record_by_id(
+    session: AsyncSession, record_id: int, user_id: int
+) -> Record | None:
+    """Return user's record by id or None if not found / belongs to another user."""
+    return await session.scalar(
+        select(Record)
+        .options(selectinload(Record.account))
+        .where(Record.id == record_id, Record.user_id == user_id)
+    )
+
+
+async def update_record(
+    session: AsyncSession, record_id: int, user_id: int, **fields
+) -> Record | None:
+    """Update only allowed fields on a record and return the updated object.
+
+    Validates ownership and, if account_id is being changed, checks that the
+    new account also belongs to user_id. Returns None if record not found or
+    validation fails.
+    """
+    unknown = set(fields) - _ALLOWED_EDIT_FIELDS
+    if unknown:
+        logging.error(f"update_record: disallowed fields {unknown}")
+        return None
+
+    try:
+        record = await session.scalar(
+            select(Record).where(Record.id == record_id, Record.user_id == user_id)
+        )
+        if not record:
+            return None
+
+        if "account_id" in fields and fields["account_id"] is not None:
+            acc = await session.scalar(
+                select(Account).where(
+                    Account.id == fields["account_id"],
+                    Account.user_id == user_id,
+                )
+            )
+            if not acc:
+                return None
+
+        for key, value in fields.items():
+            setattr(record, key, value)
+
+        await session.commit()
+        await session.refresh(record)
+
+        # Re-load account relationship so callers can read record.account.name
+        result = await session.execute(
+            select(Record)
+            .options(selectinload(Record.account))
+            .where(Record.id == record_id)
+        )
+        return result.scalar_one_or_none()
+
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Error in update_record for record_id {record_id}: {e}")
+        return None
 
 
 async def create_transfer(
