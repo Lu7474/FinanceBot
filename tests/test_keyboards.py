@@ -7,10 +7,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.keyboards import (
-    main_menu_keyboard,
     delete_period_keyboard,
-    get_years_keyboard,
     get_months_keyboard,
+    get_years_keyboard,
+    main_menu_keyboard,
 )
 from core.utils import RU_MONTHS
 
@@ -21,7 +21,7 @@ def test_main_menu_keyboard():
 
     # Проверяем структуру
     assert keyboard.keyboard is not None
-    assert len(keyboard.keyboard) == 3  # 3 ряда кнопок
+    assert len(keyboard.keyboard) == 4  # 4 ряда кнопок
 
     # Проверяем кнопки
     first_row = keyboard.keyboard[0]
@@ -38,6 +38,10 @@ def test_main_menu_keyboard():
     assert len(third_row) == 2
     assert third_row[0].text == "Счета"
     assert third_row[1].text == "Удалить запись"
+
+    fourth_row = keyboard.keyboard[3]
+    assert len(fourth_row) == 1
+    assert fourth_row[0].text == "Накопления"
 
     # Проверяем настройки
     assert keyboard.resize_keyboard is True
