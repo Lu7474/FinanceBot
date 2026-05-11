@@ -1082,6 +1082,7 @@ async def upsert_snapshot(
         for name, amount in items:
             session.add(SavingsItem(snapshot_id=snapshot.id, name=name, amount=amount))
         await session.commit()
+        await session.refresh(snapshot)
         return snapshot
     except Exception as e:
         await session.rollback()
@@ -1104,6 +1105,7 @@ async def add_snapshot_item(
         item = SavingsItem(snapshot_id=snapshot_id, name=name, amount=amount)
         session.add(item)
         await session.commit()
+        await session.refresh(item)
         return item
     except Exception as e:
         await session.rollback()
@@ -1209,6 +1211,7 @@ async def add_wealth_item(
         )
         session.add(item)
         await session.commit()
+        await session.refresh(item)
         return item
     except Exception as e:
         await session.rollback()
