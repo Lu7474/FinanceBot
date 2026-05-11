@@ -22,4 +22,6 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
+        env:
+          BOT_TOKEN: "0000000000:test_token_for_ci"
         run: python -m pytest tests/ -v
