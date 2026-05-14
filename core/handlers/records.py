@@ -6,19 +6,24 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
-from core.database.models import async_session
-from core.database.requests import get_accounts
-from core.keyboards import account_select_keyboard, main_menu_keyboard
-from core.utils import log_exceptions
 from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH, TIMEZONE
+from core.database.models import async_session
+from core.database.requests import get_accounts, get_user_categories, suggest_category
+from core.keyboards import (
+    account_select_keyboard,
+    category_suggest_keyboard,
+    main_menu_keyboard,
+)
+from core.utils import log_exceptions
 
 from .common import (
     AddRecord,
+    CategoryStates,
     MenuStates,
     get_user_id_from_event,
     is_expense,
@@ -169,6 +174,58 @@ def parse_record_line(
     return operation, amount, category, record_date
 
 
+async def _maybe_ask_category(
+    message_or_callback,
+    state: FSMContext,
+    user_id: int,
+    op: str,
+    cat: str,
+    serialized: list[dict],
+    errors: list[str],
+) -> bool:
+    """Intercepts flow only when there is a confident category suggestion.
+
+    Returns True if we intercepted (caller should return early).
+    Returns False to let the caller continue with the category as typed.
+    """
+    async with async_session() as session:
+        user_cats = await get_user_categories(session, user_id)
+
+    if not user_cats:
+        return False
+
+    relevant = [c for c in user_cats if c.cat_type in (op, "*")]
+    cat_names_lower = {c.name.lower() for c in relevant}
+
+    if cat.lower() in cat_names_lower:
+        return False  # exact match — normal flow
+
+    async with async_session() as session:
+        suggestion = await suggest_category(session, user_id, cat, op_type=op)
+
+    if not suggestion:
+        return False  # no confident suggestion — respect what user typed
+
+    await state.update_data(
+        pending_records=serialized,
+        parse_errors=errors,
+        user_id=user_id,
+        pending_op=op,
+        original_description=cat,
+        suggested_category=suggestion,
+    )
+
+    is_msg = isinstance(message_or_callback, Message)
+    text = f"💡 Категория <b>{html.escape(suggestion)}</b>?"
+    kb = category_suggest_keyboard()
+    if is_msg:
+        await message_or_callback.answer(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await message_or_callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await state.set_state(CategoryStates.confirming_suggested_category)
+    return True
+
+
 @router.message(~StateFilter(MenuStates.waiting_for_report_type), F.func(lambda m: is_income(m) or is_expense(m)))
 @log_exceptions("Ошибка при обработке операции")
 async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -> None:
@@ -233,6 +290,16 @@ async def handle_amount_and_category(
         }
         for op, amt, cat, dt in records_to_add
     ]
+
+    # Category suggestion flow for single records
+    if len(records_to_add) == 1:
+        op, _amt, cat, _dt = records_to_add[0]
+        intercepted = await _maybe_ask_category(
+            message, state, user_id, op, cat, serialized, errors
+        )
+        if intercepted:
+            return
+
     await state.update_data(pending_records=serialized, parse_errors=errors, user_id=user_id)
 
     async with async_session() as session:
@@ -349,6 +416,20 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         await message.answer("Ошибка. Отправьте /start для регистрации.")
         return
 
+    serialized = [
+        {"op": op, "amount": str(amt), "cat": cat, "date": dt.isoformat() if dt else None}
+        for op, amt, cat, dt in records_to_add
+    ]
+
+    # Category suggestion flow for single records
+    if len(records_to_add) == 1:
+        op, _amt, cat, _dt = records_to_add[0]
+        intercepted = await _maybe_ask_category(
+            message, state, user_id, op, cat, serialized, errors
+        )
+        if intercepted:
+            return
+
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
 
@@ -361,10 +442,6 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
         return
 
-    serialized = [
-        {"op": op, "amount": str(amt), "cat": cat, "date": dt.isoformat() if dt else None}
-        for op, amt, cat, dt in records_to_add
-    ]
     await state.update_data(pending_records=serialized, parse_errors=errors, user_id=user_id)
     await message.answer(
         "💳 <b>Выберите счёт:</b>",

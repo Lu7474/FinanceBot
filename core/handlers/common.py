@@ -120,6 +120,13 @@ def is_savings(message: Message) -> bool:
     return message.text.strip().lower() in ("накопления", "💰 накопления")
 
 
+def is_categories(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Категории'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() == "категории"
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -131,6 +138,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_delete(message),
             is_accounts(message),
             is_savings(message),
+            is_categories(message),
         ]
     )
 
@@ -203,3 +211,19 @@ class RecordEditStates(StatesGroup):
     """States for viewing and editing individual records."""
 
     waiting_for_record_edit_value = State()
+
+
+class CategoryStates(StatesGroup):
+    """States for category management and smart category suggestion."""
+
+    choosing_action = State()
+    choosing_type_for_add = State()
+    entering_name_for_add = State()
+    choosing_category_to_rename = State()
+    entering_new_name = State()
+    choosing_category_to_delete = State()
+    confirming_delete = State()
+    # Record-adding flow
+    choosing_category_for_record = State()
+    confirming_suggested_category = State()
+    entering_category_for_record = State()

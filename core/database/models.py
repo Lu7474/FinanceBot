@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     text,
 )
@@ -144,6 +145,37 @@ class WealthItem(Base):
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+
+# Пользовательская категория (расход / доход / оба)
+class UserCategory(Base):
+    __tablename__ = "user_categories"
+    __table_args__ = (
+        Index("ix_user_categories_user_name", "user_id", "name", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    cat_type: Mapped[str] = mapped_column(String(1), nullable=False)  # "+" доход, "-" расход, "*" оба
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+
+# Ключевое слово → категория (для умных подсказок)
+class CategoryKeyword(Base):
+    __tablename__ = "category_keywords"
+    __table_args__ = (
+        Index("ix_category_keywords_user_keyword", "user_id", "keyword", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("user_categories.id", ondelete="CASCADE"), index=True
+    )
+    keyword: Mapped[str] = mapped_column(String(50), nullable=False)
 
 
 # ==================== Инициализация ====================

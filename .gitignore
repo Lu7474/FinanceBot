@@ -15,7 +15,7 @@ bot.log
 
 # Базы данных
 db.sqlite3
-test_db.sqlite3
+test_*.sqlite3
 
 # Настройки редактора
 .vscode/

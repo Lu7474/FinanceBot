@@ -1,17 +1,21 @@
 """Handlers for main menu commands: /start, /help, /cancel."""
 
 import html
-from aiogram import Router, F
+
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from core.database.models import async_session
-from core.database.requests import create_account, get_accounts, set_user
+from core.database.requests import (
+    create_account,
+    get_accounts,
+    seed_default_categories,
+    set_user,
+)
 from core.keyboards import main_menu_keyboard
 from core.utils import log_exceptions
-
-from .common import get_user_id_from_event
 
 router = Router()
 
@@ -28,6 +32,7 @@ async def handle_start(message: Message, **kwargs) -> None:
         accounts = await get_accounts(session, user.id)
         if not accounts:
             await create_account(session, user.id, "Наличные")
+        await seed_default_categories(session, user.id)
 
     first_name = html.escape(message.from_user.first_name or "друг")
 

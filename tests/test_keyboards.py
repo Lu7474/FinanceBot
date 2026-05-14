@@ -40,8 +40,9 @@ def test_main_menu_keyboard():
     assert third_row[1].text == "Удалить запись"
 
     fourth_row = keyboard.keyboard[3]
-    assert len(fourth_row) == 1
+    assert len(fourth_row) == 2
     assert fourth_row[0].text == "Накопления"
+    assert fourth_row[1].text == "Категории"
 
     # Проверяем настройки
     assert keyboard.resize_keyboard is True
