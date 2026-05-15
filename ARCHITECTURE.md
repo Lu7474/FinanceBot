@@ -31,7 +31,7 @@ FinanceBot/
 │   └── database/
 │       ├── models.py           # SQLAlchemy модели
 │       └── requests.py         # CRUD-операции с БД
-├── tests/                      # 187 pytest-тестов
+├── tests/                      # 213 pytest-тестов
 └── requirements.txt
 ```
 
@@ -151,6 +151,9 @@ waiting_for_report_month
 waiting_for_delete_period
 waiting_for_delete_record
 waiting_for_delete_confirm
+waiting_for_search_query
+waiting_for_search_page
+waiting_for_history_category_filter
 ```
 
 ### AccountStates
@@ -215,7 +218,7 @@ search_query
 Хендлеры читают `kwargs.get("user_id")` — без лишних запросов к БД.
 
 ### RateLimitMiddleware
-60 запросов/мин на пользователя. Авточистка неактивных пользователей каждые 5 минут.
+60 запросов/60 с на пользователя. Авточистка неактивных пользователей каждые 5 минут.
 
 ## Основные потоки
 
@@ -246,6 +249,8 @@ search_query
     → get_history_data()  — count + totals + records за один запрос
     → build_history_page() — текст + инлайн-навигация
     → пагинация: ◀ [1/5] ▶
+    → фильтр по типу (Все / Расходы / Доходы) и по категории (топ-15)
+    → [🔍 Поиск] → ввод запроса (текст / >N / <N / =N) → постраничные результаты
     → тап на запись → редактирование (сумма / категория / дата / счёт / удаление)
 ```
 
@@ -330,3 +335,4 @@ pytest tests/ -v
 | test_parse_record.py | Парсинг быстрого ввода |
 | test_period_filters.py | Фильтры периодов и DB-запросы |
 | test_queries.py | Сложные SQL-запросы |
+| test_search_filter.py | Поиск записей и фильтры истории |
