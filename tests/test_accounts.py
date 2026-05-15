@@ -1,34 +1,35 @@
 """
 Tests for account CRUD operations and balances.
 """
+
 import sys
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from config import MAX_ACCOUNT_NAME_LENGTH
+from core.database.models import Record
 from core.database.requests import (
-    set_user,
+    MAX_ACCOUNTS_PER_USER,
+    add_record,
     create_account,
-    get_accounts,
-    rename_account,
+    create_transfer,
     delete_account,
     get_account_balances,
     get_account_record_count,
-    create_transfer,
-    add_record,
+    get_accounts,
     get_totals,
-    MAX_ACCOUNTS_PER_USER,
+    rename_account,
+    set_user,
 )
-from core.database.models import Record
-from config import MAX_ACCOUNT_NAME_LENGTH
-
 
 # ==================== Helpers ====================
 # Return plain ints to avoid accessing expired ORM objects after commits.
+
 
 async def _make_user(session, tg_id: int = 111) -> int:
     user = await set_user(session, tg_id, name="Test")
@@ -41,6 +42,7 @@ async def _make_account(session, user_id: int, name: str = "Наличные") -
 
 
 # ==================== name validation (handler-level limit) ====================
+
 
 def test_max_account_name_length_constant():
     assert MAX_ACCOUNT_NAME_LENGTH == 40
@@ -69,6 +71,7 @@ async def test_rename_account_name_at_limit(session):
 
 
 # ==================== create_account ====================
+
 
 @pytest.mark.asyncio
 async def test_create_account_success(session):
@@ -107,6 +110,7 @@ async def test_create_account_limit(session):
 
 # ==================== get_accounts ====================
 
+
 @pytest.mark.asyncio
 async def test_get_accounts_empty(session):
     user_id = await _make_user(session)
@@ -124,6 +128,7 @@ async def test_get_accounts_order(session):
 
 
 # ==================== rename_account ====================
+
 
 @pytest.mark.asyncio
 async def test_rename_account_success(session):
@@ -157,6 +162,7 @@ async def test_rename_account_not_found(session):
 
 
 # ==================== delete_account ====================
+
 
 @pytest.mark.asyncio
 async def test_delete_account_success(session):
@@ -196,6 +202,7 @@ async def test_delete_account_wrong_user(session):
 
 
 # ==================== get_account_balances ====================
+
 
 @pytest.mark.asyncio
 async def test_get_account_balances_empty(session):
@@ -242,6 +249,7 @@ async def test_get_account_balances_multiple(session):
 
 # ==================== get_account_record_count ====================
 
+
 @pytest.mark.asyncio
 async def test_get_account_record_count(session):
     user_id = await _make_user(session)
@@ -262,6 +270,7 @@ async def test_get_account_record_count_zero(session):
 
 
 # ==================== create_transfer ====================
+
 
 @pytest.mark.asyncio
 async def test_create_transfer_success(session):

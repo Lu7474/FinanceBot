@@ -1,19 +1,21 @@
 """
 Тесты утилит: генерация отчётов, графики, форматирование.
 """
+
 import sys
-from pathlib import Path
-import pytest
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from core.utils import format_money, RU_MONTHS
 from core.charts import build_report_pie
 from core.reports import make_report_text
-
+from core.utils import RU_MONTHS, format_money
 
 # ==================== format_money ====================
+
 
 def test_format_money():
     """Форматирование сумм с пробелами."""
@@ -24,6 +26,7 @@ def test_format_money():
 
 
 # ==================== make_report_text ====================
+
 
 def test_make_report_text():
     """Формирование текстового отчёта с категориями и итогом."""
@@ -41,6 +44,7 @@ def test_make_report_text():
 
 def test_make_report_text_with_records():
     """Отчёт с детализацией по датам."""
+
     class FakeRecord:
         def __init__(self, op, amount, cat, dt):
             self.operation = op
@@ -58,6 +62,7 @@ def test_make_report_text_with_records():
 
 
 # ==================== build_report_pie ====================
+
 
 @pytest.mark.asyncio
 async def test_build_report_pie_and_caption():

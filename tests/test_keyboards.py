@@ -1,6 +1,7 @@
 """
 Тесты клавиатур: структура, callback_data, сортировка.
 """
+
 import sys
 from pathlib import Path
 
@@ -10,18 +11,20 @@ from core.keyboards import (
     delete_period_keyboard,
     get_months_keyboard,
     get_years_keyboard,
-    main_menu_keyboard,
 )
 from core.utils import RU_MONTHS
 
 
-# Проверяет структуру главного меню (3 ряда, правильные тексты)
+# Проверяет структуру главного меню (5 рядов, правильные тексты)
 def test_main_menu_keyboard():
-    keyboard = main_menu_keyboard()
+    from core.keyboards import main_menu_keyboard as _mkb
+
+    _mkb.cache_clear()
+    keyboard = _mkb()
 
     # Проверяем структуру
     assert keyboard.keyboard is not None
-    assert len(keyboard.keyboard) == 4  # 4 ряда кнопок
+    assert len(keyboard.keyboard) == 5  # 5 рядов кнопок
 
     # Проверяем кнопки
     first_row = keyboard.keyboard[0]
@@ -43,6 +46,10 @@ def test_main_menu_keyboard():
     assert len(fourth_row) == 2
     assert fourth_row[0].text == "Накопления"
     assert fourth_row[1].text == "Категории"
+
+    fifth_row = keyboard.keyboard[4]
+    assert len(fifth_row) == 1
+    assert fifth_row[0].text == "Бюджеты"
 
     # Проверяем настройки
     assert keyboard.resize_keyboard is True
@@ -166,7 +173,10 @@ def test_get_months_keyboard_all_months():
     for i in range(12):  # Проверяем только месяцы, не кнопку отмены
         month_num = i + 1
         assert keyboard.inline_keyboard[i][0].text == RU_MONTHS[month_num]
-        assert keyboard.inline_keyboard[i][0].callback_data == f"report_month:2024:{month_num}"
+        assert (
+            keyboard.inline_keyboard[i][0].callback_data
+            == f"report_month:2024:{month_num}"
+        )
 
     # Проверяем кнопку отмены
     assert keyboard.inline_keyboard[12][0].text == "Отмена"

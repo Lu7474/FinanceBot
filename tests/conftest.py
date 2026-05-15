@@ -1,16 +1,17 @@
 """
 Фикстуры pytest для тестирования БД.
 """
+
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from core.database.models import Base
-
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from core.database.models import Base
 
 # Подключение к тестовой БД (отдельная от основной)
 test_engine = create_async_engine(url="sqlite+aiosqlite:///test_db.sqlite3")

@@ -11,21 +11,27 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import TIMEZONE
-from core.charts import build_report_pie, build_trend_chart
+from core.charts import build_report_pie, build_trend_chart, build_weekday_chart
 from core.database.models import async_session
 from core.database.requests import (
     get_categories_summary,
     get_monthly_totals,
     get_records,
     get_user_by_tg_id,
+    get_weekday_report,
 )
 from core.keyboards import (
     get_months_keyboard,
     get_years_keyboard,
     main_menu_keyboard,
     report_type_keyboard,
+    weekday_report_period_keyboard,
 )
-from core.reports import get_available_years_and_months, make_comparison_text
+from core.reports import (
+    format_weekday_report,
+    get_available_years_and_months,
+    make_comparison_text,
+)
 from core.utils import RU_MONTHS, log_exceptions
 
 from .common import MenuStates, is_expense, is_income, is_report
@@ -51,6 +57,9 @@ async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
 
     await state.update_data(report_years_months=years_months)
     await message.answer("Выберите тип отчёта:", reply_markup=report_type_keyboard())
+    wd_kb = InlineKeyboardBuilder()
+    wd_kb.button(text="📅 По дням недели", callback_data="weekday_report:start")
+    await message.answer("Или:", reply_markup=wd_kb.as_markup())
     await state.set_state(MenuStates.waiting_for_report_type)
 
 
@@ -343,3 +352,131 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
             await callback.message.answer(comparison_text, parse_mode="HTML")
     else:
         await callback.message.answer(comparison_text, parse_mode="HTML")
+
+
+# ==================== Отчёт по дням недели ====================
+
+
+@router.callback_query(F.data == "weekday_report:start")
+@log_exceptions("Ошибка при запуске weekday report")
+async def weekday_report_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Выбор типа (Расходы/Доходы) для weekday report."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📉 Расходы", callback_data="wd_type:-")
+    kb.button(text="📈 Доходы", callback_data="wd_type:+")
+    kb.button(text="← Назад", callback_data="wd_type:back")
+    kb.adjust(2, 1)
+    await callback.message.edit_text("Выберите тип:", reply_markup=kb.as_markup())
+    await state.set_state(MenuStates.waiting_for_weekday_type)
+    await callback.answer()
+
+
+@router.callback_query(
+    F.data.startswith("wd_type:"), MenuStates.waiting_for_weekday_type
+)
+@log_exceptions("Ошибка при выборе типа weekday report")
+async def weekday_type_selected(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    op = callback.data.split(":")[1]
+    if op == "back":
+        await state.clear()
+        await callback.message.edit_text("Отменено.")
+        await callback.answer()
+        return
+
+    await state.update_data(wd_operation=op)
+    await callback.message.edit_text(
+        "Выберите период:", reply_markup=weekday_report_period_keyboard()
+    )
+    await state.set_state(MenuStates.waiting_for_weekday_period)
+    await callback.answer()
+
+
+@router.callback_query(
+    F.data.startswith("wd_period:"), MenuStates.waiting_for_weekday_period
+)
+@log_exceptions("Ошибка при формировании weekday report")
+async def weekday_period_selected(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    from math import ceil
+
+    period = callback.data.split(":")[1]
+    if period == "back":
+        kb = InlineKeyboardBuilder()
+        kb.button(text="📉 Расходы", callback_data="wd_type:-")
+        kb.button(text="📈 Доходы", callback_data="wd_type:+")
+        kb.button(text="← Назад", callback_data="wd_type:back")
+        kb.adjust(2, 1)
+        await callback.message.edit_text("Выберите тип:", reply_markup=kb.as_markup())
+        await state.set_state(MenuStates.waiting_for_weekday_type)
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    operation = data.get("wd_operation", "-")
+
+    now = datetime.now(ZoneInfo(TIMEZONE))
+
+    if period == "month":
+        date_from = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        date_to = now
+        days_passed = (now - date_from).days + 1
+        weeks_count = max(1, ceil(days_passed / 7))
+        period_label = f"{RU_MONTHS[now.month]} {now.year}"
+    elif period == "3m":
+        date_from = (now - timedelta(days=90)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        date_to = now
+        weeks_count = 13
+        period_label = "последние 3 месяца"
+    elif period == "6m":
+        date_from = (now - timedelta(days=180)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        date_to = now
+        weeks_count = 26
+        period_label = "последние 6 месяцев"
+    else:
+        date_from = (now - timedelta(days=365)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        date_to = now
+        weeks_count = 52
+        period_label = "последний год"
+
+    await callback.message.edit_text("⏳ Формирую отчёт...")
+    await callback.answer()
+
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("Пользователь не найден.")
+            await state.clear()
+            return
+        wd_data = await get_weekday_report(
+            session, user.id, operation, date_from, date_to
+        )
+
+    text = format_weekday_report(wd_data, operation, date_from, date_to, weeks_count)
+    chart_buf = await build_weekday_chart(wd_data, operation, period_label)
+
+    if chart_buf:
+        await callback.message.answer_photo(
+            photo=BufferedInputFile(chart_buf.read(), filename="weekday.png"),
+            caption=text,
+            parse_mode="HTML",
+        )
+    else:
+        await callback.message.answer(text, parse_mode="HTML")
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await state.clear()

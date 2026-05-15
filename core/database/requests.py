@@ -13,12 +13,14 @@ from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, delete, desc, func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from config import TIMEZONE
 from core.database.models import (
     Account,
+    Budget,
     CategoryKeyword,
     Record,
     SavingsItem,
@@ -27,6 +29,7 @@ from core.database.models import (
     UserCategory,
     WealthItem,
 )
+from core.utils import format_money
 
 MAX_ACCOUNTS_PER_USER = 10
 TRANSFER_CATEGORY = "Перевод"
@@ -489,9 +492,7 @@ async def search_records(
             conditions.append(Record.amount == parsed["value"])
         elif parsed["type"] == "text" and parsed["value"]:
             records_q = (
-                select(Record)
-                .where(*conditions)
-                .order_by(Record.created_at.desc())
+                select(Record).where(*conditions).order_by(Record.created_at.desc())
             )
             result = await session.execute(records_q)
             needle = parsed["value"].casefold()
@@ -510,7 +511,7 @@ async def search_records(
                 Decimal("0"),
             )
             if limit is not None:
-                matched = matched[offset:offset + limit]
+                matched = matched[offset : offset + limit]
             return total, income_sum, expense_sum, matched
 
         count_sum_q = select(
@@ -527,11 +528,7 @@ async def search_records(
         income_sum = Decimal(str(row.income))
         expense_sum = Decimal(str(row.expense))
 
-        records_q = (
-            select(Record)
-            .where(*conditions)
-            .order_by(Record.created_at.desc())
-        )
+        records_q = select(Record).where(*conditions).order_by(Record.created_at.desc())
         if limit is not None:
             records_q = records_q.limit(limit).offset(offset)
 
@@ -571,7 +568,9 @@ async def get_top_categories_for_period(
         result = await session.execute(query)
         return [row.category for row in result.fetchall()]
     except Exception as e:
-        logging.exception(f"Ошибка при получении топ категорий для user_id {user_id}: {e}")
+        logging.exception(
+            f"Ошибка при получении топ категорий для user_id {user_id}: {e}"
+        )
         return []
 
 
@@ -985,8 +984,12 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
             return False
         await session.execute(delete(Record).where(Record.user_id == user.id))
         await session.execute(delete(Account).where(Account.user_id == user.id))
-        await session.execute(delete(CategoryKeyword).where(CategoryKeyword.user_id == user.id))
-        await session.execute(delete(UserCategory).where(UserCategory.user_id == user.id))
+        await session.execute(
+            delete(CategoryKeyword).where(CategoryKeyword.user_id == user.id)
+        )
+        await session.execute(
+            delete(UserCategory).where(UserCategory.user_id == user.id)
+        )
         await session.delete(user)
         await session.commit()
         return True
@@ -1459,10 +1462,31 @@ async def update_record(
 
 # ==================== Категории пользователя ====================
 
-_STOP_WORDS = frozenset({
-    "в", "на", "и", "за", "по", "из", "с", "для", "от", "до", "не",
-    "же", "бы", "что", "как", "это", "та", "тот", "или", "при", "под",
-})
+_STOP_WORDS = frozenset(
+    {
+        "в",
+        "на",
+        "и",
+        "за",
+        "по",
+        "из",
+        "с",
+        "для",
+        "от",
+        "до",
+        "не",
+        "же",
+        "бы",
+        "что",
+        "как",
+        "это",
+        "та",
+        "тот",
+        "или",
+        "при",
+        "под",
+    }
+)
 _MAX_KEYWORDS_PER_DESCRIPTION = 3
 _MAX_CATEGORIES_PER_USER = 30
 
@@ -1624,7 +1648,9 @@ async def count_records_with_category(
             or 0
         )
     except Exception as e:
-        logging.exception(f"Ошибка при подсчёте записей категории '{category_name}': {e}")
+        logging.exception(
+            f"Ошибка при подсчёте записей категории '{category_name}': {e}"
+        )
         return 0
 
 
@@ -1652,12 +1678,16 @@ async def seed_default_categories(
         ]
         for i, (name, cat_type) in enumerate(defaults, 1):
             session.add(
-                UserCategory(user_id=user_id, name=name, cat_type=cat_type, sort_order=i)
+                UserCategory(
+                    user_id=user_id, name=name, cat_type=cat_type, sort_order=i
+                )
             )
         await session.commit()
     except Exception as e:
         await session.rollback()
-        logging.exception(f"Ошибка при создании дефолтных категорий user_id {user_id}: {e}")
+        logging.exception(
+            f"Ошибка при создании дефолтных категорий user_id {user_id}: {e}"
+        )
 
 
 async def suggest_category(
@@ -1675,16 +1705,10 @@ async def suggest_category(
     from core.utils import SYSTEM_KEYWORDS
 
     words = [
-        w.lower()
-        for w in re.split(r"\W+", text)
-        if len(w) >= 3 and not w.isdigit()
+        w.lower() for w in re.split(r"\W+", text) if len(w) >= 3 and not w.isdigit()
     ]
 
-    type_filter = (
-        [UserCategory.cat_type.in_([op_type, "*"])]
-        if op_type
-        else []
-    )
+    type_filter = [UserCategory.cat_type.in_([op_type, "*"])] if op_type else []
 
     for word in words:
         # User-defined keyword rules (highest priority)
@@ -1756,6 +1780,183 @@ async def learn_keyword(
     except Exception as e:
         await session.rollback()
         logging.exception(f"Ошибка в learn_keyword для user_id {user_id}: {e}")
+
+
+# ==================== Бюджеты ====================
+
+
+async def get_budgets(session: AsyncSession, user_id: int) -> list[Budget]:
+    """Returns all active budgets for user."""
+    result = await session.execute(
+        select(Budget).where(Budget.user_id == user_id, Budget.is_active == True)  # noqa: E712
+    )
+    return list(result.scalars().all())
+
+
+async def set_budget(
+    session: AsyncSession, user_id: int, category: str, amount: Decimal
+) -> None:
+    """Upserts budget; resets alert flags on insert or update."""
+    stmt = sqlite_insert(Budget).values(
+        user_id=user_id,
+        category=category,
+        amount=amount,
+        is_active=True,
+        alerted_80=False,
+        alerted_100=False,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["user_id", "category"],
+        set_={"amount": amount, "alerted_80": False, "alerted_100": False},
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+
+async def delete_budget(session: AsyncSession, budget_id: int, user_id: int) -> bool:
+    """Deletes budget by id, validates ownership."""
+    result = await session.execute(
+        delete(Budget).where(Budget.id == budget_id, Budget.user_id == user_id)
+    )
+    await session.commit()
+    return result.rowcount > 0
+
+
+async def get_budget_status(
+    session: AsyncSession, user_id: int, month: int, year: int
+) -> list[dict]:
+    """Returns list of {id, category, limit, spent, pct} for all active budgets."""
+    budgets = await get_budgets(session, user_id)
+    if not budgets:
+        return []
+
+    date_from = datetime(year, month, 1, tzinfo=ZoneInfo(TIMEZONE))
+    if month == 12:
+        date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
+            seconds=1
+        )
+    else:
+        date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
+            seconds=1
+        )
+
+    result = []
+    for budget in budgets:
+        spent = await session.scalar(
+            select(func.coalesce(func.sum(Record.amount), 0)).where(
+                Record.user_id == user_id,
+                Record.operation == "-",
+                Record.category == budget.category,
+                Record.created_at.between(date_from, date_to),
+            )
+        )
+        spent = Decimal(str(spent))
+        pct = int((spent / budget.amount) * 100) if budget.amount > 0 else 0
+        result.append(
+            {
+                "id": budget.id,
+                "category": budget.category,
+                "limit": budget.amount,
+                "spent": spent,
+                "pct": pct,
+            }
+        )
+    return result
+
+
+async def reset_budget_alerts_if_new_month(
+    session: AsyncSession, budget: Budget
+) -> bool:
+    """Resets alert flags if current month differs from last_reset_month. Returns True if reset occurred."""
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    current_yyyymm = now.year * 100 + now.month
+    if budget.last_reset_month != current_yyyymm:
+        budget.alerted_80 = False
+        budget.alerted_100 = False
+        budget.last_reset_month = current_yyyymm
+        return True
+    return False
+
+
+async def check_and_alert_budget(
+    session: AsyncSession, user_id: int, category: str, amount_added: Decimal
+) -> list[str]:
+    """Returns list of alert strings (does not send anything). Commits flag changes."""
+    budget = await session.scalar(
+        select(Budget).where(
+            Budget.user_id == user_id,
+            Budget.category == category,
+            Budget.is_active == True,  # noqa: E712
+        )
+    )
+    if not budget:
+        return []
+
+    reset = await reset_budget_alerts_if_new_month(session, budget)
+
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    spent = await session.scalar(
+        select(func.coalesce(func.sum(Record.amount), 0)).where(
+            Record.user_id == user_id,
+            Record.operation == "-",
+            Record.category == category,
+            Record.created_at >= month_start,
+        )
+    )
+    spent = Decimal(str(spent))
+    limit = budget.amount
+
+    alerts = []
+    if not budget.alerted_100 and spent >= limit:
+        alerts.append(
+            f"🚨 {category}: бюджет превышен! ({format_money(float(spent))} из {format_money(float(limit))})"
+        )
+        budget.alerted_100 = True
+        budget.alerted_80 = True
+    elif not budget.alerted_80 and limit > 0 and spent >= limit * Decimal("0.8"):
+        alerts.append(
+            f"⚠️ {category}: потрачено 80% бюджета ({format_money(float(spent))} из {format_money(float(limit))})"
+        )
+        budget.alerted_80 = True
+
+    if alerts or reset:
+        await session.commit()
+
+    return alerts
+
+
+async def get_weekday_report(
+    session: AsyncSession,
+    user_id: int,
+    operation: str,
+    date_from: datetime,
+    date_to: datetime,
+) -> dict[int, Decimal]:
+    """Returns {weekday: total} where weekday 0=Mon..6=Sun. Days with no records = Decimal('0')."""
+    result = await session.execute(
+        select(
+            func.strftime("%w", Record.created_at).label("sqlite_wd"),
+            func.sum(Record.amount).label("total"),
+        )
+        .where(
+            Record.user_id == user_id,
+            Record.operation == operation,
+            Record.category.not_in(SYSTEM_CATEGORIES),
+            Record.created_at.between(date_from, date_to),
+        )
+        .group_by(func.strftime("%w", Record.created_at))
+    )
+    rows = result.fetchall()
+
+    # SQLite strftime('%w'): 0=Sun..6=Sat → convert to 0=Mon..6=Sun
+    data: dict[int, Decimal] = {i: Decimal("0") for i in range(7)}
+    for row in rows:
+        sqlite_wd = int(row.sqlite_wd)
+        mon_wd = (sqlite_wd - 1) % 7
+        data[mon_wd] = Decimal(str(row.total))
+    return data
 
 
 async def create_transfer(

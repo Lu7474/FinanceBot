@@ -1,26 +1,27 @@
 """
 Тесты CRUD-операций с БД: пользователи и записи.
 """
-import sys
-from pathlib import Path
-import pytest
 
-from decimal import Decimal
+import sys
 from datetime import datetime
+from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.database.models import User
 from core.database.requests import (
-    get_user_by_tg_id,
     add_record,
-    get_records,
     delete_record,
+    get_records,
+    get_user_by_tg_id,
 )
 
-
 # ==================== Пользователи ====================
+
 
 # Создание и получение пользователя по tg_id
 @pytest.mark.asyncio
@@ -51,6 +52,7 @@ async def test_set_and_get_user(session):
 
 
 # ==================== Записи ====================
+
 
 # Добавление записи и проверка через get_records
 @pytest.mark.asyncio
@@ -104,6 +106,7 @@ async def test_delete_record(session):
 
 
 # ==================== Фильтры периодов ====================
+
 
 # Получение записей за месяц
 @pytest.mark.asyncio

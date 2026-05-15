@@ -4,6 +4,7 @@ from aiogram import Router
 
 from .accounts import router as accounts_router
 from .admin import router as admin_router
+from .budgets import router as budgets_router
 from .categories import router as categories_router
 from .delete import router as delete_router
 from .fallback import router as fallback_router
@@ -18,6 +19,7 @@ from .savings import router as savings_router
 router = Router()
 router.include_router(admin_router)
 router.include_router(menu_router)
+router.include_router(budgets_router)
 router.include_router(categories_router)
 router.include_router(records_router)
 router.include_router(history_router)

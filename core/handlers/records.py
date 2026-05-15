@@ -1,6 +1,7 @@
 """Handlers for adding income/expense records."""
 
 import html
+import logging
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -13,7 +14,12 @@ from aiogram.types import CallbackQuery, Message
 
 from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH, TIMEZONE
 from core.database.models import async_session
-from core.database.requests import get_accounts, get_user_categories, suggest_category
+from core.database.requests import (
+    check_and_alert_budget,
+    get_accounts,
+    get_user_categories,
+    suggest_category,
+)
 from core.keyboards import (
     account_select_keyboard,
     category_suggest_keyboard,
@@ -33,6 +39,25 @@ from .common import (
 )
 
 router = Router()
+
+
+async def _send_budget_alerts(
+    message: Message,
+    user_id: int,
+    added_records: list[tuple],
+) -> None:
+    """Checks budget thresholds for expense records and sends alerts."""
+    async with async_session() as session:
+        for op, amount, category, _ in added_records:
+            if op == "-":
+                try:
+                    alerts = await check_and_alert_budget(
+                        session, user_id, category, amount
+                    )
+                    for alert_text in alerts:
+                        await message.bot.send_message(message.chat.id, alert_text)
+                except Exception:
+                    logging.exception("Budget alert error")
 
 
 def _deserialize_records(
@@ -83,7 +108,11 @@ def format_added_records_response(
             date_suffix = ""
             if record_date and record_date.date() != today:
                 date_suffix = f" ({record_date.strftime('%d.%m')})"
-            response += f"{icon} {sign}{amt:,.0f}₽ — {html.escape(cat)}{date_suffix}\n".replace(",", " ")
+            response += (
+                f"{icon} {sign}{amt:,.0f}₽ — {html.escape(cat)}{date_suffix}\n".replace(
+                    ",", " "
+                )
+            )
 
         response += "\n"
         if total_income > 0:
@@ -118,7 +147,9 @@ def parse_record_line(
 
     record_date = None
 
-    date_match = re.match(r"^(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])(?:\.(\d{2}))?\s+", line)
+    date_match = re.match(
+        r"^(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])(?:\.(\d{2}))?\s+", line
+    )
     if date_match:
         day = int(date_match.group(1))
         month = int(date_match.group(2))
@@ -130,7 +161,9 @@ def parse_record_line(
             year = datetime.now(ZoneInfo(TIMEZONE)).year
 
         try:
-            record_date = datetime(year, month, day, 12, 0, 0, tzinfo=ZoneInfo(TIMEZONE))
+            record_date = datetime(
+                year, month, day, 12, 0, 0, tzinfo=ZoneInfo(TIMEZONE)
+            )
         except ValueError:
             return None
 
@@ -138,7 +171,7 @@ def parse_record_line(
         if record_date.date() > (now + timedelta(days=1)).date():
             return None
 
-        line = line[date_match.end():].strip()
+        line = line[date_match.end() :].strip()
 
     operation = default_operation
     if line.startswith("+"):
@@ -221,12 +254,17 @@ async def _maybe_ask_category(
     if is_msg:
         await message_or_callback.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
-        await message_or_callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await message_or_callback.message.edit_text(
+            text, reply_markup=kb, parse_mode="HTML"
+        )
     await state.set_state(CategoryStates.confirming_suggested_category)
     return True
 
 
-@router.message(~StateFilter(MenuStates.waiting_for_report_type), F.func(lambda m: is_income(m) or is_expense(m)))
+@router.message(
+    ~StateFilter(MenuStates.waiting_for_report_type),
+    F.func(lambda m: is_income(m) or is_expense(m)),
+)
 @log_exceptions("Ошибка при обработке операции")
 async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -> None:
     """Начало добавления записи: сохраняем тип операции, просим ввести сумму."""
@@ -300,7 +338,9 @@ async def handle_amount_and_category(
         if intercepted:
             return
 
-    await state.update_data(pending_records=serialized, parse_errors=errors, user_id=user_id)
+    await state.update_data(
+        pending_records=serialized, parse_errors=errors, user_id=user_id
+    )
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -308,7 +348,10 @@ async def handle_amount_and_category(
     if not accounts:
         added = await save_parsed_records(user_id, records_to_add)
         response = format_added_records_response(added, errors)
-        await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+        await message.answer(
+            response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
+        )
+        await _send_budget_alerts(message, user_id, added)
         await state.clear()
         return
 
@@ -350,7 +393,10 @@ async def handle_record_account_select(
 
     response = format_added_records_response(added, errors, account_name=account_name)
     await callback.message.edit_text(response, parse_mode="HTML")
-    await callback.message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+    await callback.message.answer(
+        "Выберите действие:", reply_markup=main_menu_keyboard()
+    )
+    await _send_budget_alerts(callback.message, user_id, added)
     await state.clear()
     await callback.answer()
 
@@ -379,12 +425,17 @@ async def handle_record_account_skip(
     added = await save_parsed_records(user_id, records_to_add, account_id)
     response = format_added_records_response(added, errors, account_name=account_name)
     await callback.message.edit_text(response, parse_mode="HTML")
-    await callback.message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+    await callback.message.answer(
+        "Выберите действие:", reply_markup=main_menu_keyboard()
+    )
+    await _send_budget_alerts(callback.message, user_id, added)
     await state.clear()
     await callback.answer()
 
 
-@router.message(StateFilter(None), F.text.regexp(r"^([+-]\d|\d{1,2}\.\d{1,2}\.?\d{0,2}\s+[+-]?\d)"))
+@router.message(
+    StateFilter(None), F.text.regexp(r"^([+-]\d|\d{1,2}\.\d{1,2}\.?\d{0,2}\s+[+-]?\d)")
+)
 @log_exceptions("Ошибка при добавлении записи")
 async def handle_direct_record(message: Message, state: FSMContext, **kwargs) -> None:
     """Прямой ввод записей без нажатия кнопки (если начинается с +/- или с даты)."""
@@ -417,7 +468,12 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         return
 
     serialized = [
-        {"op": op, "amount": str(amt), "cat": cat, "date": dt.isoformat() if dt else None}
+        {
+            "op": op,
+            "amount": str(amt),
+            "cat": cat,
+            "date": dt.isoformat() if dt else None,
+        }
         for op, amt, cat, dt in records_to_add
     ]
 
@@ -436,13 +492,20 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
     if not accounts:
         added = await save_parsed_records(user_id, records_to_add)
         if not added:
-            await message.answer("Не удалось сохранить записи.", reply_markup=main_menu_keyboard())
+            await message.answer(
+                "Не удалось сохранить записи.", reply_markup=main_menu_keyboard()
+            )
             return
         response = format_added_records_response(added, errors)
-        await message.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+        await message.answer(
+            response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
+        )
+        await _send_budget_alerts(message, user_id, added)
         return
 
-    await state.update_data(pending_records=serialized, parse_errors=errors, user_id=user_id)
+    await state.update_data(
+        pending_records=serialized, parse_errors=errors, user_id=user_id
+    )
     await message.answer(
         "💳 <b>Выберите счёт:</b>",
         reply_markup=account_select_keyboard(accounts),

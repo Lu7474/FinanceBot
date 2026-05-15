@@ -1,6 +1,7 @@
 """
 Точка входа бота. Инициализация, настройка middleware, запуск polling.
 """
+
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
@@ -8,11 +9,11 @@ from logging.handlers import RotatingFileHandler
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from core.handlers import router
-from core.database.models import async_main, engine
-from core.middleware import RateLimitMiddleware, UserMiddleware
-from core.charts import shutdown_executor
 from config import BOT_TOKEN, PROXY_URL
+from core.charts import shutdown_executor
+from core.database.models import async_main, engine
+from core.handlers import router
+from core.middleware import RateLimitMiddleware, UserMiddleware
 
 
 async def main():

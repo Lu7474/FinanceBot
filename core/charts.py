@@ -1,6 +1,7 @@
 """
 Chart generation: bar and trend charts using matplotlib.
 """
+
 import asyncio
 import io
 import logging
@@ -18,29 +19,39 @@ from config import CHART_DPI, CHART_TIMEOUT_SECONDS, MAX_CATEGORIES_IN_PIE
 from core.utils import RU_MONTHS, format_money
 
 INCOME_COLORS = [
-    '#2ecc71',
-    '#3498db',
-    '#1abc9c',
-    '#9b59b6',
-    '#f39c12',
-    '#e74c3c',
-    '#f1c40f',
-    '#95a5a6',
+    "#2ecc71",
+    "#3498db",
+    "#1abc9c",
+    "#9b59b6",
+    "#f39c12",
+    "#e74c3c",
+    "#f1c40f",
+    "#95a5a6",
 ]
 EXPENSE_COLORS = [
-    '#e74c3c',
-    '#e67e22',
-    '#f1c40f',
-    '#2ecc71',
-    '#1abc9c',
-    '#3498db',
-    '#9b59b6',
-    '#95a5a6',
+    "#e74c3c",
+    "#e67e22",
+    "#f1c40f",
+    "#2ecc71",
+    "#1abc9c",
+    "#3498db",
+    "#9b59b6",
+    "#95a5a6",
 ]
 
 RU_MONTHS_SHORT = {
-    1: "Янв", 2: "Фев", 3: "Мар", 4: "Апр", 5: "Май", 6: "Июн",
-    7: "Июл", 8: "Авг", 9: "Сен", 10: "Окт", 11: "Ноя", 12: "Дек",
+    1: "Янв",
+    2: "Фев",
+    3: "Мар",
+    4: "Апр",
+    5: "Май",
+    6: "Июн",
+    7: "Июл",
+    8: "Авг",
+    9: "Сен",
+    10: "Окт",
+    11: "Ноя",
+    12: "Дек",
 }
 
 _chart_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chart_")
@@ -67,7 +78,7 @@ def _build_report_pie_sync(
 
     fig = None
     try:
-        plt.rcParams['font.family'] = 'DejaVu Sans'
+        plt.rcParams["font.family"] = "DejaVu Sans"
 
         month_name = RU_MONTHS[date.month]
         title_type = "Доходы" if report_type == "income" else "Расходы"
@@ -90,9 +101,10 @@ def _build_report_pie_sync(
         values = [float(v) for v in sorted_categories.values()]
 
         bars = ax.bar(
-            names, values,
-            color=colors[:len(values)],
-            edgecolor='white',
+            names,
+            values,
+            color=colors[: len(values)],
+            edgecolor="white",
             linewidth=1.5,
             width=0.7,
         )
@@ -102,29 +114,42 @@ def _build_report_pie_sync(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + float(total) * 0.01,
                 format_money(val),
-                ha='center', va='bottom',
-                fontsize=10, fontweight='bold',
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
             )
 
         ax.set_ylim(0, max(values) * 1.15)
-        ax.set_ylabel('')
-        ax.set_title(f"{title_type} за {month_name} {date.year}", fontsize=14, fontweight='bold', pad=15)
+        ax.set_ylabel("")
+        ax.set_title(
+            f"{title_type} за {month_name} {date.year}",
+            fontsize=14,
+            fontweight="bold",
+            pad=15,
+        )
 
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.tick_params(axis='x', rotation=45)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.tick_params(axis="x", rotation=45)
 
         fig.text(
-            0.5, 0.02,
+            0.5,
+            0.02,
             f"Итого: {format_money(float(total))}",
-            ha='center', fontsize=12, fontweight='bold', color='#2c3e50',
+            ha="center",
+            fontsize=12,
+            fontweight="bold",
+            color="#2c3e50",
         )
 
         plt.tight_layout()
         fig.subplots_adjust(bottom=0.2)
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor='white')
+        plt.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
 
         caption = make_report_text(categories, total, date, report_type, records)
@@ -184,7 +209,7 @@ def _build_trend_chart_sync(
 
     fig = None
     try:
-        plt.rcParams['font.family'] = 'DejaVu Sans'
+        plt.rcParams["font.family"] = "DejaVu Sans"
 
         fig, ax = plt.subplots(figsize=(8, 4))
 
@@ -192,58 +217,81 @@ def _build_trend_chart_sync(
         values = [float(v) for _, _, v in monthly_data]
         months_keys = [(y, m) for y, m, _ in monthly_data]
 
-        line_color = '#2ecc71' if report_type == "income" else '#e74c3c'
+        line_color = "#2ecc71" if report_type == "income" else "#e74c3c"
 
         x = range(len(values))
-        ax.plot(x, values, color=line_color, linewidth=2.5, marker='o', markersize=6)
+        ax.plot(x, values, color=line_color, linewidth=2.5, marker="o", markersize=6)
         ax.fill_between(x, values, alpha=0.2, color=line_color)
 
         for i, (y, m) in enumerate(months_keys):
             if (y, m) == current_month:
-                ax.scatter([i], [values[i]], color=line_color, s=150, zorder=5, edgecolor='white', linewidth=2)
+                ax.scatter(
+                    [i],
+                    [values[i]],
+                    color=line_color,
+                    s=150,
+                    zorder=5,
+                    edgecolor="white",
+                    linewidth=2,
+                )
                 ax.annotate(
                     format_money(values[i]),
                     (i, values[i]),
                     textcoords="offset points",
                     xytext=(0, 12),
-                    ha='center',
+                    ha="center",
                     fontsize=10,
-                    fontweight='bold',
+                    fontweight="bold",
                     color=line_color,
                 )
             elif (y, m) == prev_month:
-                ax.scatter([i], [values[i]], color='#7f8c8d', s=100, zorder=5, edgecolor='white', linewidth=2)
+                ax.scatter(
+                    [i],
+                    [values[i]],
+                    color="#7f8c8d",
+                    s=100,
+                    zorder=5,
+                    edgecolor="white",
+                    linewidth=2,
+                )
                 ax.annotate(
                     format_money(values[i]),
                     (i, values[i]),
                     textcoords="offset points",
                     xytext=(0, 12),
-                    ha='center',
+                    ha="center",
                     fontsize=9,
-                    color='#7f8c8d',
+                    color="#7f8c8d",
                 )
 
         ax.set_xticks(x)
         ax.set_xticklabels(labels, fontsize=9)
-        ax.set_ylabel('')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
+        ax.set_ylabel("")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
         title_type = "Доходы" if report_type == "income" else "Расходы"
-        ax.set_title(f"{title_type} за последний год", fontsize=13, fontweight='bold', pad=15)
+        ax.set_title(
+            f"{title_type} за последний год", fontsize=13, fontweight="bold", pad=15
+        )
 
         avg_value = sum(values) / len(values)
-        ax.axhline(y=avg_value, color='#95a5a6', linestyle='--', linewidth=1, alpha=0.7)
+        ax.axhline(y=avg_value, color="#95a5a6", linestyle="--", linewidth=1, alpha=0.7)
         ax.text(
-            len(values) - 1, avg_value,
+            len(values) - 1,
+            avg_value,
             f"  Ср: {format_money(avg_value)}",
-            va='center', fontsize=9, color='#7f8c8d',
+            va="center",
+            fontsize=9,
+            color="#7f8c8d",
         )
 
         plt.tight_layout()
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor='white')
+        plt.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
         return buf
 
@@ -253,6 +301,83 @@ def _build_trend_chart_sync(
     finally:
         if fig is not None:
             plt.close(fig)
+
+
+def _build_weekday_chart_sync(
+    data: dict[int, Decimal],
+    operation: str,
+    period_label: str,
+) -> Optional[io.BytesIO]:
+    """Builds a horizontal bar chart of spending/income by weekday (Mon–Sun)."""
+    from core.utils import RU_WEEKDAYS
+
+    fig = None
+    try:
+        plt.rcParams["font.family"] = "DejaVu Sans"
+
+        values = [float(data.get(i, 0)) for i in range(7)]
+        labels = [RU_WEEKDAYS[i] for i in range(7)]
+
+        max_val = max(values) if values else 0
+        base_color = "#e74c3c" if operation == "-" else "#2ecc71"
+        colors = [
+            "#e74c3c" if (v == max_val and max_val > 0) else base_color for v in values
+        ]
+
+        title_type = "Расходы" if operation == "-" else "Доходы"
+        title = f"{title_type} по дням недели ({period_label})"
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.barh(labels, values, color=colors, edgecolor="white", linewidth=1.2)
+        ax.invert_yaxis()
+
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        for i, v in enumerate(values):
+            if v > 0:
+                ax.text(v + max_val * 0.01, i, format_money(v), va="center", fontsize=9)
+
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
+        buf.seek(0)
+        return buf
+    except Exception:
+        logging.exception("Ошибка при построении weekday chart")
+        return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
+
+
+async def build_weekday_chart(
+    data: dict[int, Decimal],
+    operation: str,
+    period_label: str,
+) -> Optional[io.BytesIO]:
+    """Async wrapper for weekday chart with timeout."""
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_weekday_chart_sync,
+                data,
+                operation,
+                period_label,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут weekday chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении weekday chart")
+        return None
 
 
 async def build_trend_chart(
@@ -280,7 +405,9 @@ async def build_trend_chart(
         )
         return result
     except asyncio.TimeoutError:
-        logging.error(f"Таймаут при построении графика тренда ({CHART_TIMEOUT_SECONDS}s)")
+        logging.error(
+            f"Таймаут при построении графика тренда ({CHART_TIMEOUT_SECONDS}s)"
+        )
         return None
     except Exception:
         logging.exception("Ошибка при построении графика тренда")

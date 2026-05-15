@@ -26,12 +26,13 @@ FinanceBot/
 │   │   ├── savings.py          # Накопления: снимки баланса
 │   │   ├── records_edit.py     # Редактирование отдельных записей из истории
 │   │   ├── categories.py       # Пользовательские категории + суггестия при вводе
+│   │   ├── budgets.py          # Месячные бюджеты по категориям
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
 │   └── database/
 │       ├── models.py           # SQLAlchemy модели
 │       └── requests.py         # CRUD-операции с БД
-├── tests/                      # 213 pytest-тестов
+├── tests/                      # 231 pytest-тест
 └── requirements.txt
 ```
 
@@ -52,6 +53,7 @@ id: int (PK)
 tg_id: int (BigInteger, unique)
 name: str
 phone: str (nullable)
+is_banned: bool (default False)
 created_at: datetime (Moscow TZ)
 ```
 
@@ -103,6 +105,18 @@ note: str (max 200, nullable)
 updated_at: datetime
 ```
 
+### Budget
+```
+id: int (PK)
+user_id: int (FK → User.id)
+category: str (max 50)
+amount: Decimal(10, 2)  — месячный лимит
+is_active: bool (default True)
+alerted_80: bool  — флаг уведомления при 80%
+alerted_100: bool  — флаг уведомления при 100%
+last_reset_month: int (nullable)  — месяц последнего сброса флагов
+```
+
 ### UserCategory
 ```
 id: int (PK)
@@ -128,6 +142,7 @@ ix_records_user_created         — (user_id, created_at)           выборк
 ix_records_user_operation       — (user_id, operation)            отчёты по типу
 ix_records_user_op_cat          — (user_id, operation, category)  GROUP BY категориям
 ix_savings_user_date            — (user_id, date, unique)         один снимок в день
+ix_budgets_user_category        — (user_id, category, unique)     один бюджет на категорию
 ix_user_categories_user_name    — (user_id, name, unique)         дубли категорий
 ix_category_keywords_user_kw    — (user_id, keyword, unique)      дубли ключевых слов
 ```
@@ -154,6 +169,15 @@ waiting_for_delete_confirm
 waiting_for_search_query
 waiting_for_search_page
 waiting_for_history_category_filter
+waiting_for_weekday_type    — выбор типа (Расходы/Доходы) для weekday-отчёта
+waiting_for_weekday_period  — выбор периода для weekday-отчёта
+```
+
+### BudgetStates
+```
+choosing_action    — главное меню бюджетов
+choosing_category  — выбор категории (добавление / изменение / удаление)
+entering_amount    — ввод суммы лимита
 ```
 
 ### AccountStates
@@ -290,6 +314,25 @@ search_query
     → пользователь подтверждает → learn_keyword() обучает бота
 ```
 
+### Бюджеты
+```
+[Бюджеты]
+    → get_budget_status()  — факт/лимит + прогресс-бар по текущему месяцу
+    → Добавить / Изменить / Удалить лимит по категории расходов
+    → при записи расхода: check_budget_alerts() → уведомление при ≥80% и ≥100%
+    → автосброс флагов alerted_80/alerted_100 в новом месяце
+```
+
+### Отчёт по дням недели
+```
+[Отчёт] → По дням недели
+    → выбор типа (Расходы / Доходы)
+    → выбор периода
+    → get_weekday_report()  — SQL GROUP BY strftime('%w')
+    → format_weekday_report() — таблица среднего по дням
+    → build_weekday_chart()   — столбчатый PNG-график
+```
+
 ## Оптимизации
 
 - **CASE WHEN** — доходы и расходы считаются одним запросом
@@ -336,3 +379,4 @@ pytest tests/ -v
 | test_period_filters.py | Фильтры периодов и DB-запросы |
 | test_queries.py | Сложные SQL-запросы |
 | test_search_filter.py | Поиск записей и фильтры истории |
+| test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов; weekday-отчёт |

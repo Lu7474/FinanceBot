@@ -1,6 +1,7 @@
 """
 SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem.
 """
+
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
@@ -36,6 +37,7 @@ def moscow_now():
 
 # ==================== Модели ====================
 
+
 class Base(AsyncAttrs, DeclarativeBase):
     pass
 
@@ -45,13 +47,17 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)  # Telegram ID
-    name: Mapped[str] = mapped_column(String, nullable=True)       # Имя пользователя
+    tg_id: Mapped[int] = mapped_column(
+        BigInteger, unique=True, nullable=False
+    )  # Telegram ID
+    name: Mapped[str] = mapped_column(String, nullable=True)  # Имя пользователя
     phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
-    records = relationship("Record", back_populates="user")        # Связь с записями
-    accounts = relationship("Account", back_populates="user", cascade="all, delete-orphan")
+    records = relationship("Record", back_populates="user")  # Связь с записями
+    accounts = relationship(
+        "Account", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 # Счёт пользователя (Наличные, Карта и т.д.)
@@ -61,7 +67,9 @@ class Account(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
-    balance_offset: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), default=Decimal("0"), server_default="0")
+    balance_offset: Mapped[Decimal] = mapped_column(
+        DECIMAL(10, 2), default=Decimal("0"), server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
     user = relationship("User", back_populates="accounts")
@@ -74,17 +82,29 @@ class Record(Base):
 
     # Индексы для ускорения запросов по периодам и пользователям
     __table_args__ = (
-        Index("ix_records_user_created", "user_id", "created_at"),  # Для выборки по периоду
-        Index("ix_records_user_operation", "user_id", "operation"),  # Для отчётов по типу
-        Index("ix_records_user_op_cat", "user_id", "operation", "category"),  # Для GROUP BY категориям
+        Index(
+            "ix_records_user_created", "user_id", "created_at"
+        ),  # Для выборки по периоду
+        Index(
+            "ix_records_user_operation", "user_id", "operation"
+        ),  # Для отчётов по типу
+        Index(
+            "ix_records_user_op_cat", "user_id", "operation", "category"
+        ),  # Для GROUP BY категориям
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)  # Индекс на FK
-    operation: Mapped[str] = mapped_column(String(1))              # "+" (доход) или "-" (расход)
-    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))        # Сумма
-    category: Mapped[str] = mapped_column(String(50), default="не указано")  # Категория (макс 50 символов)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now, index=True)  # Индекс для сортировки
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )  # Индекс на FK
+    operation: Mapped[str] = mapped_column(String(1))  # "+" (доход) или "-" (расход)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))  # Сумма
+    category: Mapped[str] = mapped_column(
+        String(50), default="не указано"
+    )  # Категория (макс 50 символов)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=moscow_now, index=True
+    )  # Индекс для сортировки
     account_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -108,16 +128,16 @@ class Record(Base):
 # Снимок накоплений за один день
 class SavingsSnapshot(Base):
     __tablename__ = "savings_snapshots"
-    __table_args__ = (
-        Index("ix_savings_user_date", "user_id", "date", unique=True),
-    )
+    __table_args__ = (Index("ix_savings_user_date", "user_id", "date", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
-    items = relationship("SavingsItem", back_populates="snapshot", cascade="all, delete-orphan")
+    items = relationship(
+        "SavingsItem", back_populates="snapshot", cascade="all, delete-orphan"
+    )
 
 
 # Одна строка снимка (название счёта + сумма)
@@ -140,11 +160,32 @@ class WealthItem(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    type: Mapped[str] = mapped_column(String(1), nullable=False)      # "A" = актив, "P" = пассив
+    type: Mapped[str] = mapped_column(
+        String(1), nullable=False
+    )  # "A" = актив, "P" = пассив
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+
+# Месячный бюджет пользователя по категории
+class Budget(Base):
+    __tablename__ = "budgets"
+    __table_args__ = (
+        Index("ix_budgets_user_category", "user_id", "category", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    alerted_80: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    alerted_100: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    last_reset_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 # Пользовательская категория (расход / доход / оба)
@@ -157,7 +198,9 @@ class UserCategory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
-    cat_type: Mapped[str] = mapped_column(String(1), nullable=False)  # "+" доход, "-" расход, "*" оба
+    cat_type: Mapped[str] = mapped_column(
+        String(1), nullable=False
+    )  # "+" доход, "-" расход, "*" оба
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
@@ -180,23 +223,56 @@ class CategoryKeyword(Base):
 
 # ==================== Инициализация ====================
 
+
 async def _migrate(conn) -> None:
     """Applies additive schema migrations safe for existing DBs."""
+    result = await conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name='budgets'")
+    )
+    if not result.fetchone():
+        await conn.execute(
+            text("""
+            CREATE TABLE budgets (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                category VARCHAR(50) NOT NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                alerted_80 INTEGER NOT NULL DEFAULT 0,
+                alerted_100 INTEGER NOT NULL DEFAULT 0,
+                last_reset_month INTEGER
+            )
+        """)
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX ix_budgets_user_category ON budgets(user_id, category)"
+            )
+        )
+
     # Add account_id to records if missing (SQLite supports ADD COLUMN)
     result = await conn.execute(text("PRAGMA table_info(records)"))
     columns = {row[1] for row in result.fetchall()}
     if "account_id" not in columns:
         await conn.execute(
-            text("ALTER TABLE records ADD COLUMN account_id INTEGER REFERENCES accounts(id)")
+            text(
+                "ALTER TABLE records ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
+            )
         )
     result = await conn.execute(text("PRAGMA table_info(accounts)"))
     acc_columns = {row[1] for row in result.fetchall()}
     if "balance_offset" not in acc_columns:
-        await conn.execute(text("ALTER TABLE accounts ADD COLUMN balance_offset DECIMAL(10,2) NOT NULL DEFAULT 0"))
+        await conn.execute(
+            text(
+                "ALTER TABLE accounts ADD COLUMN balance_offset DECIMAL(10,2) NOT NULL DEFAULT 0"
+            )
+        )
     result = await conn.execute(text("PRAGMA table_info(users)"))
     user_columns = {row[1] for row in result.fetchall()}
     if "is_banned" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0"))
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
+        )
 
 
 # Создаёт таблицы в БД и применяет миграции (вызывается при старте бота)

@@ -1,17 +1,18 @@
 """
 Тесты парсинга записей: суммы, категории, даты.
 """
+
 import sys
-from pathlib import Path
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
+from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.handlers import parse_record_line
 
-
 # ==================== Базовый парсинг ====================
+
 
 def test_parse_simple_record():
     """Парсинг простой записи: сумма + категория."""
@@ -51,6 +52,7 @@ def test_parse_record_decimal():
 
 
 # ==================== Парсинг с датой ====================
+
 
 def test_parse_record_with_date_ddmm():
     """Парсинг записи с датой ДД.ММ."""
@@ -100,6 +102,7 @@ def test_parse_record_with_date_and_sign():
 
 
 # ==================== Ошибки парсинга ====================
+
 
 def test_parse_invalid_date():
     """Невалидная дата (32.13) не распознаётся как дата, парсится как сумма."""

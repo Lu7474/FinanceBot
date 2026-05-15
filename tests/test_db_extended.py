@@ -1,26 +1,27 @@
 """
 Расширенные тесты БД: фильтры периодов, years_and_months, обработка ошибок.
 """
-import sys
-from pathlib import Path
-import pytest
 
-from decimal import Decimal
+import sys
 from datetime import datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from core.database.models import User, Record
+from core.database.models import Record, User
 from core.database.requests import (
     add_record,
-    get_records,
     delete_record,
+    get_records,
 )
 from core.reports import get_available_years_and_months
 
-
 # ==================== get_available_years_and_months ====================
+
 
 # Пользователь без записей → пустой словарь
 @pytest.mark.asyncio
@@ -141,6 +142,7 @@ async def test_get_available_years_and_months_future_filtering(session):
 
 
 # ==================== get_records (расширенные) ====================
+
 
 # Фильтр "day" — только сегодняшние записи
 @pytest.mark.asyncio
@@ -347,6 +349,7 @@ async def test_get_records_all(session):
 
 
 # ==================== Обработка ошибок ====================
+
 
 # Добавление записи несуществующему пользователю
 # Примечание: SQLite не применяет FK constraints по умолчанию,

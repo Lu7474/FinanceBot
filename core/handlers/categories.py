@@ -39,7 +39,11 @@ from .common import (
     is_categories,
     save_parsed_records,
 )
-from .records import _deserialize_records, format_added_records_response
+from .records import (
+    _deserialize_records,
+    _send_budget_alerts,
+    format_added_records_response,
+)
 
 router = Router()
 
@@ -91,20 +95,32 @@ async def _continue_to_account_or_save(
         added = await save_parsed_records(user_id, records_to_add)
         response = format_added_records_response(added, errors)
         if isinstance(target, Message):
-            await target.answer(response, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+            await target.answer(
+                response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
+            )
+            await _send_budget_alerts(target, user_id, added)
         else:
             await target.message.edit_text(response, parse_mode="HTML")
-            await target.message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+            await target.message.answer(
+                "Выберите действие:", reply_markup=main_menu_keyboard()
+            )
+            await _send_budget_alerts(target.message, user_id, added)
         await state.clear()
     else:
         from core.keyboards import account_select_keyboard
 
         kb = account_select_keyboard(accounts)
         if isinstance(target, Message):
-            await target.answer("💳 <b>Выберите счёт:</b>", reply_markup=kb, parse_mode="HTML")
+            await target.answer(
+                "💳 <b>Выберите счёт:</b>", reply_markup=kb, parse_mode="HTML"
+            )
         else:
-            await target.message.edit_text("💳 <b>Выберите счёт:</b>", reply_markup=kb, parse_mode="HTML")
-        await state.update_data(pending_records=pending_records, parse_errors=errors, user_id=user_id)
+            await target.message.edit_text(
+                "💳 <b>Выберите счёт:</b>", reply_markup=kb, parse_mode="HTML"
+            )
+        await state.update_data(
+            pending_records=pending_records, parse_errors=errors, user_id=user_id
+        )
         await state.set_state(AddRecord.waiting_for_account)
 
 
@@ -124,13 +140,14 @@ async def show_categories_menu(message: Message, state: FSMContext, **kwargs) ->
     await _show_categories_menu(message, user_id, state)
 
 
-
 # ==================== Add category ====================
 
 
 @router.callback_query(CategoryStates.choosing_action, F.data == "cat_action:add")
 @log_exceptions("Ошибка при добавлении категории")
-async def handle_cat_add_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def handle_cat_add_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -147,13 +164,17 @@ async def handle_cat_add_start(callback: CallbackQuery, state: FSMContext, **kwa
 
 
 @router.callback_query(CategoryStates.choosing_type_for_add, F.data == "cat_type_back")
-async def handle_cat_type_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def handle_cat_type_back(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     user_id = kwargs.get("user_id") or (await state.get_data()).get("user_id")
     if user_id:
         await _show_categories_menu(callback, user_id, state)
     else:
         await callback.message.edit_text("Выберите действие:")
-        await callback.message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+        await callback.message.answer(
+            "Выберите действие:", reply_markup=main_menu_keyboard()
+        )
         await state.clear()
     await callback.answer()
 
@@ -167,7 +188,7 @@ async def handle_cat_type_selected(
 ) -> None:
     cat_type = callback.data.split(":")[1]
     await state.update_data(new_cat_type=cat_type)
-    type_label = {"+" : "дохода", "-": "расхода", "*": "для обоих типов"}[cat_type]
+    type_label = {"+": "дохода", "-": "расхода", "*": "для обоих типов"}[cat_type]
     await callback.message.edit_text(
         f"Введите название новой категории {type_label}\n"
         f"<i>(макс. {MAX_CATEGORY_LENGTH} символов)</i>",
@@ -182,7 +203,9 @@ async def handle_cat_type_selected(
 async def handle_cat_name_input(message: Message, state: FSMContext, **kwargs) -> None:
     name = message.text.strip().capitalize()
     if not name or len(name) > MAX_CATEGORY_LENGTH:
-        await message.answer(f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов.")
+        await message.answer(
+            f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов."
+        )
         return
 
     data = await state.get_data()
@@ -200,7 +223,9 @@ async def handle_cat_name_input(message: Message, state: FSMContext, **kwargs) -
         )
         return
 
-    await message.answer(f"✅ Категория <b>{html.escape(name)}</b> добавлена.", parse_mode="HTML")
+    await message.answer(
+        f"✅ Категория <b>{html.escape(name)}</b> добавлена.", parse_mode="HTML"
+    )
     await _show_categories_menu(message, user_id, state)
 
 
@@ -232,8 +257,12 @@ async def handle_cat_rename_start(
     await callback.answer()
 
 
-@router.callback_query(CategoryStates.choosing_category_to_rename, F.data == "cat_manage_back")
-async def handle_rename_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+@router.callback_query(
+    CategoryStates.choosing_category_to_rename, F.data == "cat_manage_back"
+)
+async def handle_rename_back(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
     if user_id:
@@ -274,10 +303,14 @@ async def handle_cat_rename_select(
 
 @router.message(CategoryStates.entering_new_name)
 @log_exceptions("Ошибка при переименовании")
-async def handle_cat_new_name_input(message: Message, state: FSMContext, **kwargs) -> None:
+async def handle_cat_new_name_input(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     new_name = message.text.strip().capitalize()
     if not new_name or len(new_name) > MAX_CATEGORY_LENGTH:
-        await message.answer(f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов.")
+        await message.answer(
+            f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов."
+        )
         return
 
     data = await state.get_data()
@@ -298,7 +331,8 @@ async def handle_cat_new_name_input(message: Message, state: FSMContext, **kwarg
 
     old_name = data.get("rename_cat_old", "")
     await message.answer(
-        f"✅ <b>{html.escape(old_name)}</b> → <b>{html.escape(new_name)}</b>", parse_mode="HTML"
+        f"✅ <b>{html.escape(old_name)}</b> → <b>{html.escape(new_name)}</b>",
+        parse_mode="HTML",
     )
     await _show_categories_menu(message, user_id, state)
 
@@ -331,8 +365,12 @@ async def handle_cat_delete_start(
     await callback.answer()
 
 
-@router.callback_query(CategoryStates.choosing_category_to_delete, F.data == "cat_manage_back")
-async def handle_delete_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+@router.callback_query(
+    CategoryStates.choosing_category_to_delete, F.data == "cat_manage_back"
+)
+async def handle_delete_back(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
     if user_id:
@@ -357,7 +395,9 @@ async def handle_cat_delete_select(
                 UserCategory.id == cat_id, UserCategory.user_id == user_id
             )
         )
-        record_count = await count_records_with_category(session, user_id, cat.name) if cat else 0
+        record_count = (
+            await count_records_with_category(session, user_id, cat.name) if cat else 0
+        )
 
     if not cat:
         await callback.answer("Категория не найдена.", show_alert=True)
@@ -455,7 +495,9 @@ async def handle_cat_select_for_record(
                 await learn_keyword(session, user_id, original_description, cat_id)
 
     await callback.answer()
-    await _continue_to_account_or_save(callback, state, user_id, pending_records, errors)
+    await _continue_to_account_or_save(
+        callback, state, user_id, pending_records, errors
+    )
 
 
 @router.callback_query(
@@ -471,10 +513,14 @@ async def handle_cat_select_other(
 
 @router.message(CategoryStates.entering_category_for_record)
 @log_exceptions("Ошибка при вводе категории вручную")
-async def handle_cat_manual_input(message: Message, state: FSMContext, **kwargs) -> None:
+async def handle_cat_manual_input(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     cat_name = message.text.strip().capitalize()
     if not cat_name or len(cat_name) > MAX_CATEGORY_LENGTH:
-        await message.answer(f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов.")
+        await message.answer(
+            f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов."
+        )
         return
 
     data = await state.get_data()
@@ -495,7 +541,9 @@ async def handle_cat_manual_input(message: Message, state: FSMContext, **kwargs)
     CategoryStates.confirming_suggested_category, F.data == "cat_suggest_yes"
 )
 @log_exceptions("Ошибка при подтверждении категории")
-async def handle_suggest_yes(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def handle_suggest_yes(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     data = await state.get_data()
     user_id = data.get("user_id")
     suggested = data.get("suggested_category", "")
@@ -518,14 +566,18 @@ async def handle_suggest_yes(callback: CallbackQuery, state: FSMContext, **kwarg
                     await learn_keyword(session, user_id, original_description, cat.id)
 
     await callback.answer()
-    await _continue_to_account_or_save(callback, state, user_id, pending_records, errors)
+    await _continue_to_account_or_save(
+        callback, state, user_id, pending_records, errors
+    )
 
 
 @router.callback_query(
     CategoryStates.confirming_suggested_category, F.data == "cat_suggest_other"
 )
 @log_exceptions("Ошибка при выборе другой категории")
-async def handle_suggest_other(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def handle_suggest_other(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     data = await state.get_data()
     user_id = data.get("user_id")
     pending_op = data.get("pending_op", "")
@@ -544,7 +596,9 @@ async def handle_suggest_other(callback: CallbackQuery, state: FSMContext, **kwa
 @router.callback_query(
     CategoryStates.confirming_suggested_category, F.data == "cat_suggest_manual"
 )
-async def handle_suggest_manual(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def handle_suggest_manual(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     await callback.message.edit_text("✏️ Введите название категории:")
     await state.set_state(CategoryStates.entering_category_for_record)
     await callback.answer()

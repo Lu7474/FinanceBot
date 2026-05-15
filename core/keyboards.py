@@ -28,6 +28,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="История"), KeyboardButton(text="Отчёт")],
             [KeyboardButton(text="Счета"), KeyboardButton(text="Удалить запись")],
             [KeyboardButton(text="Накопления"), KeyboardButton(text="Категории")],
+            [KeyboardButton(text="Бюджеты")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -473,6 +474,58 @@ def record_account_select_keyboard(
     return builder.as_markup()
 
 
+# ==================== Бюджеты ====================
+
+
+@lru_cache(maxsize=1)
+def budget_menu_keyboard() -> InlineKeyboardMarkup:
+    """Main budget section keyboard."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="➕ Добавить", callback_data="budget_add"),
+                InlineKeyboardButton(text="✏️ Изменить", callback_data="budget_edit"),
+            ],
+            [
+                InlineKeyboardButton(text="🗑 Удалить", callback_data="budget_delete"),
+            ],
+        ]
+    )
+
+
+def budget_category_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
+    """Shows expense categories as selectable buttons for budget setup.
+
+    Uses index-based callback_data to avoid Telegram's 64-byte callback_data limit.
+    """
+    builder = InlineKeyboardBuilder()
+    for i, name in enumerate(categories):
+        builder.button(text=name, callback_data=f"budget_cat:{i}")
+    builder.button(text="← Назад", callback_data="budget_to_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@lru_cache(maxsize=1)
+def weekday_report_period_keyboard() -> InlineKeyboardMarkup:
+    """Period selection for weekday report."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Этот месяц", callback_data="wd_period:month"
+                ),
+                InlineKeyboardButton(text="3 месяца", callback_data="wd_period:3m"),
+            ],
+            [
+                InlineKeyboardButton(text="Полгода", callback_data="wd_period:6m"),
+                InlineKeyboardButton(text="Год", callback_data="wd_period:year"),
+            ],
+            [InlineKeyboardButton(text="← Назад", callback_data="wd_period:back")],
+        ]
+    )
+
+
 def history_record_select_keyboard(records: List) -> InlineKeyboardMarkup:
     """Shows current history page records as selectable buttons."""
     builder = InlineKeyboardBuilder()
@@ -519,9 +572,15 @@ def user_categories_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="➕ Добавить", callback_data="cat_action:add"),
-                InlineKeyboardButton(text="✏️ Переименовать", callback_data="cat_action:rename"),
-                InlineKeyboardButton(text="🗑 Удалить", callback_data="cat_action:delete"),
+                InlineKeyboardButton(
+                    text="➕ Добавить", callback_data="cat_action:add"
+                ),
+                InlineKeyboardButton(
+                    text="✏️ Переименовать", callback_data="cat_action:rename"
+                ),
+                InlineKeyboardButton(
+                    text="🗑 Удалить", callback_data="cat_action:delete"
+                ),
             ]
         ]
     )
@@ -566,9 +625,15 @@ def category_suggest_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ Да", callback_data="cat_suggest_yes"),
-                InlineKeyboardButton(text="🔄 Другую", callback_data="cat_suggest_other"),
+                InlineKeyboardButton(
+                    text="🔄 Другую", callback_data="cat_suggest_other"
+                ),
             ],
-            [InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="cat_suggest_manual")],
+            [
+                InlineKeyboardButton(
+                    text="✏️ Ввести вручную", callback_data="cat_suggest_manual"
+                )
+            ],
         ]
     )
 

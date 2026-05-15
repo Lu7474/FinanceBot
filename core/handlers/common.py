@@ -127,6 +127,13 @@ def is_categories(message: Message) -> bool:
     return message.text.strip().lower() == "категории"
 
 
+def is_budgets(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Бюджеты'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() == "бюджеты"
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -139,6 +146,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_accounts(message),
             is_savings(message),
             is_categories(message),
+            is_budgets(message),
         ]
     )
 
@@ -151,6 +159,14 @@ class AddRecord(StatesGroup):
 
     waiting_for_amount = State()
     waiting_for_account = State()
+
+
+class BudgetStates(StatesGroup):
+    """States for budget management."""
+
+    choosing_action = State()
+    choosing_category = State()
+    entering_amount = State()
 
 
 class MenuStates(StatesGroup):
@@ -168,6 +184,8 @@ class MenuStates(StatesGroup):
     waiting_for_search_query = State()
     waiting_for_search_page = State()
     waiting_for_history_category_filter = State()
+    waiting_for_weekday_type = State()
+    waiting_for_weekday_period = State()
 
 
 class AccountStates(StatesGroup):
