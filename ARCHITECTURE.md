@@ -14,6 +14,7 @@ FinanceBot/
 │   ├── reports.py              # Построение текста отчётов
 │   ├── middleware.py           # RateLimitMiddleware, UserMiddleware
 │   ├── keyboards.py            # ReplyKeyboard и InlineKeyboard
+│   ├── export.py               # Excel export/import/backup: build и validate функции
 │   ├── handlers/
 │   │   ├── __init__.py         # Сборка всех роутеров в один Router
 │   │   ├── common.py           # FSM states, фильтры кнопок, get_user_id_from_event
@@ -27,12 +28,13 @@ FinanceBot/
 │   │   ├── records_edit.py     # Редактирование отдельных записей из истории
 │   │   ├── categories.py       # Пользовательские категории + суггестия при вводе
 │   │   ├── budgets.py          # Месячные бюджеты по категориям
+│   │   ├── export_import.py    # Экспорт/импорт/бэкап в Excel
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
 │   └── database/
 │       ├── models.py           # SQLAlchemy модели
 │       └── requests.py         # CRUD-операции с БД
-├── tests/                      # 231 pytest-тест
+├── tests/                      # 250 pytest-тестов
 └── requirements.txt
 ```
 
@@ -235,6 +237,14 @@ broadcast_text
 search_query
 ```
 
+### ExportImportStates
+```
+waiting_for_export_period  — выбор периода экспорта
+waiting_for_export_type    — выбор типа записей (все / доходы / расходы)
+waiting_for_import_file    — ожидание xlsx-файла от пользователя
+waiting_for_import_confirm — подтверждение импорта после валидации
+```
+
 ## Middleware
 
 ### UserMiddleware
@@ -333,6 +343,30 @@ search_query
     → build_weekday_chart()   — столбчатый PNG-график
 ```
 
+### Экспорт / Импорт
+```
+[Экспорт]
+    → FSM: waiting_for_export_period → выбор периода (месяц / 3 мес / год / всё)
+    → FSM: waiting_for_export_type   → выбор типа (все / доходы / расходы)
+    → get_all_records_for_export()   — выборка из БД
+    → _build_export_sync()           — xlsx: лист «Записи» + лист «Итоги»
+    → отправка файла
+
+[Импорт]
+    → отправка шаблона _build_template_sync()
+    → FSM: waiting_for_import_file   → получение xlsx от пользователя
+    → parse_import_file()            — валидация строк, лимит 1000
+    → check_duplicate_record()       — подсчёт потенциальных дублей (не блокирующий)
+    → FSM: waiting_for_import_confirm → подтверждение
+    → bulk_insert_records()          → БД
+
+[/backup]
+    → get_all_records_for_export() + get_all_budgets_for_backup()
+      + get_latest_snapshot_for_backup() + get_wealth_items_for_backup()
+    → _build_backup_sync()           — 4 листа: Записи / Бюджеты / Накопления / Активы
+    → отправка файла
+```
+
 ## Оптимизации
 
 - **CASE WHEN** — доходы и расходы считаются одним запросом
@@ -380,3 +414,4 @@ pytest tests/ -v
 | test_queries.py | Сложные SQL-запросы |
 | test_search_filter.py | Поиск записей и фильтры истории |
 | test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов; weekday-отчёт |
+| test_export_import.py | Экспорт/импорт: парсинг xlsx, валидация строк, bulk insert, дубли |

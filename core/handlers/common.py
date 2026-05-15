@@ -134,6 +134,20 @@ def is_budgets(message: Message) -> bool:
     return message.text.strip().lower() == "бюджеты"
 
 
+def is_export(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Экспорт'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() == "экспорт"
+
+
+def is_import(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Импорт'."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() == "импорт"
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -147,6 +161,8 @@ def is_main_menu_button(message: Message) -> bool:
             is_savings(message),
             is_categories(message),
             is_budgets(message),
+            is_export(message),
+            is_import(message),
         ]
     )
 
@@ -248,3 +264,12 @@ class CategoryStates(StatesGroup):
     choosing_category_for_record = State()
     confirming_suggested_category = State()
     entering_category_for_record = State()
+
+
+class ExportImportStates(StatesGroup):
+    """States for export/import workflow."""
+
+    waiting_for_export_period = State()
+    waiting_for_export_type = State()
+    waiting_for_import_file = State()
+    waiting_for_import_confirm = State()

@@ -1959,6 +1959,158 @@ async def get_weekday_report(
     return data
 
 
+# ==================== Экспорт / Импорт / Бэкап ====================
+
+
+async def get_all_records_for_export(
+    session: AsyncSession,
+    user_id: int,
+    operation: str | None = None,
+    date_from: date_type | None = None,
+    date_to: date_type | None = None,
+) -> list[Record]:
+    """Fetch records for export/backup with optional filters.
+
+    Uses selectinload(Record.account). Reuses logic from get_user_records_csv.
+    """
+    query = (
+        select(Record)
+        .options(selectinload(Record.account))
+        .where(Record.user_id == user_id)
+    )
+    if operation is not None:
+        query = query.where(Record.operation == operation)
+    if date_from is not None:
+        from zoneinfo import ZoneInfo as _ZI
+        from datetime import datetime as _dt
+        dt_from = _dt.combine(date_from, _dt.min.time()).replace(tzinfo=_ZI(TIMEZONE))
+        query = query.where(Record.created_at >= dt_from)
+    if date_to is not None:
+        from zoneinfo import ZoneInfo as _ZI
+        from datetime import datetime as _dt
+        dt_to = _dt.combine(date_to, _dt.max.time()).replace(tzinfo=_ZI(TIMEZONE))
+        query = query.where(Record.created_at <= dt_to)
+    query = query.order_by(Record.created_at)
+    result = await session.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_all_budgets_for_backup(
+    session: AsyncSession, user_id: int
+) -> list[Budget]:
+    """Fetch all active budgets for backup."""
+    result = await session.execute(
+        select(Budget).where(Budget.user_id == user_id, Budget.is_active == True)  # noqa: E712
+    )
+    return list(result.scalars().all())
+
+
+async def get_latest_snapshot_for_backup(
+    session: AsyncSession, user_id: int
+) -> SavingsSnapshot | None:
+    """Fetch latest savings snapshot with items for backup."""
+    result = await session.execute(
+        select(SavingsSnapshot)
+        .options(selectinload(SavingsSnapshot.items))
+        .where(SavingsSnapshot.user_id == user_id)
+        .order_by(SavingsSnapshot.date.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_wealth_items_for_backup(
+    session: AsyncSession, user_id: int
+) -> list[WealthItem]:
+    """Fetch all wealth items for backup."""
+    result = await session.execute(
+        select(WealthItem).where(WealthItem.user_id == user_id)
+    )
+    return list(result.scalars().all())
+
+
+async def check_duplicate_record(
+    session: AsyncSession,
+    user_id: int,
+    record_date: date_type,
+    operation: str,
+    amount: Decimal,
+    category: str,
+) -> bool:
+    """Check if record with same date (date-only), operation, amount and category exists.
+
+    Uses func.date() for SQLite-compatible date-only comparison.
+    """
+    existing = await session.scalar(
+        select(Record.id).where(
+            Record.user_id == user_id,
+            Record.operation == operation,
+            Record.amount == amount,
+            Record.category == category,
+            func.date(Record.created_at) == record_date.isoformat(),
+        )
+    )
+    return existing is not None
+
+
+async def get_or_create_account(
+    session: AsyncSession,
+    user_id: int,
+    name: str,
+) -> Account | None:
+    """Return existing account by name or create new one.
+
+    Returns None if user already has 10 accounts (limit reached).
+    """
+    existing = await session.scalar(
+        select(Account).where(Account.user_id == user_id, Account.name == name)
+    )
+    if existing:
+        return existing
+
+    count = await session.scalar(
+        select(func.count(Account.id)).where(Account.user_id == user_id)
+    )
+    if (count or 0) >= MAX_ACCOUNTS_PER_USER:
+        return None
+
+    account = Account(user_id=user_id, name=name)
+    session.add(account)
+    await session.flush()
+    return account
+
+
+async def bulk_insert_records(
+    session: AsyncSession,
+    user_id: int,
+    rows: list[dict],
+) -> int:
+    """Insert records in bulk. Returns count of inserted records.
+
+    Each row: {date, operation, amount, category, account_id}
+    """
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+
+    count = 0
+    for row in rows:
+        d = row["date"]
+        created_at = _dt.combine(d, _dt.min.time()).replace(tzinfo=_ZI(TIMEZONE))
+        session.add(
+            Record(
+                user_id=user_id,
+                operation=row["operation"],
+                amount=row["amount"],
+                category=row["category"],
+                account_id=row.get("account_id"),
+                created_at=created_at,
+            )
+        )
+        count += 1
+    await session.commit()
+    return count
+
+
 async def create_transfer(
     session: AsyncSession,
     user_id: int,
