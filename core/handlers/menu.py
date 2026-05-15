@@ -25,7 +25,9 @@ router = Router()
 async def handle_start(message: Message, **kwargs) -> None:
     """Команда /start — регистрация пользователя и показ главного меню."""
     async with async_session() as session:
-        user = await set_user(session, message.from_user.id, name=message.from_user.full_name)
+        user = await set_user(
+            session, message.from_user.id, name=message.from_user.full_name
+        )
         if not user:
             await message.answer("Ошибка при регистрации. Попробуйте позже.")
             return
@@ -40,14 +42,16 @@ async def handle_start(message: Message, **kwargs) -> None:
 💰 <b>Привет, {first_name}!</b>
 
 Я твой персональный финансовый помощник.
-Помогу вести учёт доходов и расходов.
 
 <b>Что я умею:</b>
-➕ Записывать доходы
-➖ Записывать расходы
-📊 Строить отчёты по категориям
-🕘 Показывать историю операций
-🗑️ Удалять ненужные записи
+➕ Записывать доходы и расходы
+📊 Строить отчёты и графики
+🕘 Историю с поиском и фильтрами
+💼 Управлять счетами и переводами
+🏦 Вести накопления и цели
+🗂️ Настраивать категории
+🎯 Контролировать бюджеты
+📤 Экспортировать и импортировать данные
 
 <b>Быстрый ввод:</b>
 <code>+5000 зарплата</code>
@@ -77,7 +81,9 @@ async def handle_cancel(message: Message, state: FSMContext, **kwargs) -> None:
 
 
 @router.callback_query(F.data == "cancel")
-async def handle_cancel_callback(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def handle_cancel_callback(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Обработка нажатия кнопки Отмена в inline-клавиатурах."""
     await state.clear()
     await callback.message.edit_text("Операция отменена.")
@@ -93,13 +99,25 @@ async def handle_help(message: Message, **kwargs) -> None:
 /start — начать работу с ботом
 /help — показать эту справку
 /cancel — отменить текущую операцию
+/backup — скачать резервную копию данных
 
 <b>Основные функции:</b>
-<b>Доход</b> — добавить доход
-<b>Расход</b> — добавить расход
-<b>История</b> — просмотр операций за период
-<b>Отчёт</b> — график доходов/расходов по месяцам
-<b>Удалить</b> — удалить запись
+<b>Доход / Расход</b> — добавить запись
+<b>История</b> — операции за период, поиск и фильтры
+<b>Отчёт</b> — графики по месяцам и дням недели
+<b>Счета</b> — управление счетами, переводы, коррекция баланса
+<b>Накопления</b> — цели накоплений
+<b>Категории</b> — добавить / переименовать / удалить
+<b>Бюджеты</b> — лимиты расходов по категориям
+<b>Экспорт</b> — выгрузить данные в CSV или Excel
+<b>Импорт</b> — загрузить данные из файла
+<b>Удалить запись</b> — удалить операцию
+
+<b>Поиск в истории:</b>
+<code>кофе</code> — по тексту категории
+<code>gt 1000</code> — сумма больше 1000
+<code>lt 500</code> — сумма меньше 500
+<code>eq 350</code> — точная сумма
 
 <b>Формат ввода:</b>
 Одна запись: <code>1000 еда</code>
