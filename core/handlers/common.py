@@ -165,6 +165,9 @@ class MenuStates(StatesGroup):
     waiting_for_delete_period = State()
     waiting_for_delete_record = State()
     waiting_for_delete_confirm = State()
+    waiting_for_search_query = State()
+    waiting_for_search_page = State()
+    waiting_for_history_category_filter = State()
 
 
 class AccountStates(StatesGroup):

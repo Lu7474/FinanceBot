@@ -163,6 +163,71 @@ SYSTEM_KEYWORDS: dict[str, str] = {
 }
 
 
+def parse_search_query(query: str) -> dict:
+    """Parses raw search string into structured filter.
+
+    Returns:
+        {"type": "gt" | "lt" | "eq" | "text", "value": float | str, "operation": "+" | "-"}
+    """
+    q = query.strip()
+    operation = None
+    amount_query = q
+
+    if q[:1] in {"+", "-"} and q[1:].lstrip().startswith((">", "<", "=")):
+        operation = q[0]
+        amount_query = q[1:].strip()
+    else:
+        aliases = {
+            "income": "+",
+            "доход": "+",
+            "доходы": "+",
+            "expense": "-",
+            "expenses": "-",
+            "расход": "-",
+            "расходы": "-",
+        }
+        q_lower = q.casefold()
+        for prefix, op in aliases.items():
+            if q_lower.startswith(prefix):
+                rest = q[len(prefix):].strip()
+                if rest.startswith((">", "<", "=")):
+                    operation = op
+                    amount_query = rest
+                    break
+
+    if amount_query.startswith(">"):
+        try:
+            result = {"type": "gt", "value": float(amount_query[1:].strip())}
+            if operation:
+                result["operation"] = operation
+            return result
+        except ValueError:
+            pass
+    elif amount_query.startswith("<"):
+        try:
+            result = {"type": "lt", "value": float(amount_query[1:].strip())}
+            if operation:
+                result["operation"] = operation
+            return result
+        except ValueError:
+            pass
+    elif amount_query.startswith("="):
+        try:
+            result = {"type": "eq", "value": float(amount_query[1:].strip())}
+            if operation:
+                result["operation"] = operation
+            return result
+        except ValueError:
+            pass
+    return {"type": "text", "value": q}
+
+
+def format_day_total(total: float) -> str:
+    """Returns '+2 700₽' or '−3 650₽'."""
+    sign = "+" if total >= 0 else "−"
+    return f"{sign}{abs(total):,.0f}₽".replace(",", " ")
+
+
 def normalize_category(text: str) -> str:
     """Capitalizes first letter, strips whitespace."""
     text = text.strip()

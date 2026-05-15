@@ -82,6 +82,9 @@ async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None
 
     page = data.get("history_page", 0)
     period_label = data.get("history_period_label", "")
+    history_filter = data.get("history_filter", {})
+    operation_filter = history_filter.get("operation")
+    category_filter = history_filter.get("category")
     date_from = None
     date_to = None
     if period == "range":
@@ -107,6 +110,8 @@ async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None
             date_to,
             limit=RECORDS_PER_PAGE,
             offset=offset,
+            operation_filter=operation_filter,
+            category_filter=category_filter,
         )
 
     if total_count == 0:
@@ -128,6 +133,8 @@ async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None
                 date_to,
                 limit=RECORDS_PER_PAGE,
                 offset=offset,
+                operation_filter=operation_filter,
+                category_filter=category_filter,
             )
 
     await state.update_data(
@@ -149,6 +156,8 @@ async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None
         period=period,
         period_label=period_label,
         total_count=total_count,
+        operation_filter=operation_filter,
+        category_filter=category_filter,
     )
     await state.set_state(MenuStates.waiting_for_history_page)
     await callback.message.edit_text(
@@ -172,6 +181,9 @@ async def hist_open_record(
         return
 
     page = data.get("history_page", 0)
+    history_filter = data.get("history_filter", {})
+    operation_filter = history_filter.get("operation")
+    category_filter = history_filter.get("category")
     date_from = None
     date_to = None
     if period == "range":
@@ -195,6 +207,8 @@ async def hist_open_record(
             date_to,
             limit=RECORDS_PER_PAGE,
             offset=offset,
+            operation_filter=operation_filter,
+            category_filter=category_filter,
         )
 
     if not records:

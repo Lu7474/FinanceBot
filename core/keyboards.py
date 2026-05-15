@@ -571,3 +571,56 @@ def category_suggest_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="cat_suggest_manual")],
         ]
     )
+
+
+# ==================== История: фильтры и поиск ====================
+
+
+def history_filter_keyboard(
+    active_operation: str | None = None,
+    active_category: str | None = None,
+) -> InlineKeyboardMarkup:
+    """Filter keyboard: Все / Расходы / Доходы / По категории / Сбросить / Поиск."""
+    kb = InlineKeyboardBuilder()
+    all_text = "✓ Все" if active_operation is None else "Все"
+    expense_text = "✓ Расходы" if active_operation == "-" else "Только расходы"
+    income_text = "✓ Доходы" if active_operation == "+" else "Только доходы"
+    kb.button(text=all_text, callback_data="hist_filter:all")
+    kb.button(text=expense_text, callback_data="hist_filter:expense")
+    kb.button(text=income_text, callback_data="hist_filter:income")
+    cat_text = f"● {active_category} ▾" if active_category else "По категории ▾"
+    kb.button(text=cat_text, callback_data="hist_filter:category")
+    kb.button(text="Сбросить", callback_data="hist_filter:reset")
+    kb.button(text="🔍 Поиск", callback_data="hist_search:start")
+    kb.adjust(3, 3)
+    return kb.as_markup()
+
+
+def history_category_filter_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
+    """Grid of category buttons (max 15). Each: callback hist_cat_filter:{index}."""
+    kb = InlineKeyboardBuilder()
+    for i, cat in enumerate(categories[:15]):
+        kb.button(text=cat, callback_data=f"hist_cat_filter:{i}")
+    kb.button(text="◀ Назад", callback_data="hist_cat_filter_back")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+def search_result_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """Pagination + [🔍 Новый поиск] + [◀ К фильтрам]."""
+    kb = InlineKeyboardBuilder()
+    nav_count = 0
+    if total_pages > 1:
+        if page > 0:
+            kb.button(text="◀ Назад", callback_data=f"search_page:{page - 1}")
+            nav_count += 1
+        kb.button(text=f"{page + 1}/{total_pages}", callback_data="search_page:noop")
+        nav_count += 1
+        if page < total_pages - 1:
+            kb.button(text="Вперёд ▶", callback_data=f"search_page:{page + 1}")
+            nav_count += 1
+    kb.button(text="🔍 Новый поиск", callback_data="search_new")
+    kb.button(text="◀ К фильтрам", callback_data="search_back")
+    row_sizes = ([nav_count] if nav_count > 0 else []) + [2]
+    kb.adjust(*row_sizes)
+    return kb.as_markup()

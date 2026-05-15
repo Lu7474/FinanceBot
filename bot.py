@@ -26,7 +26,7 @@ async def main():
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
 
-    # Защита от спама: 20 запросов/мин на пользователя
+    # Защита от спама: 60 запросов/мин на пользователя
     dp.message.middleware(RateLimitMiddleware())
     dp.callback_query.middleware(RateLimitMiddleware())
 
