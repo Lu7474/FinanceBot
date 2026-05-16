@@ -153,6 +153,24 @@ async def menu_report_year(
     await callback.answer()
 
 
+@router.callback_query(F.data == "report_back_years")
+@log_exceptions("Ошибка при возврате к выбору года")
+async def report_back_to_years(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Шаг назад: с выбора месяца обратно к выбору года."""
+    data = await state.get_data()
+    years_months = data.get("report_years_months", {})
+    if not years_months:
+        await callback.answer("Сессия истекла.", show_alert=True)
+        await state.clear()
+        return
+    keyboard = get_years_keyboard(list(years_months.keys()))
+    await callback.message.edit_text("Выберите год:", reply_markup=keyboard)
+    await state.set_state(MenuStates.waiting_for_report_year)
+    await callback.answer()
+
+
 @router.callback_query(MenuStates.waiting_for_report_month)
 @log_exceptions("Ошибка при формировании отчёта")
 async def menu_report_month(

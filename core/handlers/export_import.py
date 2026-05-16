@@ -34,6 +34,7 @@ from core.keyboards import (
     export_type_keyboard,
     import_confirm_keyboard,
 )
+from core.utils import log_exceptions
 
 router = Router()
 
@@ -72,18 +73,26 @@ def _build_summary(records) -> dict:
         if r.operation == "+":
             total_income += r.amount
             count_income += 1
-            income_cats[r.category] = income_cats.get(r.category, Decimal("0")) + r.amount
+            income_cats[r.category] = (
+                income_cats.get(r.category, Decimal("0")) + r.amount
+            )
         else:
             total_expense += r.amount
             count_expense += 1
-            expense_cats[r.category] = expense_cats.get(r.category, Decimal("0")) + r.amount
+            expense_cats[r.category] = (
+                expense_cats.get(r.category, Decimal("0")) + r.amount
+            )
             if r.amount > max_expense:
                 max_expense = r.amount
 
     def _top5_pct(cat_map: dict, total: Decimal) -> list:
         items = sorted(cat_map.items(), key=lambda x: -x[1])[:5]
         return [
-            (cat, float(amt), round(float(amt) / float(total) * 100, 1) if total else 0.0)
+            (
+                cat,
+                float(amt),
+                round(float(amt) / float(total) * 100, 1) if total else 0.0,
+            )
             for cat, amt in items
         ]
 
@@ -124,7 +133,9 @@ def _records_to_rows(records) -> list[dict]:
 @router.message(is_export)
 async def handle_export(message: Message, state: FSMContext) -> None:
     await state.set_state(ExportImportStates.waiting_for_export_period)
-    await message.answer("Выберите период для экспорта:", reply_markup=export_period_keyboard())
+    await message.answer(
+        "Выберите период для экспорта:", reply_markup=export_period_keyboard()
+    )
 
 
 @router.callback_query(
@@ -141,11 +152,27 @@ async def handle_export_period(callback: CallbackQuery, state: FSMContext) -> No
     )
 
 
+@router.callback_query(F.data == "export_back_period")
+@log_exceptions("Ошибка при возврате к выбору периода экспорта")
+async def handle_export_back_to_period(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    """Шаг назад: с выбора типа обратно к выбору периода."""
+    await state.set_state(ExportImportStates.waiting_for_export_period)
+    await callback.message.edit_text(
+        "Выберите период для экспорта:",
+        reply_markup=export_period_keyboard(),
+    )
+    await callback.answer()
+
+
 @router.callback_query(
     StateFilter(ExportImportStates.waiting_for_export_type),
     F.data.startswith("export_type:"),
 )
-async def handle_export_type(callback: CallbackQuery, state: FSMContext, user_id: int) -> None:
+async def handle_export_type(
+    callback: CallbackQuery, state: FSMContext, user_id: int
+) -> None:
     type_key = callback.data.split(":")[1]
     data = await state.get_data()
     period = data.get("export_period", "all")
@@ -159,7 +186,11 @@ async def handle_export_type(callback: CallbackQuery, state: FSMContext, user_id
     try:
         async with async_session() as session:
             records = await get_all_records_for_export(
-                session, user_id, operation=op_filter, date_from=date_from, date_to=date_to
+                session,
+                user_id,
+                operation=op_filter,
+                date_from=date_from,
+                date_to=date_to,
             )
 
         rows = _records_to_rows(records)
@@ -181,7 +212,11 @@ async def handle_export_type(callback: CallbackQuery, state: FSMContext, user_id
             fn_from = fn_to = date.today().strftime("%d-%m-%Y")
         filename = f"export_{fn_from}_{fn_to}.xlsx"
 
-        inc, exp, bal = summary["total_income"], summary["total_expense"], summary["balance"]
+        inc, exp, bal = (
+            summary["total_income"],
+            summary["total_expense"],
+            summary["balance"],
+        )
         caption = (
             f"📊 Экспорт за {_PERIOD_LABELS.get(period, period)}: {len(records)} записей\n"
             f"📈 Доходы: {inc:.0f} ₽  |  📉 Расходы: {exp:.0f} ₽  |  💰 Баланс: {bal:+.0f} ₽"
@@ -211,11 +246,18 @@ async def handle_backup(message: Message, user_id: int) -> None:
 
         records_rows = _records_to_rows(records)
         budgets_rows = [
-            {"Категория": b.category, "Лимит": float(b.amount), "Активен": "Да" if b.is_active else "Нет"}
+            {
+                "Категория": b.category,
+                "Лимит": float(b.amount),
+                "Активен": "Да" if b.is_active else "Нет",
+            }
             for b in budgets_db
         ]
         snapshot_rows = (
-            [{"Название": item.name, "Сумма": float(item.amount)} for item in snapshot.items]
+            [
+                {"Название": item.name, "Сумма": float(item.amount)}
+                for item in snapshot.items
+            ]
             if snapshot
             else []
         )
@@ -357,7 +399,9 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
     StateFilter(ExportImportStates.waiting_for_import_confirm),
     F.data == "import_confirm:yes",
 )
-async def handle_import_confirm(callback: CallbackQuery, state: FSMContext, user_id: int) -> None:
+async def handle_import_confirm(
+    callback: CallbackQuery, state: FSMContext, user_id: int
+) -> None:
     data = await state.get_data()
     serialized = data.get("import_rows", [])
     await state.clear()
@@ -400,7 +444,10 @@ async def handle_import_cancel(callback: CallbackQuery, state: FSMContext) -> No
 
 
 @router.callback_query(
-    StateFilter(ExportImportStates.waiting_for_export_period, ExportImportStates.waiting_for_export_type),
+    StateFilter(
+        ExportImportStates.waiting_for_export_period,
+        ExportImportStates.waiting_for_export_type,
+    ),
     F.data == "cancel",
 )
 async def handle_export_cancel(callback: CallbackQuery, state: FSMContext) -> None:

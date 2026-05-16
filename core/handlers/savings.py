@@ -36,10 +36,10 @@ from core.database.requests import (
     upsert_snapshot,
 )
 from core.keyboards import (
-    CANCEL_BUTTON,
     savings_confirm_keyboard,
     savings_items_keyboard,
     savings_view_keyboard,
+    wealth_back_keyboard,
     wealth_items_keyboard,
     wealth_menu_keyboard,
     wealth_type_keyboard,
@@ -56,9 +56,11 @@ from .common import (
 
 router = Router()
 
-_CANCEL_KB = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="Отмена", callback_data="sav_cancel_action")],
-])
+_CANCEL_KB = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="Отмена", callback_data="sav_cancel_action")],
+    ]
+)
 
 
 def _today() -> date_type:
@@ -108,13 +110,16 @@ def _build_confirm_text(entered: list[dict]) -> str:
     total = Decimal("0")
     for item in entered:
         amount = Decimal(item["amount"])
-        lines.append(f"• {html.escape(item['name'])}: <b>{format_money(float(amount))}</b>")
+        lines.append(
+            f"• {html.escape(item['name'])}: <b>{format_money(float(amount))}</b>"
+        )
         total += amount
     lines.append(f"\n<b>Итого: {format_money(float(total))}</b>")
     return "\n".join(lines)
 
 
 # ========================= ENTRY POINT =========================
+
 
 @router.message(StateFilter("*"), F.func(is_savings))
 @log_exceptions("Ошибка при открытии накоплений")
@@ -130,6 +135,7 @@ async def handle_savings(message: Message, state: FSMContext, **kwargs) -> None:
 
 
 # ========================= NAVIGATION =========================
+
 
 @router.callback_query(F.data.startswith("sav_date:"))
 @log_exceptions("Ошибка навигации")
@@ -157,7 +163,9 @@ async def cb_sav_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 
 @router.callback_query(F.data == "sav_cancel_action")
 @log_exceptions("Ошибка при отмене")
-async def cb_sav_cancel_action(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_cancel_action(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Отмена текущего действия.
 
     Если пользователь добавляет поле в середине создания снимка (entered уже есть),
@@ -190,6 +198,7 @@ async def cb_sav_cancel_action(callback: CallbackQuery, state: FSMContext, **kwa
 
 # ========================= ADD SNAPSHOT =========================
 
+
 @router.callback_query(F.data == "sav_add")
 @log_exceptions("Ошибка при добавлении снимка")
 async def cb_sav_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
@@ -218,24 +227,41 @@ async def cb_sav_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
         target_date=today.isoformat(),
         last_names=[
             {"name": i.name, "prev_amount": str(i.amount)} for i in latest.items
-        ] if latest and latest.items else [],
+        ]
+        if latest and latest.items
+        else [],
     )
 
     buttons = []
     if balances:
-        buttons.append([
-            InlineKeyboardButton(text="📊 Подтянуть из Счетов", callback_data="sav_from_accounts"),
-        ])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="📊 Подтянуть из Счетов", callback_data="sav_from_accounts"
+                ),
+            ]
+        )
     if latest and latest.items:
-        buttons.append([
-            InlineKeyboardButton(text="🕘 Использовать прошлые названия", callback_data="sav_use_last"),
-        ])
-    buttons.append([
-        InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="sav_new_names"),
-    ])
-    buttons.append([
-        InlineKeyboardButton(text="Отмена", callback_data="sav_cancel_action"),
-    ])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🕘 Использовать прошлые названия",
+                    callback_data="sav_use_last",
+                ),
+            ]
+        )
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="✍️ Ввести вручную", callback_data="sav_new_names"
+            ),
+        ]
+    )
+    buttons.append(
+        [
+            InlineKeyboardButton(text="Отмена", callback_data="sav_cancel_action"),
+        ]
+    )
 
     await callback.message.edit_text(
         "➕ <b>Новый снимок</b>\n\nКак заполнить?",
@@ -261,7 +287,8 @@ async def cb_sav_use_last(callback: CallbackQuery, state: FSMContext, **kwargs) 
     first = last_names[0]
     prev_str = (
         f" (предыдущее: <b>{format_money(float(first['prev_amount']))}</b>)"
-        if first.get("prev_amount") else ""
+        if first.get("prev_amount")
+        else ""
     )
     await callback.message.edit_text(
         f"<b>{html.escape(first['name'])}</b>: введите сумму{prev_str}",
@@ -271,9 +298,13 @@ async def cb_sav_use_last(callback: CallbackQuery, state: FSMContext, **kwargs) 
     await callback.answer()
 
 
-@router.callback_query(SavingsStates.choosing_names_source, F.data == "sav_from_accounts")
+@router.callback_query(
+    SavingsStates.choosing_names_source, F.data == "sav_from_accounts"
+)
 @log_exceptions("Ошибка при подтягивании счетов")
-async def cb_sav_from_accounts(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_from_accounts(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Заполняет снимок текущими балансами счетов как стартовой точкой."""
     user_id = await get_user_id_from_event(callback, kwargs)
     async with async_session() as session:
@@ -295,7 +326,9 @@ async def cb_sav_from_accounts(callback: CallbackQuery, state: FSMContext, **kwa
 
 
 @router.callback_query(SavingsStates.choosing_names_source, F.data == "sav_new_names")
-async def cb_sav_new_names(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_new_names(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Переход к ручному вводу новых названий."""
     await state.set_state(SavingsStates.entering_new_field_name)
     await state.update_data(mode="create", items=[], pending_name=None)
@@ -309,7 +342,9 @@ async def cb_sav_new_names(callback: CallbackQuery, state: FSMContext, **kwargs)
 
 @router.message(SavingsStates.entering_amounts, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при вводе суммы")
-async def msg_savings_enter_amount(message: Message, state: FSMContext, **kwargs) -> None:
+async def msg_savings_enter_amount(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     """Принимает сумму для текущего поля шаблонного режима."""
     data = await state.get_data()
     templates: list = data.get("templates", [])
@@ -336,7 +371,8 @@ async def msg_savings_enter_amount(message: Message, state: FSMContext, **kwargs
         nxt = templates[index]
         prev_str = (
             f" (предыдущее: <b>{format_money(float(nxt['prev_amount']))}</b>)"
-            if nxt.get("prev_amount") else ""
+            if nxt.get("prev_amount")
+            else ""
         )
         await state.update_data(index=index, entered=entered)
         await message.answer(
@@ -355,6 +391,7 @@ async def msg_savings_enter_amount(message: Message, state: FSMContext, **kwargs
 
 
 # ========================= NEW FIELD (create or add) =========================
+
 
 @router.message(SavingsStates.entering_new_field_name, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при вводе названия поля")
@@ -379,7 +416,9 @@ async def msg_savings_field_name(message: Message, state: FSMContext, **kwargs) 
 
 @router.message(SavingsStates.entering_new_field_amount, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при вводе суммы поля")
-async def msg_savings_field_amount(message: Message, state: FSMContext, **kwargs) -> None:
+async def msg_savings_field_amount(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     """Принимает сумму нового поля. mode='create' → confirm; mode='add' → save directly."""
     data = await state.get_data()
     mode: str = data.get("mode", "create")
@@ -412,7 +451,9 @@ async def msg_savings_field_amount(message: Message, state: FSMContext, **kwargs
         snapshot_id: int = data.get("snapshot_id")
         snapshot_date_str: str = data.get("snapshot_date")
         async with async_session() as session:
-            item = await add_snapshot_item(session, snapshot_id, user_id, pending_name, amount)
+            item = await add_snapshot_item(
+                session, snapshot_id, user_id, pending_name, amount
+            )
         await state.clear()
         if not item:
             await message.answer("Ошибка при добавлении поля.")
@@ -424,9 +465,12 @@ async def msg_savings_field_amount(message: Message, state: FSMContext, **kwargs
 
 # ========================= CONFIRM SAVE =========================
 
+
 @router.callback_query(SavingsStates.confirming_snapshot, F.data == "sav_confirm_save")
 @log_exceptions("Ошибка при сохранении снимка")
-async def cb_sav_confirm_save(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_confirm_save(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Сохраняет снимок из экрана подтверждения."""
     data = await state.get_data()
     entered: list = data.get("entered", [])
@@ -451,8 +495,12 @@ async def cb_sav_confirm_save(callback: CallbackQuery, state: FSMContext, **kwar
     await callback.answer("Снимок сохранён ✅")
 
 
-@router.callback_query(SavingsStates.confirming_snapshot, F.data == "sav_confirm_add_field")
-async def cb_sav_confirm_add_field(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+@router.callback_query(
+    SavingsStates.confirming_snapshot, F.data == "sav_confirm_add_field"
+)
+async def cb_sav_confirm_add_field(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Добавляет ещё одно поле к снимку перед сохранением."""
     await state.set_state(SavingsStates.entering_new_field_name)
     await state.update_data(mode="create", pending_name=None)
@@ -466,9 +514,12 @@ async def cb_sav_confirm_add_field(callback: CallbackQuery, state: FSMContext, *
 
 # ========================= ADD FIELD TO EXISTING SNAPSHOT =========================
 
+
 @router.callback_query(F.data.startswith("sav_add_field:"))
 @log_exceptions("Ошибка при добавлении поля к снимку")
-async def cb_sav_add_field(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_add_field(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Начинает добавление нового поля к уже сохранённому снимку."""
     snapshot_id_str = callback.data.split(":")[1]
     if snapshot_id_str == "None":
@@ -502,6 +553,7 @@ async def cb_sav_add_field(callback: CallbackQuery, state: FSMContext, **kwargs)
 
 # ========================= EDIT ITEM =========================
 
+
 @router.callback_query(F.data.startswith("sav_edit:"))
 @log_exceptions("Ошибка при редактировании")
 async def cb_sav_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
@@ -525,7 +577,9 @@ async def cb_sav_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 
 @router.callback_query(F.data.startswith("sav_edit_item:"))
 @log_exceptions("Ошибка при выборе поля")
-async def cb_sav_edit_item(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_edit_item(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Запрашивает новую сумму для выбранного поля."""
     item_id = int(callback.data.split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -559,7 +613,9 @@ async def cb_sav_edit_item(callback: CallbackQuery, state: FSMContext, **kwargs)
 
 @router.message(SavingsStates.editing_item_amount, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при сохранении новой суммы")
-async def msg_savings_edit_amount(message: Message, state: FSMContext, **kwargs) -> None:
+async def msg_savings_edit_amount(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     """Сохраняет новую сумму для выбранного поля снимка."""
     data = await state.get_data()
     item_id: int = data.get("item_id")
@@ -593,6 +649,7 @@ async def msg_savings_edit_amount(message: Message, state: FSMContext, **kwargs)
 
 # ========================= DELETE =========================
 
+
 @router.callback_query(F.data.startswith("sav_delete:"))
 @log_exceptions("Ошибка при удалении")
 async def cb_sav_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
@@ -608,7 +665,9 @@ async def cb_sav_delete(callback: CallbackQuery, state: FSMContext, **kwargs) ->
 
     await callback.message.edit_text(
         "🗑 <b>Что удалить?</b>\n\nВыберите строку или удалите весь снимок:",
-        reply_markup=savings_items_keyboard(snapshot.items, "delete", snapshot_id=snapshot.id),
+        reply_markup=savings_items_keyboard(
+            snapshot.items, "delete", snapshot_id=snapshot.id
+        ),
         parse_mode="HTML",
     )
     await callback.answer()
@@ -616,7 +675,9 @@ async def cb_sav_delete(callback: CallbackQuery, state: FSMContext, **kwargs) ->
 
 @router.callback_query(F.data.startswith("sav_delete_item:"))
 @log_exceptions("Ошибка при удалении поля")
-async def cb_sav_delete_item(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_delete_item(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Удаляет конкретное поле из снимка."""
     item_id = int(callback.data.split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -635,7 +696,9 @@ async def cb_sav_delete_item(callback: CallbackQuery, state: FSMContext, **kwarg
 
 @router.callback_query(F.data.startswith("sav_delete_all:"))
 @log_exceptions("Ошибка при удалении снимка")
-async def cb_sav_delete_all(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_sav_delete_all(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Удаляет весь снимок."""
     snapshot_id = int(callback.data.split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -653,6 +716,7 @@ async def cb_sav_delete_all(callback: CallbackQuery, state: FSMContext, **kwargs
 
 
 # ========================= WEALTH =========================
+
 
 async def _build_wealth_view(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     """Returns (text, keyboard) for the wealth view."""
@@ -676,7 +740,7 @@ async def cb_sav_wealth(callback: CallbackQuery, state: FSMContext, **kwargs) ->
     await callback.answer()
 
 
-@router.callback_query(F.data == "wealth_back")
+@router.callback_query(F.data == "wealth_to_savings")
 @log_exceptions("Ошибка при возврате к накоплениям")
 async def cb_wealth_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Возврат из активов/пассивов к снимку накоплений."""
@@ -690,7 +754,24 @@ async def cb_wealth_back(callback: CallbackQuery, state: FSMContext, **kwargs) -
     await callback.answer()
 
 
+@router.callback_query(F.data == "wealth_back")
+@log_exceptions("Ошибка при возврате к Активам/Пассивам")
+async def cb_wealth_back_to_view(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Возврат к экрану балансов активов/пассивов из любого шага wizard'а."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.", show_alert=True)
+        return
+    text, keyboard = await _build_wealth_view(user_id)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
+
+
 # --- Add wealth item ---
+
 
 @router.callback_query(F.data == "wealth_add")
 async def cb_wealth_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
@@ -714,7 +795,7 @@ async def cb_wealth_type(callback: CallbackQuery, state: FSMContext, **kwargs) -
     type_label = "💚 Актив" if type_ == "A" else "🔴 Пассив"
     await callback.message.edit_text(
         f"{type_label}\n\nВведите название:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[CANCEL_BUTTON]]),
+        reply_markup=wealth_back_keyboard(),
         parse_mode="HTML",
     )
     await callback.answer()
@@ -730,7 +811,7 @@ async def msg_wealth_name(message: Message, state: FSMContext, **kwargs) -> None
     await state.update_data(name=name)
     await message.answer(
         f"<b>{html.escape(name)}</b>\n\nВведите сумму:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[CANCEL_BUTTON]]),
+        reply_markup=wealth_back_keyboard(),
         parse_mode="HTML",
     )
 
@@ -750,16 +831,24 @@ async def msg_wealth_amount(message: Message, state: FSMContext, **kwargs) -> No
     await state.update_data(amount=str(amount))
     await message.answer(
         "Добавить заметку? (необязательно)",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Пропустить", callback_data="wealth_skip_note")],
-            [CANCEL_BUTTON],
-        ]),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Пропустить", callback_data="wealth_skip_note"
+                    )
+                ],
+                [InlineKeyboardButton(text="← Назад", callback_data="wealth_back")],
+            ]
+        ),
     )
 
 
 @router.callback_query(WealthStates.entering_note, F.data == "wealth_skip_note")
 @log_exceptions("Ошибка при сохранении актива")
-async def cb_wealth_skip_note(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_wealth_skip_note(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Сохраняет запись без заметки."""
     await _save_wealth_item(callback, state, note=None, **kwargs)
 
@@ -804,6 +893,7 @@ async def _save_wealth_item(
 
 # --- Edit wealth item ---
 
+
 @router.callback_query(F.data == "wealth_edit")
 @log_exceptions("Ошибка при редактировании актива")
 async def cb_wealth_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
@@ -824,14 +914,18 @@ async def cb_wealth_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -
 
 @router.callback_query(F.data.startswith("wealth_edit_item:"))
 @log_exceptions("Ошибка при выборе записи")
-async def cb_wealth_edit_item(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_wealth_edit_item(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Запрашивает новую сумму для выбранного актива/пассива."""
     item_id = int(callback.data.split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:
         result = await session.execute(
-            select(WealthItem).where(WealthItem.id == item_id, WealthItem.user_id == user_id)
+            select(WealthItem).where(
+                WealthItem.id == item_id, WealthItem.user_id == user_id
+            )
         )
         item = result.scalar_one_or_none()
 
@@ -848,7 +942,7 @@ async def cb_wealth_edit_item(callback: CallbackQuery, state: FSMContext, **kwar
         f"{type_label} <b>{html.escape(item.name)}</b>\n"
         f"Текущая сумма: <code>{cur_raw}</code>\n\n"
         f"Введите новую сумму:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[CANCEL_BUTTON]]),
+        reply_markup=wealth_back_keyboard(),
         parse_mode="HTML",
     )
     await callback.answer()
@@ -885,9 +979,12 @@ async def msg_wealth_edit_amount(message: Message, state: FSMContext, **kwargs) 
 
 # --- Delete wealth item ---
 
+
 @router.callback_query(F.data == "wealth_delete")
 @log_exceptions("Ошибка при удалении актива")
-async def cb_wealth_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_wealth_delete(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Показывает список для выбора записи на удаление."""
     user_id = await get_user_id_from_event(callback, kwargs)
     async with async_session() as session:
@@ -905,7 +1002,9 @@ async def cb_wealth_delete(callback: CallbackQuery, state: FSMContext, **kwargs)
 
 @router.callback_query(F.data.startswith("wealth_delete_item:"))
 @log_exceptions("Ошибка при удалении записи")
-async def cb_wealth_delete_item(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def cb_wealth_delete_item(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Удаляет выбранный актив/пассив."""
     item_id = int(callback.data.split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)

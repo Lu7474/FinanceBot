@@ -8,9 +8,11 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.keyboards import (
+    acc_back_keyboard,
     delete_period_keyboard,
     get_months_keyboard,
     get_years_keyboard,
+    wealth_back_keyboard,
 )
 from core.utils import RU_MONTHS
 
@@ -150,19 +152,19 @@ def test_get_months_keyboard():
     assert buttons[2][0].text == RU_MONTHS[12]  # Декабрь
     assert buttons[2][0].callback_data == "report_month:2024:12"
 
-    # Проверяем кнопку отмены
-    assert buttons[3][0].text == "Отмена"
-    assert buttons[3][0].callback_data == "cancel"
+    # Кнопка ← Назад (step-back: с месяцев → к выбору года)
+    assert buttons[3][0].text == "← Назад"
+    assert buttons[3][0].callback_data == "report_back_years"
 
 
-# Пустой список месяцев → только кнопка отмены
+# Пустой список месяцев → только кнопка «Назад»
 def test_get_months_keyboard_empty():
     keyboard = get_months_keyboard(2024, [])
 
     assert keyboard.inline_keyboard is not None
-    assert len(keyboard.inline_keyboard) == 1  # Только кнопка отмены
-    assert keyboard.inline_keyboard[0][0].text == "Отмена"
-    assert keyboard.inline_keyboard[0][0].callback_data == "cancel"
+    assert len(keyboard.inline_keyboard) == 1
+    assert keyboard.inline_keyboard[0][0].text == "← Назад"
+    assert keyboard.inline_keyboard[0][0].callback_data == "report_back_years"
 
 
 # Проверяет все 12 месяцев и их названия
@@ -183,9 +185,40 @@ def test_get_months_keyboard_all_months():
             == f"report_month:2024:{month_num}"
         )
 
-    # Проверяем кнопку отмены
-    assert keyboard.inline_keyboard[12][0].text == "Отмена"
-    assert keyboard.inline_keyboard[12][0].callback_data == "cancel"
+    # Кнопка ← Назад
+    assert keyboard.inline_keyboard[12][0].text == "← Назад"
+    assert keyboard.inline_keyboard[12][0].callback_data == "report_back_years"
+
+
+# Step-back клавиатура для раздела «Счета»: единственная кнопка «← Назад» → acc_back
+def test_acc_back_keyboard():
+    keyboard = acc_back_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert len(keyboard.inline_keyboard[0]) == 1
+    btn = keyboard.inline_keyboard[0][0]
+    assert btn.text == "← Назад"
+    assert btn.callback_data == "acc_back"
+
+
+# lru_cache: повторный вызов возвращает тот же объект
+def test_acc_back_keyboard_cached():
+    assert acc_back_keyboard() is acc_back_keyboard()
+
+
+# Step-back клавиатура для wealth-wizard'а: единственная кнопка «← Назад» → wealth_back
+def test_wealth_back_keyboard():
+    keyboard = wealth_back_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert len(keyboard.inline_keyboard[0]) == 1
+    btn = keyboard.inline_keyboard[0][0]
+    assert btn.text == "← Назад"
+    assert btn.callback_data == "wealth_back"
+
+
+def test_wealth_back_keyboard_cached():
+    assert wealth_back_keyboard() is wealth_back_keyboard()
 
 
 # Проверяет префиксы callback_data (del_period, report_year, report_month)

@@ -27,6 +27,7 @@ from core.database.requests import (
     set_account_balance,
 )
 from core.keyboards import (
+    acc_back_keyboard,
     account_delete_move_keyboard,
     account_manage_keyboard,
     accounts_menu_keyboard,
@@ -112,7 +113,8 @@ async def handle_acc_create(
 
     await state.update_data(acc_user_id=user_id)
     await callback.message.edit_text(
-        f"Введите название нового счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):"
+        f"Введите название нового счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):",
+        reply_markup=acc_back_keyboard(),
     )
     await state.set_state(AccountStates.waiting_for_account_name)
     await callback.answer()
@@ -221,6 +223,7 @@ async def handle_acc_rename_select(
         f"Текущее название: <code>{html.escape(current_name)}</code>\n\n"
         f"Введите новое название счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):",
         parse_mode="HTML",
+        reply_markup=acc_back_keyboard(),
     )
     await state.set_state(AccountStates.waiting_for_rename_name)
     await callback.answer()
@@ -408,7 +411,21 @@ async def handle_acc_delete_confirm(
 async def handle_acc_delete_cancel(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    """Отмена удаления счёта — возврат к списку балансов."""
+    """Legacy: отмена удаления счёта — возврат к списку балансов (для старых сообщений)."""
+    await _back_to_accounts(callback, state, kwargs)
+
+
+@router.callback_query(F.data == "acc_back")
+@log_exceptions("Ошибка при возврате к списку счетов")
+async def handle_acc_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Возврат в раздел Счета из любого подсценария."""
+    await _back_to_accounts(callback, state, kwargs)
+
+
+async def _back_to_accounts(
+    callback: CallbackQuery, state: FSMContext, kwargs: dict
+) -> None:
+    """Рендерит балансы + меню Счетов, чистит state."""
     user_id = await get_user_id_from_event(callback, kwargs)
     if user_id:
         async with async_session() as session:
@@ -518,6 +535,7 @@ async def handle_acc_transfer_to(
     await callback.message.edit_text(
         f"↔️ <b>{html.escape(from_acc.name)} → {html.escape(to_acc.name)}</b>\n\nВведите сумму перевода:",
         parse_mode="HTML",
+        reply_markup=acc_back_keyboard(),
     )
     await state.set_state(AccountStates.waiting_for_transfer_amount)
     await callback.answer()
@@ -655,7 +673,6 @@ async def handle_acc_hist_period(
     account_id = data.get("acc_hist_account_id")
     acc_name = data.get("acc_hist_account_name", "Счёт")
     acc_balance = data.get("acc_hist_balance", "")
-    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:
         user = await get_user_by_tg_id(session, callback.from_user.id)
@@ -741,7 +758,6 @@ async def handle_acc_hist_page(
     total_count = data.get("acc_hist_total_count", 0)
     income_sum = Decimal(data.get("acc_hist_income", "0"))
     expense_sum = Decimal(data.get("acc_hist_expense", "0"))
-    user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
 
     if new_page < 0 or new_page >= total_pages:
         await callback.answer("Страница не существует.")
@@ -834,6 +850,7 @@ async def handle_acc_set_balance_select(
         f"Текущий баланс: <code>{cur_str}</code>\n\n"
         "Введите новый баланс:",
         parse_mode="HTML",
+        reply_markup=acc_back_keyboard(),
     )
     await state.set_state(AccountStates.waiting_for_set_balance)
     await callback.answer()
