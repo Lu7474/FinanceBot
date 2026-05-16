@@ -4,8 +4,9 @@ Common utilities: money formatting, locale constants, exception decorator.
 
 import html
 import logging
+import re
 from datetime import date as date_type
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from typing import Callable
@@ -63,6 +64,75 @@ RU_MONTHS_GEN = {
 def format_date_ru(d: date_type) -> str:
     """Formats date as '15 марта 2025'."""
     return f"{d.day} {RU_MONTHS_GEN[d.month]} {d.year}"
+
+
+def format_duration_short(days: int) -> str:
+    """Compact RU duration: '5 дн', '3 нед', '7 мес', '1г 2мес', '2 г'."""
+    if days < 0:
+        days = 0
+    if days < 7:
+        return f"{days} дн"
+    if days < 30:
+        weeks = days // 7
+        return f"{weeks} нед"
+    if days < 365:
+        months = days // 30
+        return f"{months} мес"
+    years = days // 365
+    rem_months = (days % 365) // 30
+    if rem_months == 0:
+        return f"{years} г"
+    return f"{years}г {rem_months}мес"
+
+
+# Семантические правила: ключевые слова → эмодзи.
+# Короткие фрагменты обёрнуты в \b чтобы не ловить лишнее (тв, тур, чай, кот, …).
+_GOAL_EMOJI_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"машин|авто|тачк|байк|мотоцикл|скутер", re.I), "🚗"),
+    (re.compile(r"квартир|жиль|ипотек|комнат", re.I), "🏠"),
+    (re.compile(r"дач|загород", re.I), "🏡"),
+    (re.compile(r"ремонт|кухн|ванн|мебел", re.I), "🔨"),
+    (re.compile(r"отпуск|путешеств|поездк|\bтур|море|отдых", re.I), "✈️"),
+    (re.compile(r"телефон|смартфон|айфон|iphone", re.I), "📱"),
+    (re.compile(r"ноут|компьютер|\bпк\b|макбук|macbook", re.I), "💻"),
+    (re.compile(r"планшет|ipad|айпад", re.I), "📲"),
+    (re.compile(r"наушник|airpods|колонк", re.I), "🎧"),
+    (re.compile(r"\bкамер|фотоаппарат|фотик", re.I), "📷"),
+    (re.compile(r"\bтв\b|телевизор|монитор", re.I), "📺"),
+    (re.compile(r"учёб|учеб|\bкурс|образован|универ|диплом|школ", re.I), "🎓"),
+    (re.compile(r"книг|читалк", re.I), "📚"),
+    (re.compile(r"свадьб|кольц|помолвк", re.I), "💍"),
+    (re.compile(r"подушк|резерв|накоплени|финпод|сбережени", re.I), "🛡"),
+    (re.compile(r"велосипед|велик", re.I), "🚴"),
+    (re.compile(r"одежд|шуб|пальто|кроссовк|обув", re.I), "👕"),
+    (re.compile(r"подарок|подарк|сюрприз", re.I), "🎁"),
+    (re.compile(r"ребен|роды|коляск|детск|малыш", re.I), "👶"),
+    (re.compile(r"спортзал|трениров|фитнес|\bспорт\b", re.I), "🏋"),
+    (re.compile(r"бизнес|стартап", re.I), "💼"),
+    (re.compile(r"инвест|акци|облигаци|портфел|брокер", re.I), "📈"),
+    (re.compile(r"\bеда\b|продукт|макарон|пицц|ресторан", re.I), "🍝"),
+    (re.compile(r"\bкофе|\bчай\b|чайник", re.I), "☕"),
+    (re.compile(r"\bигр[ауыео]|playstation|xbox|консол|приставк", re.I), "🎮"),
+    (re.compile(r"лечен|стоматолог|\bзуб|медицин|операц", re.I), "💊"),
+    (re.compile(r"животн|кошк|котят|котёнок|\bкот\b|собак|щенок|питомц", re.I), "🐾"),
+    (re.compile(r"гитар|пианин|музык", re.I), "🎸"),
+]
+
+# Пул для fallback по хэшу названия
+_GOAL_EMOJI_POOL: list[str] = [
+    "🎁", "🎨", "🚀", "⭐", "💎", "🔥", "🌟", "🎈", "🎪", "🎭",
+    "🍀", "🌈", "💫", "🎵", "🏆", "🧸", "🪄", "🎲", "🛍", "🌻",
+]
+
+
+def goal_emoji(name: str) -> str:
+    """Подбирает эмодзи для цели: сначала по ключевым словам, иначе детерминированно из пула."""
+    for pattern, emoji in _GOAL_EMOJI_RULES:
+        if pattern.search(name):
+            return emoji
+    # Стабильный хэш по сумме codepoints — не зависит от PYTHONHASHSEED
+    idx = sum(ord(c) for c in name.lower()) % len(_GOAL_EMOJI_POOL)
+    return _GOAL_EMOJI_POOL[idx]
 
 
 def format_snapshot(
@@ -305,6 +375,141 @@ def format_record_card(record) -> str:
         f"Дата: {date_str}\n"
         f"Счёт: {account_str}"
     )
+
+
+def is_goal_overdue(goal) -> bool:
+    """True если у цели просрочен дедлайн и она не завершена."""
+    if not goal.deadline or goal.is_completed:
+        return False
+    return goal.deadline < date_type.today()
+
+
+def goal_eta(goal) -> date_type | None:
+    """Прогноз даты достижения цели по среднему темпу с момента создания.
+
+    Возвращает None если: завершена / уже достигнута / нет накоплений / нет данных.
+    """
+    if goal.is_completed:
+        return None
+    remaining = goal.target_amount - goal.current_amount
+    if remaining <= 0:
+        return None
+    if goal.current_amount <= 0:
+        return None
+    today = date_type.today()
+    days_since_creation = max(1, (today - goal.created_at.date()).days)
+    rate_per_day = float(goal.current_amount) / days_since_creation
+    if rate_per_day <= 0:
+        return None
+    days_left = int(float(remaining) / rate_per_day) + 1
+    return today + timedelta(days=days_left)
+
+
+def format_goals_list(goals: list) -> str:
+    """Formats the list of goals for display. Overdue goals get ⚠️ marker."""
+    lines = ["🎯 <b>Мои цели</b>\n"]
+    for goal in goals:
+        pct = int(float(goal.current_amount) / float(goal.target_amount) * 100) if goal.target_amount else 0
+        pct = min(pct, 100)
+        current = format_money(float(goal.current_amount))
+        target = format_money(float(goal.target_amount))
+        remaining = format_money(float(goal.target_amount - goal.current_amount))
+
+        overdue = is_goal_overdue(goal)
+        if goal.current_amount >= goal.target_amount:
+            emoji = "✅"
+        elif overdue:
+            emoji = "⚠️"
+        else:
+            emoji = goal_emoji(goal.name)
+
+        if goal.current_amount >= goal.target_amount:
+            lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>")
+            lines.append(f"   {current} / {target}  (100%) — <b>Цель достигнута! 🎉</b>\n")
+        else:
+            lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>")
+            line = f"   {current} / {target}  ({pct}%)\n   Осталось: {remaining}"
+            if goal.deadline:
+                deadline_str = goal.deadline.strftime('%d.%m.%Y')
+                if overdue:
+                    line += f" | <b>просрочено</b> ({deadline_str})"
+                else:
+                    line += f" | до {deadline_str}"
+            lines.append(line + "\n")
+    return "\n".join(lines)
+
+
+def format_goal_detail(goal, deposits: list) -> str:
+    """Formats the detailed goal card with overdue marker and ETA forecast."""
+    from datetime import date
+    pct = int(float(goal.current_amount) / float(goal.target_amount) * 100) if goal.target_amount else 0
+    pct = min(pct, 100)
+
+    overdue = is_goal_overdue(goal)
+    if goal.current_amount >= goal.target_amount:
+        emoji = "✅"
+    elif overdue:
+        emoji = "⚠️"
+    else:
+        emoji = goal_emoji(goal.name)
+
+    lines = [
+        f"{emoji} <b>{html.escape(goal.name)}</b>",
+        "─" * 20,
+        f"Цель:     {format_money(float(goal.target_amount))}",
+        f"Собрано:  {format_money(float(goal.current_amount))}  ({pct}%)",
+        f"Осталось: {format_money(float(goal.target_amount - goal.current_amount))}",
+    ]
+    if goal.deadline:
+        days_left = (goal.deadline - date.today()).days
+        deadline_str = goal.deadline.strftime('%d.%m.%Y')
+        if overdue:
+            lines.append(f"Дедлайн:  {deadline_str} (<b>просрочено на {-days_left} дн.</b>)")
+        else:
+            lines.append(f"Дедлайн:  {deadline_str} ({days_left} дн.)")
+        month_part = _monthly_deposit_str(goal)
+        if month_part:
+            lines.append(f"Откладывать: ~{month_part}/мес")
+
+    # ETA-прогноз по среднему темпу с момента создания
+    eta = goal_eta(goal)
+    if eta:
+        eta_str = eta.strftime('%d.%m.%Y')
+        if goal.deadline:
+            if eta <= goal.deadline:
+                lines.append(f"📈 Прогноз: {eta_str} ✓ успеваешь")
+            else:
+                lines.append(f"📈 Прогноз: {eta_str} ⚠️ опаздываешь")
+        else:
+            lines.append(f"📈 Прогноз: {eta_str}")
+
+    if deposits:
+        lines.append("\n<b>Последние операции:</b>")
+        for d in deposits:
+            sign = "+" if d.amount > 0 else ""
+            amount_str = format_money(abs(float(d.amount)))
+            date_str = f"{d.created_at.day} {RU_MONTHS_GEN[d.created_at.month]}"
+            note_str = f"  «{html.escape(d.note)}»" if d.note else ""
+            lines.append(f"  {date_str}  {sign}{'-' if d.amount < 0 else ''}{amount_str}{note_str}")
+
+    return "\n".join(lines)
+
+
+def monthly_deposit_amount(goal) -> float | None:
+    """Returns raw monthly deposit needed to hit deadline, or None if no deadline/passed."""
+    if not goal.deadline:
+        return None
+    today = date_type.today()
+    months_left = (goal.deadline.year - today.year) * 12 + (goal.deadline.month - today.month)
+    if months_left <= 0:
+        return None
+    return float((goal.target_amount - goal.current_amount) / months_left)
+
+
+def _monthly_deposit_str(goal) -> str | None:
+    """Formatted monthly deposit, or None if not applicable."""
+    amount = monthly_deposit_amount(goal)
+    return format_money(amount) if amount is not None else None
 
 
 def log_exceptions(error_text: str) -> Callable:

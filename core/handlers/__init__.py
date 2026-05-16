@@ -9,6 +9,7 @@ from .categories import router as categories_router
 from .delete import router as delete_router
 from .export_import import router as export_import_router
 from .fallback import router as fallback_router
+from .goals import router as goals_router
 from .history import router as history_router
 from .menu import router as menu_router
 from .records import parse_record_line as parse_record_line
@@ -30,4 +31,5 @@ router.include_router(reports_router)
 router.include_router(delete_router)
 router.include_router(accounts_router)
 router.include_router(savings_router)
+router.include_router(goals_router)
 router.include_router(fallback_router)  # must be last

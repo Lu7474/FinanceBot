@@ -207,9 +207,20 @@ async def handle_acc_rename_select(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+
+    async with async_session() as session:
+        accounts = await get_accounts(session, user_id)
+        acc = next((a for a in accounts if a.id == account_id), None)
+        if not acc:
+            await callback.answer("Счёт не найден.", show_alert=True)
+            return
+        current_name = acc.name
+
     await state.update_data(rename_account_id=account_id, acc_user_id=user_id)
     await callback.message.edit_text(
-        f"Введите новое название счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):"
+        f"Текущее название: <code>{html.escape(current_name)}</code>\n\n"
+        f"Введите новое название счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):",
+        parse_mode="HTML",
     )
     await state.set_state(AccountStates.waiting_for_rename_name)
     await callback.answer()
@@ -816,11 +827,12 @@ async def handle_acc_set_balance_select(
             return
         current = await get_account_balance(session, account_id, user_id)
 
+    cur_str = f"{current:,.0f}".replace(",", " ")
     await state.update_data(set_balance_account_id=account_id, acc_user_id=user_id)
     await callback.message.edit_text(
         f"💰 <b>{html.escape(acc.name)}</b>\n"
-        f"Текущий баланс: <b>{current:,.0f} ₽</b>\n\n"
-        "Введите новый баланс:".replace(",", " "),
+        f"Текущий баланс: <code>{cur_str}</code>\n\n"
+        "Введите новый баланс:",
         parse_mode="HTML",
     )
     await state.set_state(AccountStates.waiting_for_set_balance)

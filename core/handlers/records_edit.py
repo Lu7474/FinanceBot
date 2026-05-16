@@ -330,10 +330,15 @@ async def record_field_select(
             await callback.answer()
             return
 
+        # Extract values inside session — raw для <code>, чтобы при копировании не было лишних символов
+        cur_amount_raw = f"{float(record.amount):.0f}"
+        cur_category = record.category
+        cur_date_raw = record.created_at.strftime("%d.%m.%Y")
+
     prompts = {
-        "amount": "Введите новую сумму:",
-        "category": "Введите новую категорию:",
-        "date": "Введите новую дату в формате ДД.ММ или ДД.ММ.ГГ:",
+        "amount": f"Текущая сумма: <code>{cur_amount_raw}</code>\n\nВведите новую сумму:",
+        "category": f"Текущая категория: <code>{html.escape(cur_category)}</code>\n\nВведите новую категорию:",
+        "date": f"Текущая дата: <code>{cur_date_raw}</code>\n\nВведите новую дату в формате ДД.ММ или ДД.ММ.ГГ:",
     }
     prompt = prompts.get(field)
     if not prompt:
@@ -342,7 +347,7 @@ async def record_field_select(
 
     await state.update_data(edit_record_id=record_id, edit_field=field)
     await state.set_state(RecordEditStates.waiting_for_record_edit_value)
-    await callback.message.edit_text(prompt)
+    await callback.message.edit_text(prompt, parse_mode="HTML")
     await callback.answer()
 
 

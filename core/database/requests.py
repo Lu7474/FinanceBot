@@ -22,6 +22,8 @@ from core.database.models import (
     Account,
     Budget,
     CategoryKeyword,
+    Goal,
+    GoalDeposit,
     Record,
     SavingsItem,
     SavingsSnapshot,
@@ -2144,3 +2146,177 @@ async def create_transfer(
         await session.rollback()
         logging.exception(f"Ошибка при создании перевода для user_id {user_id}: {e}")
         return False
+
+
+# ==================== Цели ====================
+
+
+async def get_goals(
+    session: AsyncSession, user_id: int, include_completed: bool = False
+) -> list[Goal]:
+    """Returns user's goals with smart sort: overdue → nearest deadline → highest progress.
+
+    Active goals only by default. Smart sort makes most-relevant goals appear first.
+    """
+    from datetime import date as _date
+    q = select(Goal).where(Goal.user_id == user_id)
+    if not include_completed:
+        q = q.where(Goal.is_completed == False)  # noqa: E712
+    goals = list(await session.scalars(q))
+    today = _date.today()
+
+    def _sort_key(g: Goal) -> tuple:
+        # 0=achieved-not-closed (very top, nudge to close), 1=overdue, 2=with deadline (by closeness),
+        # 3=no deadline (by progress desc), 4=completed (bottom)
+        if g.is_completed:
+            return (4, g.created_at)
+        if g.current_amount >= g.target_amount:
+            return (0, g.created_at)
+        if g.deadline and g.deadline < today:
+            return (1, g.deadline)
+        if g.deadline:
+            return (2, g.deadline)
+        pct = float(g.current_amount) / float(g.target_amount) if g.target_amount else 0
+        return (3, -pct)
+
+    goals.sort(key=_sort_key)
+    return goals
+
+
+async def update_goal(
+    session: AsyncSession,
+    goal_id: int,
+    user_id: int,
+    name: str | None = None,
+    target_amount: Decimal | None = None,
+    deadline: date_type | None = None,
+    clear_deadline: bool = False,
+) -> bool:
+    """Updates goal fields (name/target/deadline). Returns True if goal found and updated."""
+    goal = await get_goal(session, goal_id, user_id)
+    if not goal:
+        return False
+    if name is not None:
+        goal.name = name
+    if target_amount is not None:
+        goal.target_amount = target_amount
+    if clear_deadline:
+        goal.deadline = None
+    elif deadline is not None:
+        goal.deadline = deadline
+    await session.flush()
+    return True
+
+
+async def get_goal(session: AsyncSession, goal_id: int, user_id: int) -> Goal | None:
+    """Returns a single goal by id, validates ownership."""
+    return await session.scalar(
+        select(Goal).where(Goal.id == goal_id, Goal.user_id == user_id)
+    )
+
+
+async def create_goal(
+    session: AsyncSession,
+    user_id: int,
+    name: str,
+    target: Decimal,
+    deadline,
+) -> Goal:
+    """Creates a new goal."""
+    goal = Goal(user_id=user_id, name=name, target_amount=target, deadline=deadline)
+    session.add(goal)
+    await session.flush()
+    return goal
+
+
+async def deposit_goal(
+    session: AsyncSession,
+    goal_id: int,
+    user_id: int,
+    amount: Decimal,
+    note: str | None,
+    account_id: int | None,
+) -> GoalDeposit:
+    """Adds deposit to goal. Adjusts account.balance_offset (no Record) if account_id provided."""
+    goal = await get_goal(session, goal_id, user_id)
+    if not goal or goal.is_completed:
+        raise ValueError("Goal not found or completed")
+
+    deposit = GoalDeposit(goal_id=goal_id, account_id=account_id, amount=amount, note=note)
+    session.add(deposit)
+    goal.current_amount += amount
+
+    if account_id:
+        acc_result = await session.execute(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        acc = acc_result.scalar_one_or_none()
+        if acc:
+            acc.balance_offset = Decimal(str(acc.balance_offset)) - amount
+
+    await session.flush()
+    return deposit
+
+
+async def withdraw_goal(
+    session: AsyncSession,
+    goal_id: int,
+    user_id: int,
+    amount: Decimal,
+    note: str | None,
+    account_id: int | None,
+) -> GoalDeposit:
+    """Withdraws from goal. Adjusts account.balance_offset (no Record) if account_id provided."""
+    goal = await get_goal(session, goal_id, user_id)
+    if not goal:
+        raise ValueError("Goal not found")
+    if goal.is_completed:
+        raise ValueError("Goal is completed")
+    if amount > goal.current_amount:
+        raise ValueError("Insufficient funds in goal")
+
+    deposit = GoalDeposit(goal_id=goal_id, account_id=account_id, amount=-amount, note=note)
+    session.add(deposit)
+    goal.current_amount -= amount
+
+    if account_id:
+        acc_result = await session.execute(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        acc = acc_result.scalar_one_or_none()
+        if acc:
+            acc.balance_offset = Decimal(str(acc.balance_offset)) + amount
+
+    await session.flush()
+    return deposit
+
+
+async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
+    """Marks goal as completed, stamps completed_at."""
+    from core.database.models import moscow_now
+    await session.execute(
+        update(Goal)
+        .where(Goal.id == goal_id, Goal.user_id == user_id)
+        .values(is_completed=True, completed_at=moscow_now())
+    )
+
+
+async def delete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
+    """Deletes goal and all its deposits."""
+    goal = await get_goal(session, goal_id, user_id)
+    if not goal:
+        return
+    await session.execute(delete(GoalDeposit).where(GoalDeposit.goal_id == goal_id))
+    await session.execute(delete(Goal).where(Goal.id == goal_id, Goal.user_id == user_id))
+
+
+async def get_goal_deposits(
+    session: AsyncSession, goal_id: int, limit: int = 10
+) -> list[GoalDeposit]:
+    """Returns last N deposits for a goal (newest first)."""
+    return list(await session.scalars(
+        select(GoalDeposit)
+        .where(GoalDeposit.goal_id == goal_id)
+        .order_by(GoalDeposit.created_at.desc(), GoalDeposit.id.desc())
+        .limit(limit)
+    ))

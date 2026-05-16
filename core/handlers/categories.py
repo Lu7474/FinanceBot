@@ -293,8 +293,8 @@ async def handle_cat_rename_select(
 
     await state.update_data(rename_cat_id=cat_id, rename_cat_old=cat.name)
     await callback.message.edit_text(
-        f"Новое название для <b>{html.escape(cat.name)}</b>:\n"
-        f"<i>(макс. {MAX_CATEGORY_LENGTH} символов)</i>",
+        f"Текущее название: <code>{html.escape(cat.name)}</code>\n\n"
+        f"Введите новое название (макс. {MAX_CATEGORY_LENGTH} символов):",
         parse_mode="HTML",
     )
     await state.set_state(CategoryStates.entering_new_name)

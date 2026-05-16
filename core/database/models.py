@@ -221,6 +221,36 @@ class CategoryKeyword(Base):
     keyword: Mapped[str] = mapped_column(String(50), nullable=False)
 
 
+class Goal(Base):
+    __tablename__ = "goals"
+    __table_args__ = (Index("ix_goals_user_completed", "user_id", "is_completed"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    current_amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), default=Decimal("0"), server_default="0")
+    deadline: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    deposits = relationship("GoalDeposit", back_populates="goal", cascade="all, delete-orphan")
+
+
+class GoalDeposit(Base):
+    __tablename__ = "goal_deposits"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    goal = relationship("Goal", back_populates="deposits")
+
+
 # ==================== Инициализация ====================
 
 
@@ -273,6 +303,51 @@ async def _migrate(conn) -> None:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
         )
+
+    result = await conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'")
+    )
+    if not result.fetchone():
+        await conn.execute(text("""
+            CREATE TABLE goals (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                name VARCHAR(100) NOT NULL,
+                target_amount DECIMAL(10,2) NOT NULL,
+                current_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                deadline DATE,
+                is_completed INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL,
+                completed_at DATETIME
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX ix_goals_user_completed ON goals(user_id, is_completed)"
+        ))
+    else:
+        # Additive: add completed_at to existing goals table if missing
+        cols = await conn.execute(text("PRAGMA table_info(goals)"))
+        col_names = {row[1] for row in cols.fetchall()}
+        if "completed_at" not in col_names:
+            await conn.execute(text("ALTER TABLE goals ADD COLUMN completed_at DATETIME"))
+
+    result = await conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name='goal_deposits'")
+    )
+    if not result.fetchone():
+        await conn.execute(text("""
+            CREATE TABLE goal_deposits (
+                id INTEGER PRIMARY KEY,
+                goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+                account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                note VARCHAR(200),
+                created_at DATETIME NOT NULL
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX ix_goal_deposits_goal_id ON goal_deposits(goal_id)"
+        ))
 
 
 # Создаёт таблицы в БД и применяет миграции (вызывается при старте бота)

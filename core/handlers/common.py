@@ -148,6 +148,13 @@ def is_import(message: Message) -> bool:
     return message.text.strip().lower() == "импорт"
 
 
+def is_goals(message: Message) -> bool:
+    """Checks if message is the 'Цели' menu command."""
+    if not message.text:
+        return False
+    return message.text.strip().lower() == "цели"
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -163,6 +170,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_budgets(message),
             is_export(message),
             is_import(message),
+            is_goals(message),
         ]
     )
 
@@ -273,3 +281,23 @@ class ExportImportStates(StatesGroup):
     waiting_for_export_type = State()
     waiting_for_import_file = State()
     waiting_for_import_confirm = State()
+
+
+class GoalStates(StatesGroup):
+    """States for financial goals workflow."""
+
+    viewing_list = State()
+    viewing_detail = State()
+    viewing_archive = State()
+    entering_name = State()
+    entering_amount = State()
+    entering_deadline = State()
+    selecting_deposit_account = State()
+    entering_deposit_amount = State()
+    entering_deposit_note = State()
+    selecting_withdraw_account = State()
+    entering_withdraw_amount = State()
+    entering_withdraw_note = State()
+    editing_name = State()
+    editing_amount = State()
+    editing_deadline = State()

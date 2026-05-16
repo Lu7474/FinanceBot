@@ -546,9 +546,10 @@ async def cb_sav_edit_item(callback: CallbackQuery, state: FSMContext, **kwargs)
     await state.clear()
     await state.set_state(SavingsStates.editing_item_amount)
     await state.update_data(item_id=item_id, snapshot_date=snap_date.isoformat())
+    cur_raw = f"{float(item.amount):.0f}"
     await callback.message.edit_text(
         f"✏️ <b>{html.escape(item.name)}</b>\n"
-        f"Текущая сумма: <b>{format_money(float(item.amount))}</b>\n\n"
+        f"Текущая сумма: <code>{cur_raw}</code>\n\n"
         f"Введите новую сумму:",
         reply_markup=_CANCEL_KB,
         parse_mode="HTML",
@@ -842,9 +843,10 @@ async def cb_wealth_edit_item(callback: CallbackQuery, state: FSMContext, **kwar
     await state.set_state(WealthStates.editing_amount)
     await state.update_data(item_id=item_id)
     type_label = "💚 Актив" if item.type == "A" else "🔴 Пассив"
+    cur_raw = f"{float(item.amount):.0f}"
     await callback.message.edit_text(
         f"{type_label} <b>{html.escape(item.name)}</b>\n"
-        f"Текущая сумма: <b>{format_money(float(item.amount))}</b>\n\n"
+        f"Текущая сумма: <code>{cur_raw}</code>\n\n"
         f"Введите новую сумму:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[CANCEL_BUTTON]]),
         parse_mode="HTML",

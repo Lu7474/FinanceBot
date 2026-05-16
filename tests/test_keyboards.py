@@ -19,7 +19,6 @@ from core.utils import RU_MONTHS
 def test_main_menu_keyboard():
     from core.keyboards import main_menu_keyboard as _mkb
 
-    _mkb.cache_clear()
     keyboard = _mkb()
 
     # Проверяем структуру
@@ -53,8 +52,9 @@ def test_main_menu_keyboard():
     assert fifth_row[1].text == "Экспорт"
 
     sixth_row = keyboard.keyboard[5]
-    assert len(sixth_row) == 1
+    assert len(sixth_row) == 2
     assert sixth_row[0].text == "Импорт"
+    assert sixth_row[1].text == "Цели"
 
     # Проверяем настройки
     assert keyboard.resize_keyboard is True

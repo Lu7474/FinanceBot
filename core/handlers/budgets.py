@@ -195,8 +195,19 @@ async def budget_category_selected(
         await _show_budget_status(callback, user_id, state)
     else:
         await state.update_data(chosen_category=category)
+        # Если edit — покажем текущий лимит
+        current_hint = ""
+        if action == "edit":
+            async with async_session() as session:
+                budgets = await get_budgets(session, user_id)
+                cur = next((b for b in budgets if b.category == category), None)
+                if cur:
+                    cur_raw = f"{cur.amount:.0f}"
+                    current_hint = (
+                        f"Текущий лимит: <code>{cur_raw}</code>\n\n"
+                    )
         await callback.message.edit_text(
-            f"Введите лимит для <b>{html.escape(category)}</b> на месяц (₽):",
+            f"{current_hint}Введите лимит для <b>{html.escape(category)}</b> на месяц (₽):",
             parse_mode="HTML",
         )
         await state.set_state(BudgetStates.entering_amount)
