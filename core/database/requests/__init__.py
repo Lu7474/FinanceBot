@@ -1,0 +1,213 @@
+"""Public API of core.database.requests.
+
+Re-exports every CRUD function so existing imports
+(`from core.database.requests import X`) keep working.
+"""
+
+from ._common import (
+    BALANCE_SET_CATEGORY,
+    MAX_ACCOUNTS_PER_USER,
+    SYSTEM_CATEGORIES,
+    TRANSFER_CATEGORY,
+    VALID_OPERATIONS,
+    apply_period_filter,
+)
+from .accounts import (
+    create_account,
+    create_transfer,
+    delete_account,
+    get_account_balance,
+    get_account_balances,
+    get_account_record_count,
+    get_accounts,
+    get_or_create_account,
+    move_and_delete_account,
+    rename_account,
+    set_account_balance,
+)
+from .admin import (
+    ban_user,
+    count_users,
+    delete_user_cascade,
+    find_users_by_name,
+    get_active_user_tg_ids,
+    get_all_tg_ids,
+    get_all_users,
+    get_bot_stats,
+    get_power_user_tg_ids,
+    get_top_users,
+    get_user_last_activity,
+    get_user_records_csv,
+    get_user_stats,
+)
+from .backup import (
+    bulk_insert_records,
+    get_all_budgets_for_backup,
+    get_all_records_for_export,
+    get_latest_snapshot_for_backup,
+    get_wealth_items_for_backup,
+)
+from .budgets import (
+    check_and_alert_budget,
+    delete_budget,
+    get_budget_status,
+    get_budgets,
+    reset_budget_alerts_if_new_month,
+    set_budget,
+)
+from .categories import (
+    add_user_category,
+    count_records_with_category,
+    delete_user_category,
+    get_user_categories,
+    learn_keyword,
+    rename_user_category,
+    seed_default_categories,
+    suggest_category,
+)
+from .goals import (
+    complete_goal,
+    create_goal,
+    delete_goal,
+    deposit_goal,
+    get_goal,
+    get_goal_deposits,
+    get_goals,
+    update_goal,
+    withdraw_goal,
+)
+from .records import (
+    add_record,
+    check_duplicate_record,
+    count_records,
+    delete_record,
+    get_record_by_id,
+    get_records,
+    get_totals,
+    update_record,
+)
+from .reports import (
+    get_categories_summary,
+    get_history_data,
+    get_monthly_totals,
+    get_top_categories_for_period,
+    get_weekday_report,
+    search_records,
+)
+from .savings import (
+    add_snapshot_item,
+    add_wealth_item,
+    delete_snapshot,
+    delete_snapshot_item,
+    delete_wealth_item,
+    get_latest_snapshot,
+    get_snapshot,
+    get_snapshot_by_id,
+    get_snapshots_dates,
+    get_wealth_items,
+    update_snapshot_item,
+    update_wealth_item,
+    upsert_snapshot,
+)
+from .users import get_user_by_tg_id, set_user
+
+__all__ = [
+    # _common
+    "BALANCE_SET_CATEGORY",
+    "MAX_ACCOUNTS_PER_USER",
+    "SYSTEM_CATEGORIES",
+    "TRANSFER_CATEGORY",
+    "VALID_OPERATIONS",
+    "apply_period_filter",
+    # users
+    "get_user_by_tg_id",
+    "set_user",
+    # records
+    "add_record",
+    "check_duplicate_record",
+    "count_records",
+    "delete_record",
+    "get_record_by_id",
+    "get_records",
+    "get_totals",
+    "update_record",
+    # reports
+    "get_categories_summary",
+    "get_history_data",
+    "get_monthly_totals",
+    "get_top_categories_for_period",
+    "get_weekday_report",
+    "search_records",
+    # accounts
+    "create_account",
+    "create_transfer",
+    "delete_account",
+    "get_account_balance",
+    "get_account_balances",
+    "get_account_record_count",
+    "get_accounts",
+    "get_or_create_account",
+    "move_and_delete_account",
+    "rename_account",
+    "set_account_balance",
+    # categories
+    "add_user_category",
+    "count_records_with_category",
+    "delete_user_category",
+    "get_user_categories",
+    "learn_keyword",
+    "rename_user_category",
+    "seed_default_categories",
+    "suggest_category",
+    # savings + wealth
+    "add_snapshot_item",
+    "add_wealth_item",
+    "delete_snapshot",
+    "delete_snapshot_item",
+    "delete_wealth_item",
+    "get_latest_snapshot",
+    "get_snapshot",
+    "get_snapshot_by_id",
+    "get_snapshots_dates",
+    "get_wealth_items",
+    "update_snapshot_item",
+    "update_wealth_item",
+    "upsert_snapshot",
+    # admin
+    "ban_user",
+    "count_users",
+    "delete_user_cascade",
+    "find_users_by_name",
+    "get_active_user_tg_ids",
+    "get_all_tg_ids",
+    "get_all_users",
+    "get_bot_stats",
+    "get_power_user_tg_ids",
+    "get_top_users",
+    "get_user_last_activity",
+    "get_user_records_csv",
+    "get_user_stats",
+    # goals
+    "complete_goal",
+    "create_goal",
+    "delete_goal",
+    "deposit_goal",
+    "get_goal",
+    "get_goal_deposits",
+    "get_goals",
+    "update_goal",
+    "withdraw_goal",
+    # budgets
+    "check_and_alert_budget",
+    "delete_budget",
+    "get_budget_status",
+    "get_budgets",
+    "reset_budget_alerts_if_new_month",
+    "set_budget",
+    # backup / import / export
+    "bulk_insert_records",
+    "get_all_budgets_for_backup",
+    "get_all_records_for_export",
+    "get_latest_snapshot_for_backup",
+    "get_wealth_items_for_backup",
+]
