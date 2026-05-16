@@ -29,12 +29,13 @@ FinanceBot/
 │   │   ├── categories.py       # Пользовательские категории + суггестия при вводе
 │   │   ├── budgets.py          # Месячные бюджеты по категориям
 │   │   ├── export_import.py    # Экспорт/импорт/бэкап в Excel
+│   │   ├── goals.py            # Финансовые цели: CRUD, пополнение, снятие
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
 │   └── database/
 │       ├── models.py           # SQLAlchemy модели
 │       └── requests.py         # CRUD-операции с БД
-├── tests/                      # 250 pytest-тестов
+├── tests/                      # 308 pytest-тестов
 └── requirements.txt
 ```
 
@@ -119,6 +120,30 @@ alerted_100: bool  — флаг уведомления при 100%
 last_reset_month: int (nullable)  — месяц последнего сброса флагов
 ```
 
+### Goal
+```
+id: int (PK)
+user_id: int (FK → User.id)
+name: str (max 100 в схеме, app-валидация — 50)
+target_amount: Decimal(10, 2)
+current_amount: Decimal(10, 2)  — накоплено (default 0)
+deadline: date (nullable)
+is_completed: bool (default False)
+created_at: datetime
+completed_at: datetime (nullable)  — заполняется при complete_goal
+deposits: relationship → GoalDeposit (cascade delete)
+```
+
+### GoalDeposit
+```
+id: int (PK)
+goal_id: int (FK → Goal.id, CASCADE)
+account_id: int (FK → Account.id, nullable, SET NULL)
+amount: Decimal(10, 2)  — положительный = пополнение, отрицательный = снятие
+note: str (max 200, nullable)
+created_at: datetime
+```
+
 ### UserCategory
 ```
 id: int (PK)
@@ -144,9 +169,11 @@ ix_records_user_created         — (user_id, created_at)           выборк
 ix_records_user_operation       — (user_id, operation)            отчёты по типу
 ix_records_user_op_cat          — (user_id, operation, category)  GROUP BY категориям
 ix_savings_user_date            — (user_id, date, unique)         один снимок в день
-ix_budgets_user_category        — (user_id, category, unique)     один бюджет на категорию
-ix_user_categories_user_name    — (user_id, name, unique)         дубли категорий
-ix_category_keywords_user_kw    — (user_id, keyword, unique)      дубли ключевых слов
+ix_budgets_user_category          — (user_id, category, unique)     один бюджет на категорию
+ix_goals_user_completed           — (user_id, is_completed)         фильтрация активных целей
+ix_goal_deposits_goal_id          — (goal_id)                        операции по цели
+ix_user_categories_user_name      — (user_id, name, unique)         дубли категорий
+ix_category_keywords_user_keyword — (user_id, keyword, unique)      дубли ключевых слов
 ```
 
 ## FSM
@@ -243,6 +270,25 @@ waiting_for_export_period  — выбор периода экспорта
 waiting_for_export_type    — выбор типа записей (все / доходы / расходы)
 waiting_for_import_file    — ожидание xlsx-файла от пользователя
 waiting_for_import_confirm — подтверждение импорта после валидации
+```
+
+### GoalStates
+```
+viewing_list               — список активных целей
+viewing_detail             — карточка конкретной цели
+viewing_archive            — список завершённых целей
+entering_name              — ввод названия новой цели
+entering_amount            — ввод целевой суммы
+entering_deadline          — ввод дедлайна (или «Без дедлайна»)
+selecting_deposit_account  — выбор счёта для пополнения
+entering_deposit_amount    — ввод суммы пополнения
+entering_deposit_note      — ввод заметки к пополнению
+selecting_withdraw_account — выбор счёта для снятия
+entering_withdraw_amount   — ввод суммы снятия
+entering_withdraw_note     — ввод заметки к снятию
+editing_name               — редактирование имени существующей цели
+editing_amount             — редактирование целевой суммы
+editing_deadline           — редактирование дедлайна
 ```
 
 ## Middleware
@@ -343,6 +389,40 @@ waiting_for_import_confirm — подтверждение импорта пос�
     → build_weekday_chart()   — столбчатый PNG-график
 ```
 
+### Цели
+```
+[Цели]
+    → get_goals() со smart-sort: достигнутые-не-закрытые → overdue → по дедлайну → по прогрессу
+    → format_goals_list(): эмодзи семантический/⚠️/✅, прогресс %, дедлайн
+    → goals_list_keyboard(goals, archive_count): цели + [➕ Новая] [📁 Архив (N)]
+
+    Карточка (goal_detail)
+        → format_goal_detail(): прогресс, дедлайн, «Откладывать ~X/мес», ETA-прогноз
+        → goal_detail_keyboard: [💰 Пополнить] [📤 Снять] [✏️ Редактировать]
+                                [✅ Завершить] [🗑 Удалить]
+
+    Новая цель → название → сумма → дедлайн (опционально)
+        → create_goal()
+
+    Пополнить → выбор счёта → quick-amounts (10%/25%/50%/ежемес/остаток) или ввод суммы → заметка
+        → deposit_goal(): GoalDeposit + account.balance_offset -= amount
+        → история и отчёты НЕ засоряются (без Record)
+        → если current >= target — nudge [✅ Завершить цель]
+
+    Снять → выбор счёта → quick-amounts (10%/25%/50%/всё) или ввод суммы → заметка
+        → withdraw_goal(): GoalDeposit (amount < 0) + account.balance_offset += amount
+
+    Редактировать → имя / сумма / дедлайн
+        → update_goal() с валидацией (сумма >= накопленного)
+        → промпт показывает текущее значение в <code> для tap-to-copy
+
+    Завершить → complete_goal() → is_completed=True, completed_at=now()
+
+    Архив → завершённые цели с датой закрытия и длительностью накопления
+        → ↩️ Переоткрыть → is_completed=False, completed_at=None
+        → 🗑 Удалить → delete_goal() (каскад GoalDeposit)
+```
+
 ### Экспорт / Импорт
 ```
 [Экспорт]
@@ -384,6 +464,8 @@ waiting_for_import_confirm — подтверждение импорта пос�
 | MAX_CATEGORY_LENGTH | 50 |
 | MAX_ACCOUNT_NAME_LENGTH | 40 |
 | MAX_AMOUNT | 1 000 000 |
+| MAX_GOAL_AMOUNT | 10 000 000 |
+| MAX_GOAL_NAME_LENGTH | 50 |
 | MAX_CATEGORIES_IN_PIE | 5 |
 | MAX_CAPTION_LENGTH | 1024 |
 | MAX_MESSAGE_LENGTH | 4096 |
@@ -391,7 +473,7 @@ waiting_for_import_confirm — подтверждение импорта пос�
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты
+## Тесты (308)
 
 ```bash
 pytest tests/ -v
@@ -415,3 +497,4 @@ pytest tests/ -v
 | test_search_filter.py | Поиск записей и фильтры истории |
 | test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов; weekday-отчёт |
 | test_export_import.py | Экспорт/импорт: парсинг xlsx, валидация строк, bulk insert, дубли |
+| test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
