@@ -5,7 +5,6 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
@@ -25,19 +24,24 @@ async def set_budget(
     session: AsyncSession, user_id: int, category: str, amount: Decimal
 ) -> None:
     """Upserts budget; resets alert flags on insert or update."""
-    stmt = sqlite_insert(Budget).values(
-        user_id=user_id,
-        category=category,
-        amount=amount,
-        is_active=True,
-        alerted_80=False,
-        alerted_100=False,
+    budget = await session.scalar(
+        select(Budget).where(Budget.user_id == user_id, Budget.category == category)
     )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["user_id", "category"],
-        set_={"amount": amount, "alerted_80": False, "alerted_100": False},
-    )
-    await session.execute(stmt)
+    if budget:
+        budget.amount = amount
+        budget.alerted_80 = False
+        budget.alerted_100 = False
+    else:
+        session.add(
+            Budget(
+                user_id=user_id,
+                category=category,
+                amount=amount,
+                is_active=True,
+                alerted_80=False,
+                alerted_100=False,
+            )
+        )
     await session.commit()
 
 
