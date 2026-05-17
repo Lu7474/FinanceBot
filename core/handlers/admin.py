@@ -203,7 +203,7 @@ async def cb_users(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_flt_"))
 async def cb_filter(query: CallbackQuery, state: FSMContext) -> None:
-    flt = query.data[8:]  # "adm_flt_" = 8 chars
+    flt = (query.data or "")[8:]  # "adm_flt_" = 8 chars
     await state.update_data(users_filter=flt, users_page=0)
     await _render_users_page(query, state, 0)
     await query.answer()
@@ -211,7 +211,7 @@ async def cb_filter(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_srt_"))
 async def cb_sort(query: CallbackQuery, state: FSMContext) -> None:
-    srt = query.data[8:]  # "adm_srt_" = 8 chars
+    srt = (query.data or "")[8:]  # "adm_srt_" = 8 chars
     await state.update_data(users_sort=srt, users_page=0)
     await _render_users_page(query, state, 0)
     await query.answer()
@@ -278,7 +278,7 @@ async def _render_users_page(
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_user_"))
 async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
-    tg_id = int(query.data[9:])  # "adm_user_" = 9 chars
+    tg_id = int((query.data or "")[9:])  # "adm_user_" = 9 chars
     fsm = await state.get_data()
     page = fsm.get("users_page", 0)
 
@@ -351,7 +351,7 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_csv_"))
 async def cb_csv(query: CallbackQuery) -> None:
-    tg_id = int(query.data[8:])  # "adm_csv_" = 8 chars
+    tg_id = int((query.data or "")[8:])  # "adm_csv_" = 8 chars
     await query.answer("Генерирую файл...")
 
     async with async_session() as session:
@@ -373,7 +373,7 @@ async def cb_csv(query: CallbackQuery) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_ban_"))
 async def cb_ban_ask(query: CallbackQuery) -> None:
-    tg_id = int(query.data[8:])  # "adm_ban_" = 8 chars
+    tg_id = int((query.data or "")[8:])  # "adm_ban_" = 8 chars
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -397,7 +397,7 @@ async def cb_ban_ask(query: CallbackQuery) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_bando_"))
 async def cb_ban_do(query: CallbackQuery, state: FSMContext) -> None:
-    tg_id = int(query.data[10:])  # "adm_bando_" = 10 chars
+    tg_id = int((query.data or "")[10:])  # "adm_bando_" = 10 chars
     async with async_session() as session:
         await db.ban_user(session, tg_id, is_banned=True)
     page = (await state.get_data()).get("users_page", 0)
@@ -424,7 +424,7 @@ async def cb_ban_do(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_unban_"))
 async def cb_unban_do(query: CallbackQuery, state: FSMContext) -> None:
-    tg_id = int(query.data[10:])  # "adm_unban_" = 10 chars
+    tg_id = int((query.data or "")[10:])  # "adm_unban_" = 10 chars
     async with async_session() as session:
         await db.ban_user(session, tg_id, is_banned=False)
     page = (await state.get_data()).get("users_page", 0)
@@ -454,7 +454,7 @@ async def cb_unban_do(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_del1_"))
 async def cb_del1(query: CallbackQuery) -> None:
-    tg_id = int(query.data[9:])  # "adm_del1_" = 9 chars
+    tg_id = int((query.data or "")[9:])  # "adm_del1_" = 9 chars
     async with async_session() as session:
         user = await db.get_user_by_tg_id(session, tg_id)
         if not user:
@@ -486,7 +486,7 @@ async def cb_del1(query: CallbackQuery) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_del2_"))
 async def cb_del2(query: CallbackQuery) -> None:
-    tg_id = int(query.data[9:])  # "adm_del2_" = 9 chars
+    tg_id = int((query.data or "")[9:])  # "adm_del2_" = 9 chars
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -511,7 +511,7 @@ async def cb_del2(query: CallbackQuery) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_deldo_"))
 async def cb_deldo(query: CallbackQuery) -> None:
-    tg_id = int(query.data[10:])  # "adm_deldo_" = 10 chars
+    tg_id = int((query.data or "")[10:])  # "adm_deldo_" = 10 chars
     async with async_session() as session:
         ok = await db.delete_user_cascade(session, tg_id)
     text = (
@@ -636,7 +636,7 @@ async def cb_bc_start(query: CallbackQuery) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_bc_tgt_"))
 async def cb_bc_target(query: CallbackQuery, state: FSMContext) -> None:
-    target = query.data[11:]  # "adm_bc_tgt_" = 11 chars
+    target = (query.data or "")[11:]  # "adm_bc_tgt_" = 11 chars
     await state.update_data(broadcast_target=target)
     await state.set_state(AdminStates.broadcast_text)
 

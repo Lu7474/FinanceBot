@@ -89,8 +89,8 @@ def _build_report_pie_sync(
         sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
 
         if len(sorted_categories) > MAX_CATEGORIES_IN_PIE:
-            other_sum = sum(sorted_categories.values()) - sum(
-                list(sorted_categories.values())[:MAX_CATEGORIES_IN_PIE]
+            other_sum = sum(sorted_categories.values(), Decimal("0")) - sum(
+                list(sorted_categories.values())[:MAX_CATEGORIES_IN_PIE], Decimal("0")
             )
             sorted_categories = dict(
                 list(sorted_categories.items())[:MAX_CATEGORIES_IN_PIE]

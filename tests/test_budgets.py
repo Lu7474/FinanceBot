@@ -263,7 +263,7 @@ async def test_weekday_report_grouping(session):
         last_monday.year,
         last_monday.month,
         last_monday.day,
-        12,
+        0,
         0,
         tzinfo=ZoneInfo(TIMEZONE),
     )

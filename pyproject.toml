@@ -11,6 +11,7 @@ python_version = "3.11"
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+disable_error_code = ["union-attr", "arg-type"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

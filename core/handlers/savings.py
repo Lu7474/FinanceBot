@@ -448,8 +448,8 @@ async def msg_savings_field_amount(
             parse_mode="HTML",
         )
     elif mode == "add":
-        snapshot_id: int = data.get("snapshot_id")
-        snapshot_date_str: str = data.get("snapshot_date")
+        snapshot_id = data.get("snapshot_id")
+        snapshot_date_str = data.get("snapshot_date")
         async with async_session() as session:
             item = await add_snapshot_item(
                 session, snapshot_id, user_id, pending_name, amount
@@ -618,8 +618,8 @@ async def msg_savings_edit_amount(
 ) -> None:
     """Сохраняет новую сумму для выбранного поля снимка."""
     data = await state.get_data()
-    item_id: int = data.get("item_id")
-    snapshot_date_str: str = data.get("snapshot_date")
+    item_id = data.get("item_id")
+    snapshot_date_str = data.get("snapshot_date")
     user_id = await get_user_id_from_event(message, kwargs)
 
     try:
@@ -953,7 +953,7 @@ async def cb_wealth_edit_item(
 async def msg_wealth_edit_amount(message: Message, state: FSMContext, **kwargs) -> None:
     """Сохраняет новую сумму актива/пассива."""
     data = await state.get_data()
-    item_id: int = data.get("item_id")
+    item_id = data.get("item_id")
     user_id = await get_user_id_from_event(message, kwargs)
 
     try:

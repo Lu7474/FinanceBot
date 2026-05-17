@@ -235,7 +235,7 @@ async def budget_amount_entered(message: Message, state: FSMContext, **kwargs) -
         await set_budget(session, user_id, category, amount)
 
     await message.answer(
-        f"✅ Лимит для <b>{html.escape(category)}</b> установлен: {amount:,.0f}₽/мес".replace(
+        f"✅ Лимит для <b>{html.escape(str(category))}</b> установлен: {amount:,.0f}₽/мес".replace(
             ",", " "
         ),
         parse_mode="HTML",

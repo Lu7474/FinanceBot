@@ -169,9 +169,9 @@ async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> No
     )
     net_by_account: dict[int, Decimal] = {}
     for d in deposits:
-        net_by_account[d.account_id] = (
-            net_by_account.get(d.account_id, Decimal("0")) + d.amount
-        )
+        aid = d.account_id
+        assert aid is not None  # query filters by .is_not(None)
+        net_by_account[aid] = net_by_account.get(aid, Decimal("0")) + d.amount
 
     for account_id, net in net_by_account.items():
         if net == Decimal("0"):
@@ -212,9 +212,9 @@ async def delete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None
     )
     net_by_account: dict[int, Decimal] = {}
     for d in deposits:
-        net_by_account[d.account_id] = (
-            net_by_account.get(d.account_id, Decimal("0")) + d.amount
-        )
+        aid = d.account_id
+        assert aid is not None  # query filters by .is_not(None)
+        net_by_account[aid] = net_by_account.get(aid, Decimal("0")) + d.amount
 
     for account_id, net in net_by_account.items():
         if net == Decimal("0"):

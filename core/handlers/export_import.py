@@ -330,7 +330,7 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
         await message.answer("Пожалуйста, отправьте файл в формате .xlsx")
         return
 
-    if doc.file_size > 5 * 1024 * 1024:
+    if (doc.file_size or 0) > 5 * 1024 * 1024:
         await message.answer("❌ Файл слишком большой. Максимум 5 МБ.")
         return
 
