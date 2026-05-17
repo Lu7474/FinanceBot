@@ -4,13 +4,14 @@ import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
-from config import CHART_TIMEOUT_SECONDS
+from config import CHART_TIMEOUT_SECONDS, TIMEZONE
 from core.charts import _chart_executor
 from core.database.models import async_session
 from core.database.requests import (
@@ -47,8 +48,8 @@ _PERIOD_LABELS = {
 
 
 def _resolve_date_range(period: str) -> tuple[date | None, date | None]:
-    """Return (date_from, date_to) for the given period key."""
-    today = datetime.now().date()
+    """Return (date_from, date_to) for the given period key. Uses Moscow TZ."""
+    today = datetime.now(ZoneInfo(TIMEZONE)).date()
     if period == "month":
         return today.replace(day=1), today
     if period == "3m":

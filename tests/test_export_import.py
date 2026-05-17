@@ -23,7 +23,6 @@ from core.export import (
     validate_import_row,
 )
 
-
 # ==================== Helpers ====================
 
 
@@ -48,8 +47,18 @@ async def _create_user(session, tg_id: int = 999) -> User:
 
 def test_validate_import_row_date_formats():
     """Both date formats parse correctly."""
-    row_dmy = {"Дата": "15.03.2024", "Тип": "Расход", "Сумма": "100", "Категория": "Еда"}
-    row_iso = {"Дата": "2024-03-15", "Тип": "Расход", "Сумма": "100", "Категория": "Еда"}
+    row_dmy = {
+        "Дата": "15.03.2024",
+        "Тип": "Расход",
+        "Сумма": "100",
+        "Категория": "Еда",
+    }
+    row_iso = {
+        "Дата": "2024-03-15",
+        "Тип": "Расход",
+        "Сумма": "100",
+        "Категория": "Еда",
+    }
 
     parsed_dmy, err = validate_import_row(row_dmy, 2)
     assert err is None
@@ -69,8 +78,14 @@ def test_validate_import_row_bad_date():
 
 def test_validate_import_row_operation_variants():
     """All accepted operation aliases map correctly."""
-    for text, expected in [("Расход", "-"), ("расход", "-"), ("-", "-"),
-                            ("Доход", "+"), ("доход", "+"), ("+", "+")]:
+    for text, expected in [
+        ("Расход", "-"),
+        ("расход", "-"),
+        ("-", "-"),
+        ("Доход", "+"),
+        ("доход", "+"),
+        ("+", "+"),
+    ]:
         row = {"Дата": "01.01.2025", "Тип": text, "Сумма": "50", "Категория": "Еда"}
         parsed, err = validate_import_row(row, 2)
         assert err is None, f"Unexpected error for type={text!r}: {err}"
@@ -105,15 +120,31 @@ def test_validate_import_row_amount_bounds():
 
 
 def test_validate_import_row_category_capitalized():
-    row = {"Дата": "01.01.2025", "Тип": "Расход", "Сумма": "50", "Категория": "еда на день"}
+    row = {
+        "Дата": "01.01.2025",
+        "Тип": "Расход",
+        "Сумма": "50",
+        "Категория": "еда на день",
+    }
     parsed, err = validate_import_row(row, 2)
     assert err is None
     assert parsed["category"] == "Еда на день"
 
 
 def test_validate_import_row_account_optional():
-    row_with = {"Дата": "01.01.2025", "Тип": "Расход", "Сумма": "50", "Категория": "Еда", "Счёт": "Карта"}
-    row_without = {"Дата": "01.01.2025", "Тип": "Расход", "Сумма": "50", "Категория": "Еда"}
+    row_with = {
+        "Дата": "01.01.2025",
+        "Тип": "Расход",
+        "Сумма": "50",
+        "Категория": "Еда",
+        "Счёт": "Карта",
+    }
+    row_without = {
+        "Дата": "01.01.2025",
+        "Тип": "Расход",
+        "Сумма": "50",
+        "Категория": "Еда",
+    }
 
     p1, _ = validate_import_row(row_with, 2)
     p2, _ = validate_import_row(row_without, 3)
@@ -128,8 +159,20 @@ def test_validate_import_row_account_optional():
 def test_parse_import_file_valid():
     """Valid xlsx is parsed without errors."""
     rows = [
-        {"Дата": "01.01.2025", "Тип": "Расход", "Сумма": 100.0, "Категория": "Еда", "Счёт": "Карта"},
-        {"Дата": "02.01.2025", "Тип": "Доход", "Сумма": 5000.0, "Категория": "Зарплата", "Счёт": None},
+        {
+            "Дата": "01.01.2025",
+            "Тип": "Расход",
+            "Сумма": 100.0,
+            "Категория": "Еда",
+            "Счёт": "Карта",
+        },
+        {
+            "Дата": "02.01.2025",
+            "Тип": "Доход",
+            "Сумма": 5000.0,
+            "Категория": "Зарплата",
+            "Счёт": None,
+        },
     ]
     xlsx = _make_xlsx(rows)
     valid, errors, dups = parse_import_file(xlsx)
@@ -204,6 +247,7 @@ def test_build_template_sync():
 async def test_check_duplicate_record(session):
     """Duplicate is detected by date (no time), operation, amount, category."""
     from zoneinfo import ZoneInfo
+
     from core.database.models import Record
 
     user = await _create_user(session, tg_id=1001)
@@ -221,15 +265,21 @@ async def test_check_duplicate_record(session):
     await session.commit()
 
     # Same date (different time) → duplicate
-    is_dup = await check_duplicate_record(session, user_id, date(2025, 1, 15), "-", Decimal("100.00"), "Еда")
+    is_dup = await check_duplicate_record(
+        session, user_id, date(2025, 1, 15), "-", Decimal("100.00"), "Еда"
+    )
     assert is_dup is True
 
     # Different date → not duplicate
-    not_dup = await check_duplicate_record(session, user_id, date(2025, 1, 16), "-", Decimal("100.00"), "Еда")
+    not_dup = await check_duplicate_record(
+        session, user_id, date(2025, 1, 16), "-", Decimal("100.00"), "Еда"
+    )
     assert not_dup is False
 
     # Different amount → not duplicate
-    not_dup2 = await check_duplicate_record(session, user_id, date(2025, 1, 15), "-", Decimal("200.00"), "Еда")
+    not_dup2 = await check_duplicate_record(
+        session, user_id, date(2025, 1, 15), "-", Decimal("200.00"), "Еда"
+    )
     assert not_dup2 is False
 
 
@@ -243,14 +293,28 @@ async def test_bulk_insert_records(session):
     user_id = user.id  # capture before bulk_insert commits and expires the object
 
     rows = [
-        {"date": date(2025, 1, 1), "operation": "-", "amount": Decimal("50"), "category": "Кафе", "account_id": None},
-        {"date": date(2025, 1, 2), "operation": "+", "amount": Decimal("3000"), "category": "Зарплата", "account_id": None},
+        {
+            "date": date(2025, 1, 1),
+            "operation": "-",
+            "amount": Decimal("50"),
+            "category": "Кафе",
+            "account_id": None,
+        },
+        {
+            "date": date(2025, 1, 2),
+            "operation": "+",
+            "amount": Decimal("3000"),
+            "category": "Зарплата",
+            "account_id": None,
+        },
     ]
     count = await bulk_insert_records(session, user_id, rows)
     assert count == 2
 
     from sqlalchemy import select
+
     from core.database.models import Record
+
     result = await session.execute(select(Record).where(Record.user_id == user_id))
     db_records = result.scalars().all()
     assert len(db_records) == 2
@@ -312,3 +376,149 @@ async def test_get_or_create_account_limit(session):
 
     acc = await get_or_create_account(session, user_id, "Новый счёт")
     assert acc is None
+
+
+# ==================== DB: check_duplicates_batch (review #7) ====================
+
+
+@pytest.mark.asyncio
+async def test_check_duplicates_batch_match(session):
+    """Совпадение по дате/типу/сумме/категории — индекс попадает в дубликаты."""
+    from zoneinfo import ZoneInfo
+
+    from core.database.models import Record
+    from core.database.requests import check_duplicates_batch
+
+    user = await _create_user(session, tg_id=2001)
+    user_id = user.id
+
+    created_at = datetime(2025, 5, 10, 12, 0, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+    session.add(
+        Record(
+            user_id=user_id,
+            operation="-",
+            amount=Decimal("250.00"),
+            category="Еда",
+            created_at=created_at,
+        )
+    )
+    await session.commit()
+
+    rows = [
+        {
+            "date": date(2025, 5, 10),
+            "operation": "-",
+            "amount": Decimal("250.00"),
+            "category": "Еда",
+        },
+    ]
+    dups = await check_duplicates_batch(session, user_id, rows)
+    assert dups == {0}
+
+
+@pytest.mark.asyncio
+async def test_check_duplicates_batch_different_date(session):
+    """Другая дата — не дубликат."""
+    from zoneinfo import ZoneInfo
+
+    from core.database.models import Record
+    from core.database.requests import check_duplicates_batch
+
+    user = await _create_user(session, tg_id=2002)
+    user_id = user.id
+
+    session.add(
+        Record(
+            user_id=user_id,
+            operation="-",
+            amount=Decimal("250.00"),
+            category="Еда",
+            created_at=datetime(
+                2025, 5, 10, 12, 0, 0, tzinfo=ZoneInfo("Europe/Moscow")
+            ),
+        )
+    )
+    await session.commit()
+
+    rows = [
+        {
+            "date": date(2025, 5, 11),
+            "operation": "-",
+            "amount": Decimal("250.00"),
+            "category": "Еда",
+        },
+    ]
+    dups = await check_duplicates_batch(session, user_id, rows)
+    assert dups == set()
+
+
+@pytest.mark.asyncio
+async def test_check_duplicates_batch_different_category(session):
+    """Другая категория — не дубликат."""
+    from zoneinfo import ZoneInfo
+
+    from core.database.models import Record
+    from core.database.requests import check_duplicates_batch
+
+    user = await _create_user(session, tg_id=2003)
+    user_id = user.id
+
+    session.add(
+        Record(
+            user_id=user_id,
+            operation="-",
+            amount=Decimal("250.00"),
+            category="Еда",
+            created_at=datetime(
+                2025, 5, 10, 12, 0, 0, tzinfo=ZoneInfo("Europe/Moscow")
+            ),
+        )
+    )
+    await session.commit()
+
+    rows = [
+        {
+            "date": date(2025, 5, 10),
+            "operation": "-",
+            "amount": Decimal("250.00"),
+            "category": "Транспорт",
+        },
+    ]
+    dups = await check_duplicates_batch(session, user_id, rows)
+    assert dups == set()
+
+
+@pytest.mark.asyncio
+async def test_check_duplicates_batch_empty_input(session):
+    """Пустой ввод — возвращает пустой set, не падает на min(dates)."""
+    from core.database.requests import check_duplicates_batch
+
+    user = await _create_user(session, tg_id=2004)
+    dups = await check_duplicates_batch(session, user.id, [])
+    assert dups == set()
+
+
+# ==================== validate_import_row: long account_name (review #7 — критерий MAX_ACCOUNT_NAME_LENGTH) ====================
+
+
+def test_import_with_long_account_name():
+    """Имя счёта длиннее MAX_ACCOUNT_NAME_LENGTH (40) должно отклоняться валидатором.
+
+    Сейчас validate_import_row пропускает account_name as-is, а в БД колонка String(50).
+    Имя >40 (или даже >50 для SQLite-молчания) — UX-баг при импорте.
+    """
+    from config import MAX_ACCOUNT_NAME_LENGTH
+
+    long_name = "А" * (MAX_ACCOUNT_NAME_LENGTH + 5)
+    row = {
+        "Дата": "01.01.2025",
+        "Тип": "Расход",
+        "Сумма": "100",
+        "Категория": "Еда",
+        "Счёт": long_name,
+    }
+    parsed, err = validate_import_row(row, 2)
+    assert err is not None, (
+        f"validate_import_row обязан возвращать ошибку для account_name длиннее "
+        f"MAX_ACCOUNT_NAME_LENGTH={MAX_ACCOUNT_NAME_LENGTH}, а вернул {parsed!r}"
+    )

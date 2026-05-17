@@ -1,8 +1,7 @@
 """Excel export, backup, template generation and import parsing."""
 
-import logging
-from datetime import datetime
 from datetime import date as date_type
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
@@ -10,7 +9,7 @@ import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH
+from config import MAX_ACCOUNT_NAME_LENGTH, MAX_AMOUNT, MAX_CATEGORY_LENGTH
 
 # ── Style constants ───────────────────────────────────────────────────────────
 _HDR_FILL = PatternFill("solid", fgColor="1F3864")
@@ -43,7 +42,11 @@ def _autowidth(ws) -> None:
 
 
 def _write_records_sheet(writer: pd.ExcelWriter, rows: list[dict]) -> None:
-    df = pd.DataFrame(rows, columns=_RECORDS_COLS) if rows else pd.DataFrame(columns=_RECORDS_COLS)
+    df = (
+        pd.DataFrame(rows, columns=_RECORDS_COLS)
+        if rows
+        else pd.DataFrame(columns=_RECORDS_COLS)
+    )
     df.to_excel(writer, sheet_name="Записи", index=False)
     ws = writer.sheets["Записи"]
     _hdr_row(ws, 1, len(_RECORDS_COLS))
@@ -126,7 +129,12 @@ def _write_monthly_sheet(writer: pd.ExcelWriter, rows: list[dict]) -> None:
             continue
         key = dt.strftime("%Y-%m")
         if key not in monthly:
-            monthly[key] = {"label": dt.strftime("%m.%Y"), "income": 0.0, "expense": 0.0, "count": 0}
+            monthly[key] = {
+                "label": dt.strftime("%m.%Y"),
+                "income": 0.0,
+                "expense": 0.0,
+                "count": 0,
+            }
         monthly[key]["count"] += 1
         if r["Тип"] == "Доход":
             monthly[key]["income"] += r["Сумма"]
@@ -147,15 +155,19 @@ def _write_monthly_sheet(writer: pd.ExcelWriter, rows: list[dict]) -> None:
         }
         for _, v in sorted_items
     ]
-    result.append({
-        "Месяц": "ИТОГО",
-        "Доходы": sum(v["income"] for _, v in sorted_items),
-        "Расходы": sum(v["expense"] for _, v in sorted_items),
-        "Баланс": sum(v["income"] - v["expense"] for _, v in sorted_items),
-        "Транзакций": sum(v["count"] for _, v in sorted_items),
-    })
+    result.append(
+        {
+            "Месяц": "ИТОГО",
+            "Доходы": sum(v["income"] for _, v in sorted_items),
+            "Расходы": sum(v["expense"] for _, v in sorted_items),
+            "Баланс": sum(v["income"] - v["expense"] for _, v in sorted_items),
+            "Транзакций": sum(v["count"] for _, v in sorted_items),
+        }
+    )
 
-    df = pd.DataFrame(result, columns=["Месяц", "Доходы", "Расходы", "Баланс", "Транзакций"])
+    df = pd.DataFrame(
+        result, columns=["Месяц", "Доходы", "Расходы", "Баланс", "Транзакций"]
+    )
     df.to_excel(writer, sheet_name="По месяцам", index=False)
     ws = writer.sheets["По месяцам"]
     _hdr_row(ws, 1, 5)
@@ -179,7 +191,9 @@ def _write_monthly_sheet(writer: pd.ExcelWriter, rows: list[dict]) -> None:
     _autowidth(ws)
 
 
-def _write_categories_sheet(writer: pd.ExcelWriter, rows: list[dict], summary: dict) -> None:
+def _write_categories_sheet(
+    writer: pd.ExcelWriter, rows: list[dict], summary: dict
+) -> None:
     cats: dict = {}
     for r in rows:
         key = (r["Категория"], r["Тип"])
@@ -200,7 +214,9 @@ def _write_categories_sheet(writer: pd.ExcelWriter, rows: list[dict], summary: d
                 "Категория": cat,
                 "Тип": typ,
                 "Сумма": d["amount"],
-                "%": round(d["amount"] / (total_inc if typ == "Доход" else total_exp) * 100, 1),
+                "%": round(
+                    d["amount"] / (total_inc if typ == "Доход" else total_exp) * 100, 1
+                ),
                 "Транзакций": d["count"],
             }
             for (cat, typ), d in cats.items()
@@ -245,7 +261,9 @@ def _build_backup_sync(
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         if records_rows:
-            df = pd.DataFrame(records_rows, columns=["Дата", "Тип", "Сумма", "Категория", "Счёт"])
+            df = pd.DataFrame(
+                records_rows, columns=["Дата", "Тип", "Сумма", "Категория", "Счёт"]
+            )
         else:
             df = pd.DataFrame(columns=["Дата", "Тип", "Сумма", "Категория", "Счёт"])
         df.to_excel(writer, sheet_name="Записи", index=False)
@@ -261,9 +279,9 @@ def _build_backup_sync(
             )
 
         if wealth_items:
-            pd.DataFrame(wealth_items, columns=["Тип", "Название", "Сумма", "Заметка"]).to_excel(
-                writer, sheet_name="Активы", index=False
-            )
+            pd.DataFrame(
+                wealth_items, columns=["Тип", "Название", "Сумма", "Заметка"]
+            ).to_excel(writer, sheet_name="Активы", index=False)
 
     buf.seek(0)
     return buf
@@ -273,7 +291,15 @@ def _build_template_sync() -> BytesIO:
     """Build import template with headers and one example row."""
     buf = BytesIO()
     df = pd.DataFrame(
-        [{"Дата": "01.01.2025", "Тип": "Расход", "Сумма": 500.0, "Категория": "Еда", "Счёт": "Наличные"}]
+        [
+            {
+                "Дата": "01.01.2025",
+                "Тип": "Расход",
+                "Сумма": 500.0,
+                "Категория": "Еда",
+                "Счёт": "Наличные",
+            }
+        ]
     )
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="Импорт", index=False)
@@ -304,7 +330,10 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
     elif raw_op.lower() in ("доход", "+"):
         operation = "+"
     else:
-        return None, f"Строка {row_num}: неверный тип «{raw_op}» (ожидается Доход/Расход)"
+        return (
+            None,
+            f"Строка {row_num}: неверный тип «{raw_op}» (ожидается Доход/Расход)",
+        )
 
     # --- Сумма ---
     raw_amount = row.get("Сумма")
@@ -320,7 +349,10 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
     if not raw_cat:
         return None, f"Строка {row_num}: категория пустая"
     if len(raw_cat) > MAX_CATEGORY_LENGTH:
-        return None, f"Строка {row_num}: категория слишком длинная (макс {MAX_CATEGORY_LENGTH})"
+        return (
+            None,
+            f"Строка {row_num}: категория слишком длинная (макс {MAX_CATEGORY_LENGTH})",
+        )
     category = raw_cat[0].upper() + raw_cat[1:]
 
     # --- Счёт (опционально) ---
@@ -329,6 +361,11 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
     if raw_acc is not None:
         s = str(raw_acc).strip()
         if s and s != "nan":
+            if len(s) > MAX_ACCOUNT_NAME_LENGTH:
+                return None, (
+                    f"Строка {row_num}: название счёта слишком длинное "
+                    f"(макс {MAX_ACCOUNT_NAME_LENGTH})"
+                )
             account_name = s
 
     return {
