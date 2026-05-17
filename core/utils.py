@@ -10,8 +10,16 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramBadRequest
+
+from config import TIMEZONE
+
+
+def today_msk() -> date_type:
+    """Current date in Moscow timezone (Europe/Moscow)."""
+    return datetime.now(ZoneInfo(TIMEZONE)).date()
 
 
 def format_money(amount: Decimal | float | int) -> str:
@@ -120,8 +128,26 @@ _GOAL_EMOJI_RULES: list[tuple[re.Pattern, str]] = [
 
 # Пул для fallback по хэшу названия
 _GOAL_EMOJI_POOL: list[str] = [
-    "🎁", "🎨", "🚀", "⭐", "💎", "🔥", "🌟", "🎈", "🎪", "🎭",
-    "🍀", "🌈", "💫", "🎵", "🏆", "🧸", "🪄", "🎲", "🛍", "🌻",
+    "🎁",
+    "🎨",
+    "🚀",
+    "⭐",
+    "💎",
+    "🔥",
+    "🌟",
+    "🎈",
+    "🎪",
+    "🎭",
+    "🍀",
+    "🌈",
+    "💫",
+    "🎵",
+    "🏆",
+    "🧸",
+    "🪄",
+    "🎲",
+    "🛍",
+    "🌻",
 ]
 
 
@@ -259,7 +285,7 @@ def parse_search_query(query: str) -> dict:
         q_lower = q.casefold()
         for prefix, op in aliases.items():
             if q_lower.startswith(prefix):
-                rest = q[len(prefix):].strip()
+                rest = q[len(prefix) :].strip()
                 if rest.startswith((">", "<", "=")):
                     operation = op
                     amount_query = rest
@@ -381,7 +407,7 @@ def is_goal_overdue(goal) -> bool:
     """True если у цели просрочен дедлайн и она не завершена."""
     if not goal.deadline or goal.is_completed:
         return False
-    return goal.deadline < date_type.today()
+    return goal.deadline < today_msk()
 
 
 def goal_eta(goal) -> date_type | None:
@@ -396,7 +422,7 @@ def goal_eta(goal) -> date_type | None:
         return None
     if goal.current_amount <= 0:
         return None
-    today = date_type.today()
+    today = today_msk()
     days_since_creation = max(1, (today - goal.created_at.date()).days)
     rate_per_day = float(goal.current_amount) / days_since_creation
     if rate_per_day <= 0:
@@ -409,7 +435,11 @@ def format_goals_list(goals: list) -> str:
     """Formats the list of goals for display. Overdue goals get ⚠️ marker."""
     lines = ["🎯 <b>Мои цели</b>\n"]
     for goal in goals:
-        pct = int(float(goal.current_amount) / float(goal.target_amount) * 100) if goal.target_amount else 0
+        pct = (
+            int(float(goal.current_amount) / float(goal.target_amount) * 100)
+            if goal.target_amount
+            else 0
+        )
         pct = min(pct, 100)
         current = format_money(float(goal.current_amount))
         target = format_money(float(goal.target_amount))
@@ -425,12 +455,14 @@ def format_goals_list(goals: list) -> str:
 
         if goal.current_amount >= goal.target_amount:
             lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>")
-            lines.append(f"   {current} / {target}  (100%) — <b>Цель достигнута! 🎉</b>\n")
+            lines.append(
+                f"   {current} / {target}  (100%) — <b>Цель достигнута! 🎉</b>\n"
+            )
         else:
             lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>")
             line = f"   {current} / {target}  ({pct}%)\n   Осталось: {remaining}"
             if goal.deadline:
-                deadline_str = goal.deadline.strftime('%d.%m.%Y')
+                deadline_str = goal.deadline.strftime("%d.%m.%Y")
                 if overdue:
                     line += f" | <b>просрочено</b> ({deadline_str})"
                 else:
@@ -441,8 +473,11 @@ def format_goals_list(goals: list) -> str:
 
 def format_goal_detail(goal, deposits: list) -> str:
     """Formats the detailed goal card with overdue marker and ETA forecast."""
-    from datetime import date
-    pct = int(float(goal.current_amount) / float(goal.target_amount) * 100) if goal.target_amount else 0
+    pct = (
+        int(float(goal.current_amount) / float(goal.target_amount) * 100)
+        if goal.target_amount
+        else 0
+    )
     pct = min(pct, 100)
 
     overdue = is_goal_overdue(goal)
@@ -461,10 +496,12 @@ def format_goal_detail(goal, deposits: list) -> str:
         f"Осталось: {format_money(float(goal.target_amount - goal.current_amount))}",
     ]
     if goal.deadline:
-        days_left = (goal.deadline - date.today()).days
-        deadline_str = goal.deadline.strftime('%d.%m.%Y')
+        days_left = (goal.deadline - today_msk()).days
+        deadline_str = goal.deadline.strftime("%d.%m.%Y")
         if overdue:
-            lines.append(f"Дедлайн:  {deadline_str} (<b>просрочено на {-days_left} дн.</b>)")
+            lines.append(
+                f"Дедлайн:  {deadline_str} (<b>просрочено на {-days_left} дн.</b>)"
+            )
         else:
             lines.append(f"Дедлайн:  {deadline_str} ({days_left} дн.)")
         month_part = _monthly_deposit_str(goal)
@@ -474,7 +511,7 @@ def format_goal_detail(goal, deposits: list) -> str:
     # ETA-прогноз по среднему темпу с момента создания
     eta = goal_eta(goal)
     if eta:
-        eta_str = eta.strftime('%d.%m.%Y')
+        eta_str = eta.strftime("%d.%m.%Y")
         if goal.deadline:
             if eta <= goal.deadline:
                 lines.append(f"📈 Прогноз: {eta_str} ✓ успеваешь")
@@ -490,7 +527,9 @@ def format_goal_detail(goal, deposits: list) -> str:
             amount_str = format_money(abs(float(d.amount)))
             date_str = f"{d.created_at.day} {RU_MONTHS_GEN[d.created_at.month]}"
             note_str = f"  «{html.escape(d.note)}»" if d.note else ""
-            lines.append(f"  {date_str}  {sign}{'-' if d.amount < 0 else ''}{amount_str}{note_str}")
+            lines.append(
+                f"  {date_str}  {sign}{'-' if d.amount < 0 else ''}{amount_str}{note_str}"
+            )
 
     return "\n".join(lines)
 
@@ -499,8 +538,10 @@ def monthly_deposit_amount(goal) -> float | None:
     """Returns raw monthly deposit needed to hit deadline, or None if no deadline/passed."""
     if not goal.deadline:
         return None
-    today = date_type.today()
-    months_left = (goal.deadline.year - today.year) * 12 + (goal.deadline.month - today.month)
+    today = today_msk()
+    months_left = (goal.deadline.year - today.year) * 12 + (
+        goal.deadline.month - today.month
+    )
     if months_left <= 0:
         return None
     return float((goal.target_amount - goal.current_amount) / months_left)

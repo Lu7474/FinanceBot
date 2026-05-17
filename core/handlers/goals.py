@@ -1,7 +1,7 @@
 """Handlers for financial goals."""
 
 import html
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
@@ -49,6 +49,7 @@ from core.utils import (
     format_goals_list,
     log_exceptions,
     monthly_deposit_amount,
+    today_msk,
 )
 
 from .common import GoalStates, get_user_id_from_event, is_goals
@@ -214,7 +215,7 @@ async def goal_deadline_entered(message: Message, state: FSMContext, **kwargs) -
     text = (message.text or "").strip()
     try:
         deadline = datetime.strptime(text, "%d.%m.%Y").date()
-        if deadline <= date.today():
+        if deadline <= today_msk():
             await message.answer(
                 "Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:"
             )
@@ -1169,7 +1170,7 @@ async def goal_edit_deadline_entered(
     text = (message.text or "").strip()
     try:
         deadline = datetime.strptime(text, "%d.%m.%Y").date()
-        if deadline <= date.today():
+        if deadline <= today_msk():
             await message.answer(
                 "Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:"
             )
