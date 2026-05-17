@@ -17,7 +17,6 @@ from core.database.requests import (
     get_categories_summary,
     get_monthly_totals,
     get_records,
-    get_user_by_tg_id,
     get_weekday_report,
 )
 from core.keyboards import (
@@ -44,12 +43,12 @@ router = Router()
 async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
     """Кнопка Отчёт — проверяем наличие записей, просим выбрать тип."""
     await state.clear()
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await message.answer("Пользователь не найден.")
+        return
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, message.from_user.id)
-        if not user:
-            await message.answer("Пользователь не найден.")
-            return
-        years_months = await get_available_years_and_months(session, user.id)
+        years_months = await get_available_years_and_months(session, user_id)
 
     if not years_months:
         await message.answer("Нет записей для отображения отчёта.")
@@ -82,13 +81,13 @@ async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> 
 
     await state.update_data(report_type=report_type)
 
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await message.answer("Пользователь не найден.")
+        await state.clear()
+        return
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, message.from_user.id)
-        if not user:
-            await message.answer("Пользователь не найден.")
-            await state.clear()
-            return
-        years_months = await get_available_years_and_months(session, user.id, operation)
+        years_months = await get_available_years_and_months(session, user_id, operation)
 
     if not years_months:
         await message.answer(
@@ -222,19 +221,19 @@ async def menu_report_month(
     await callback.message.edit_text("⏳ Генерация отчёта...")
     await callback.answer()
 
-    async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await callback.message.edit_text("Пользователь не найден.")
+        await state.clear()
+        return
 
+    async with async_session() as session:
         categories = await get_categories_summary(
-            session, user.id, operation_sign, date_from, date_to
+            session, user_id, operation_sign, date_from, date_to
         )
         total = sum(categories.values()) if categories else Decimal("0.0")
 
-        records = await get_records(session, user.id, "range", date_from, date_to)
+        records = await get_records(session, user_id, "range", date_from, date_to)
 
         if categories:
             buf, caption = await build_report_pie(
@@ -313,23 +312,23 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
 
     await callback.answer("⏳ Формирую сравнение...")
 
-    async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.answer("Пользователь не найден.")
-            return
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await callback.message.answer("Пользователь не найден.")
+        return
 
+    async with async_session() as session:
         cur_categories = await get_categories_summary(
-            session, user.id, operation_sign, cur_date_from, cur_date_to
+            session, user_id, operation_sign, cur_date_from, cur_date_to
         )
         prev_categories = await get_categories_summary(
-            session, user.id, operation_sign, prev_date_from, prev_date_to
+            session, user_id, operation_sign, prev_date_from, prev_date_to
         )
 
         cur_total = sum(cur_categories.values()) if cur_categories else Decimal("0")
         prev_total = sum(prev_categories.values()) if prev_categories else Decimal("0")
 
-        monthly_data = await get_monthly_totals(session, user.id, operation_sign)
+        monthly_data = await get_monthly_totals(session, user_id, operation_sign)
 
     if not prev_categories:
         await callback.message.answer(
@@ -470,14 +469,14 @@ async def weekday_period_selected(
     await callback.message.edit_text("⏳ Формирую отчёт...")
     await callback.answer()
 
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await callback.message.edit_text("Пользователь не найден.")
+        await state.clear()
+        return
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
         wd_data = await get_weekday_report(
-            session, user.id, operation, date_from, date_to
+            session, user_id, operation, date_from, date_to
         )
 
     text = format_weekday_report(wd_data, operation, date_from, date_to, weeks_count)
