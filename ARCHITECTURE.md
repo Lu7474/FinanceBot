@@ -33,9 +33,20 @@ FinanceBot/
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
 │   └── database/
-│       ├── models.py           # SQLAlchemy модели
-│       └── requests.py         # CRUD-операции с БД
-├── tests/                      # 308 pytest-тестов
+│       ├── models.py           # SQLAlchemy модели + миграции (_migrate)
+│       └── requests/           # CRUD по доменам (re-export через __init__.py)
+│           ├── _common.py      # apply_period_filter, SYSTEM_CATEGORIES, лимиты
+│           ├── users.py        # get_user_by_tg_id, set_user
+│           ├── records.py      # add/get/update/delete_record, totals, duplicate-check
+│           ├── reports.py      # categories_summary, history_data, monthly/weekday/search
+│           ├── accounts.py     # CRUD счетов, балансы, переводы
+│           ├── categories.py   # UserCategory + suggest/learn keywords + seed_defaults
+│           ├── savings.py      # snapshots, items, wealth-items
+│           ├── budgets.py      # CRUD бюджетов, alert-логика, сброс флагов
+│           ├── goals.py        # CRUD целей, deposit/withdraw, complete
+│           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
+│           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
+├── tests/                      # 334 pytest-тестов
 └── requirements.txt
 ```
 
@@ -124,7 +135,7 @@ last_reset_month: int (nullable)  — месяц последнего сброс
 ```
 id: int (PK)
 user_id: int (FK → User.id)
-name: str (max 100 в схеме, app-валидация — 50)
+name: str (max 100 — синхронно со схемой и app-валидацией `MAX_GOAL_NAME_LENGTH`)
 target_amount: Decimal(10, 2)
 current_amount: Decimal(10, 2)  — накоплено (default 0)
 deadline: date (nullable)
@@ -295,10 +306,19 @@ editing_deadline           — редактирование дедлайна
 
 ### UserMiddleware
 Получает внутренний `user_id` из БД один раз и передаёт в хендлеры через `data["user_id"]`.
-Хендлеры читают `kwargs.get("user_id")` — без лишних запросов к БД.
+Хендлеры читают `kwargs["user_id"]` — без лишних запросов к БД. Если юзер не найден или забанен, middleware блокирует апдейт.
 
 ### RateLimitMiddleware
 60 запросов/60 с на пользователя. Авточистка неактивных пользователей каждые 5 минут.
+
+## Конвенции
+
+### Транзакции в репозиториях
+Функции-репозитории (`core/database/requests/*`) **сами вызывают `await session.commit()`** после write-операций и `rollback()` в `except`. Хендлеры не делают commit поверх — только вызывают функцию репозитория и используют результат.
+
+**Исключение:** `core/database/requests/goals.py` — функции `create_goal`, `update_goal`, `deposit_goal`, `withdraw_goal`, `complete_goal`, `delete_goal` НЕ коммитят сами. Коммит делает вызывающий хендлер (`core/handlers/goals.py`). Это техдолг, требующий выравнивания с остальными модулями.
+
+Read-only функции (`reports.py`, `_common.py`) commit не делают.
 
 ## Основные потоки
 
@@ -465,7 +485,7 @@ editing_deadline           — редактирование дедлайна
 | MAX_ACCOUNT_NAME_LENGTH | 40 |
 | MAX_AMOUNT | 1 000 000 |
 | MAX_GOAL_AMOUNT | 10 000 000 |
-| MAX_GOAL_NAME_LENGTH | 50 |
+| MAX_GOAL_NAME_LENGTH | 100 |
 | MAX_CATEGORIES_IN_PIE | 5 |
 | MAX_CAPTION_LENGTH | 1024 |
 | MAX_MESSAGE_LENGTH | 4096 |
@@ -473,7 +493,7 @@ editing_deadline           — редактирование дедлайна
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (308)
+## Тесты (334)
 
 ```bash
 pytest tests/ -v

@@ -4,7 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Telegram-бот для учёта личных финансов на aiogram 3 + SQLAlchemy 2.0 async. Записи через текст без кнопок, история за любой период, графики по категориям, бюджеты по категориям, накопления и учёт активов/пассивов, финансовые цели, экспорт/импорт в Excel. 308 тестов, модульная архитектура.
+Telegram-бот для учёта личных финансов на aiogram 3 + SQLAlchemy 2.0 async. Записи через текст без кнопок, история за любой период, графики по категориям, бюджеты по категориям, накопления и учёт активов/пассивов, финансовые цели, экспорт/импорт в Excel. 312 тестов, модульная архитектура.
 
 ## Стек
 
