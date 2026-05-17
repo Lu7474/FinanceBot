@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import MAX_GOAL_NAME_LENGTH
 from core.database.models import Account, Goal, GoalDeposit, Record, moscow_now
 from core.exceptions import (
     GoalCompleted,
@@ -67,6 +68,8 @@ async def update_goal(
     if not goal:
         return False
     if name is not None:
+        if not (0 < len(name) <= MAX_GOAL_NAME_LENGTH):
+            raise ValueError(f"name must be 1..{MAX_GOAL_NAME_LENGTH} chars")
         goal.name = name
     if target_amount is not None:
         goal.target_amount = target_amount
@@ -86,6 +89,8 @@ async def create_goal(
     deadline,
 ) -> Goal:
     """Creates a new goal."""
+    if not (0 < len(name) <= MAX_GOAL_NAME_LENGTH):
+        raise ValueError(f"name must be 1..{MAX_GOAL_NAME_LENGTH} chars")
     goal = Goal(user_id=user_id, name=name, target_amount=target, deadline=deadline)
     session.add(goal)
     await session.flush()
