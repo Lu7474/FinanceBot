@@ -337,7 +337,10 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
     file_bytes_io = await message.bot.download(doc)
     file_bytes = file_bytes_io.read()
 
-    valid_rows, errors, _ = parse_import_file(file_bytes, max_rows=1000)
+    loop = asyncio.get_running_loop()
+    valid_rows, errors, _ = await loop.run_in_executor(
+        _chart_executor, parse_import_file, file_bytes, 1000
+    )
 
     if not valid_rows and not errors:
         await message.answer("📋 Файл пустой или не содержит данных.")
