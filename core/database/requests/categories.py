@@ -204,8 +204,12 @@ async def count_records_with_category(
 async def seed_default_categories(
     session: AsyncSession,
     user_id: int,
+    commit: bool = True,
 ) -> None:
-    """Creates default categories for a new user. No-op if user already has categories."""
+    """Creates default categories for a new user. No-op if user already has categories.
+
+    If commit=False, caller is responsible for committing the transaction.
+    """
     try:
         count = await session.scalar(
             select(func.count(UserCategory.id)).where(UserCategory.user_id == user_id)
@@ -229,9 +233,11 @@ async def seed_default_categories(
                     user_id=user_id, name=name, cat_type=cat_type, sort_order=i
                 )
             )
-        await session.commit()
+        if commit:
+            await session.commit()
     except Exception as e:
-        await session.rollback()
+        if commit:
+            await session.rollback()
         logging.exception(
             f"Ошибка при создании дефолтных категорий user_id {user_id}: {e}"
         )

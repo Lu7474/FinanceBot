@@ -54,9 +54,29 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
-    records = relationship("Record", back_populates="user")  # Связь с записями
+    records = relationship(
+        "Record", back_populates="user", cascade="all, delete-orphan"
+    )
     accounts = relationship(
         "Account", back_populates="user", cascade="all, delete-orphan"
+    )
+    savings_snapshots = relationship(
+        "SavingsSnapshot", back_populates="user", cascade="all, delete-orphan"
+    )
+    wealth_items = relationship(
+        "WealthItem", back_populates="user", cascade="all, delete-orphan"
+    )
+    budgets = relationship(
+        "Budget", back_populates="user", cascade="all, delete-orphan"
+    )
+    user_categories = relationship(
+        "UserCategory", back_populates="user", cascade="all, delete-orphan"
+    )
+    category_keywords = relationship(
+        "CategoryKeyword", back_populates="user", cascade="all, delete-orphan"
+    )
+    goals = relationship(
+        "Goal", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -65,7 +85,9 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     balance_offset: Mapped[Decimal] = mapped_column(
         DECIMAL(10, 2), default=Decimal("0"), server_default="0"
@@ -95,7 +117,7 @@ class Record(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"), index=True
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
     )  # Индекс на FK
     operation: Mapped[str] = mapped_column(String(1))  # "+" (доход) или "-" (расход)
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))  # Сумма
@@ -131,10 +153,13 @@ class SavingsSnapshot(Base):
     __table_args__ = (Index("ix_savings_user_date", "user_id", "date", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     date: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
+    user = relationship("User", back_populates="savings_snapshots")
     items = relationship(
         "SavingsItem", back_populates="snapshot", cascade="all, delete-orphan"
     )
@@ -159,7 +184,9 @@ class WealthItem(Base):
     __tablename__ = "wealth_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     type: Mapped[str] = mapped_column(
         String(1), nullable=False
     )  # "A" = актив, "P" = пассив
@@ -167,6 +194,8 @@ class WealthItem(Base):
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    user = relationship("User", back_populates="wealth_items")
 
 
 # Месячный бюджет пользователя по категории
@@ -177,7 +206,9 @@ class Budget(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
@@ -186,6 +217,8 @@ class Budget(Base):
         Boolean, default=False, server_default="0"
     )
     last_reset_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    user = relationship("User", back_populates="budgets")
 
 
 # Пользовательская категория (расход / доход / оба)
@@ -196,7 +229,9 @@ class UserCategory(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     cat_type: Mapped[str] = mapped_column(
         String(1), nullable=False
@@ -204,6 +239,8 @@ class UserCategory(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    user = relationship("User", back_populates="user_categories")
 
 
 # Ключевое слово → категория (для умных подсказок)
@@ -214,11 +251,15 @@ class CategoryKeyword(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     category_id: Mapped[int] = mapped_column(
         ForeignKey("user_categories.id", ondelete="CASCADE"), index=True
     )
     keyword: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    user = relationship("User", back_populates="category_keywords")
 
 
 class Goal(Base):
@@ -226,7 +267,9 @@ class Goal(Base):
     __table_args__ = (Index("ix_goals_user_completed", "user_id", "is_completed"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     target_amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
     current_amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), default=Decimal("0"), server_default="0")
@@ -235,6 +278,7 @@ class Goal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    user = relationship("User", back_populates="goals")
     deposits = relationship("GoalDeposit", back_populates="goal", cascade="all, delete-orphan")
 
 

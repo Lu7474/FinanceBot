@@ -15,10 +15,16 @@ from sqlalchemy.orm import selectinload
 from config import TIMEZONE
 from core.database.models import (
     Account,
+    Budget,
     CategoryKeyword,
+    Goal,
+    GoalDeposit,
     Record,
+    SavingsItem,
+    SavingsSnapshot,
     User,
     UserCategory,
+    WealthItem,
 )
 
 from ._common import SYSTEM_CATEGORIES
@@ -107,18 +113,47 @@ async def ban_user(session: AsyncSession, tg_id: int, is_banned: bool) -> bool:
 
 
 async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
+    """Explicit delete of user and all related rows.
+
+    Bulk session.execute(delete(...)) emits raw SQL and bypasses ORM relationship
+    cascade. Without PRAGMA foreign_keys=ON SQLite won't enforce ondelete=CASCADE
+    either — so child tables (GoalDeposit, SavingsItem) must be deleted explicitly
+    before their parents.
+    """
     try:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
             return False
-        await session.execute(delete(Record).where(Record.user_id == user.id))
-        await session.execute(delete(Account).where(Account.user_id == user.id))
+        uid = user.id
+
+        # GoalDeposit -> Goal
         await session.execute(
-            delete(CategoryKeyword).where(CategoryKeyword.user_id == user.id)
+            delete(GoalDeposit).where(
+                GoalDeposit.goal_id.in_(select(Goal.id).where(Goal.user_id == uid))
+            )
         )
+        await session.execute(delete(Goal).where(Goal.user_id == uid))
+
+        # SavingsItem -> SavingsSnapshot
         await session.execute(
-            delete(UserCategory).where(UserCategory.user_id == user.id)
+            delete(SavingsItem).where(
+                SavingsItem.snapshot_id.in_(
+                    select(SavingsSnapshot.id).where(SavingsSnapshot.user_id == uid)
+                )
+            )
         )
+        await session.execute(delete(SavingsSnapshot).where(SavingsSnapshot.user_id == uid))
+
+        # CategoryKeyword -> UserCategory
+        await session.execute(delete(CategoryKeyword).where(CategoryKeyword.user_id == uid))
+        await session.execute(delete(UserCategory).where(UserCategory.user_id == uid))
+
+        # Independent of user-children
+        await session.execute(delete(Budget).where(Budget.user_id == uid))
+        await session.execute(delete(WealthItem).where(WealthItem.user_id == uid))
+        await session.execute(delete(Record).where(Record.user_id == uid))
+        await session.execute(delete(Account).where(Account.user_id == uid))
+
         await session.delete(user)
         await session.commit()
         return True
