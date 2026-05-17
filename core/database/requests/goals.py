@@ -7,6 +7,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.models import Account, Goal, GoalDeposit, Record, moscow_now
+from core.exceptions import (
+    GoalCompleted,
+    GoalNotFound,
+    GoalNotFoundOrCompleted,
+    InsufficientFundsInGoal,
+)
 
 
 async def get_goals(
@@ -98,7 +104,7 @@ async def deposit_goal(
     реальный расход появляется только при complete_goal."""
     goal = await get_goal(session, goal_id, user_id)
     if not goal or goal.is_completed:
-        raise ValueError("Goal not found or completed")
+        raise GoalNotFoundOrCompleted()
 
     deposit = GoalDeposit(
         goal_id=goal_id, account_id=account_id, amount=amount, note=note
@@ -128,11 +134,11 @@ async def withdraw_goal(
     """Withdraws from goal — снимает earmark. Adjusts balance_offset, no Record."""
     goal = await get_goal(session, goal_id, user_id)
     if not goal:
-        raise ValueError("Goal not found")
+        raise GoalNotFound()
     if goal.is_completed:
-        raise ValueError("Goal is completed")
+        raise GoalCompleted()
     if amount > goal.current_amount:
-        raise ValueError("Insufficient funds in goal")
+        raise InsufficientFundsInGoal()
 
     deposit = GoalDeposit(
         goal_id=goal_id, account_id=account_id, amount=-amount, note=note

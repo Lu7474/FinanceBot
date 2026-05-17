@@ -1,4 +1,4 @@
-"""Tests that goal deposit/withdraw ValueError strings are mapped to user messages."""
+"""Tests for typed goal exceptions and their handler mapping."""
 
 import sys
 from pathlib import Path
@@ -7,50 +7,74 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from core.exceptions import (
+    GoalCompleted,
+    GoalError,
+    GoalNotFound,
+    GoalNotFoundOrCompleted,
+    InsufficientFundsInGoal,
+)
 from core.handlers.goals import _GOAL_ERROR_MESSAGES
+
+# --- Exception hierarchy ---
+
+
+def test_all_goal_exceptions_are_value_errors():
+    """GoalError subclasses must be catchable as ValueError for handler compatibility."""
+    for exc_type in (
+        GoalNotFoundOrCompleted,
+        GoalCompleted,
+        GoalNotFound,
+        InsufficientFundsInGoal,
+    ):
+        assert issubclass(exc_type, ValueError), f"{exc_type} must inherit ValueError"
+
+
+# --- Mapping coverage ---
 
 
 @pytest.mark.parametrize(
-    "raised_text",
-    [
-        "Goal not found or completed",
-        "Goal not found",
-        "Goal is completed",
-        "Insufficient funds in goal",
-    ],
+    "exc_type",
+    [GoalNotFoundOrCompleted, GoalCompleted, GoalNotFound, InsufficientFundsInGoal],
 )
-def test_goal_error_messages_cover_all_raises(raised_text):
-    """Every ValueError raised by deposit_goal/withdraw_goal must have a Russian translation."""
-    msg = _GOAL_ERROR_MESSAGES.get(raised_text)
-    assert msg is not None, f"No user-facing message for: {raised_text}"
-    assert msg.strip()
-    assert any("А" <= ch <= "я" for ch in msg), "Message must be Russian"
-
-
-def test_goal_error_fallback_for_unknown_error_is_handled():
-    """Unknown ValueError text — helper falls back to default in source; mapping returns None."""
-    assert _GOAL_ERROR_MESSAGES.get("unrelated string") is None
-
-
-def test_goal_repository_raises_match_handler_translation():
-    """Critical #3: every raise ValueError("...") in requests/goals.py must be in _GOAL_ERROR_MESSAGES.
-
-    Любое переименование строки в репозитории тихо сломает русский перевод
-    и пользователь увидит generic «Не удалось выполнить операцию». Тест ловит этот рассинхрон.
-    """
-    import inspect
-    import re
-
-    from core.database.requests import goals as goals_repo
-
-    src = inspect.getsource(goals_repo)
-    raised = set(re.findall(r'raise\s+ValueError\(\s*"([^"]+)"\s*\)', src))
-    assert raised, (
-        'Не нашли ни одного raise ValueError("...") в requests/goals.py — обнови regex'
+def test_every_goal_exception_has_russian_translation(exc_type):
+    """Every typed exception must be matched by _GOAL_ERROR_MESSAGES."""
+    instance = exc_type()
+    matched = next(
+        (msg for t, msg in _GOAL_ERROR_MESSAGES if isinstance(instance, t)),
+        None,
+    )
+    assert matched is not None, f"No translation for {exc_type.__name__}"
+    assert matched.strip()
+    assert any("А" <= ch <= "я" for ch in matched), (
+        f"Message for {exc_type.__name__} must be Russian"
     )
 
-    missing = raised - set(_GOAL_ERROR_MESSAGES.keys())
-    assert not missing, (
-        f"Строки ValueError, не имеющие перевода в _GOAL_ERROR_MESSAGES: {missing}. "
-        "Либо добавь ключ в словарь, либо введи типизированные исключения."
+
+def test_unknown_goal_error_returns_none_from_mapping():
+    """An unknown GoalError subclass must not accidentally match a translation."""
+
+    class UnknownGoalError(GoalError):
+        pass
+
+    instance = UnknownGoalError()
+    matched = next(
+        (msg for t, msg in _GOAL_ERROR_MESSAGES if isinstance(instance, t)),
+        None,
     )
+    assert matched is None
+
+
+# --- isinstance ordering: more specific before base ---
+
+
+def test_goal_not_found_or_completed_does_not_match_goal_not_found():
+    """GoalNotFoundOrCompleted must NOT be matched as GoalNotFound."""
+    instance = GoalNotFoundOrCompleted()
+    assert not isinstance(instance, GoalNotFound)
+
+
+def test_goal_completed_does_not_match_goal_not_found():
+    """GoalCompleted must NOT be matched as GoalNotFound."""
+    instance = GoalCompleted()
+    assert not isinstance(instance, GoalNotFound)

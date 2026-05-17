@@ -22,6 +22,12 @@ from core.database.requests import (
     update_goal,
     withdraw_goal,
 )
+from core.exceptions import (
+    GoalCompleted,
+    GoalNotFound,
+    GoalNotFoundOrCompleted,
+    InsufficientFundsInGoal,
+)
 from core.keyboards import (
     goal_account_keyboard,
     goal_achievement_keyboard,
@@ -58,12 +64,12 @@ async def _load_goals_view(user_db_id: int) -> tuple[list, int]:
     return active, len(all_goals) - len(active)
 
 
-_GOAL_ERROR_MESSAGES = {
-    "Insufficient funds in goal": "Недостаточно средств в цели.",
-    "Goal is completed": "Цель уже закрыта.",
-    "Goal not found or completed": "Цель не найдена или уже закрыта.",
-    "Goal not found": "Цель не найдена.",
-}
+_GOAL_ERROR_MESSAGES: list[tuple[type, str]] = [
+    (GoalNotFoundOrCompleted, "Цель не найдена или уже закрыта."),
+    (GoalCompleted, "Цель уже закрыта."),
+    (GoalNotFound, "Цель не найдена."),
+    (InsufficientFundsInGoal, "Недостаточно средств в цели."),
+]
 
 
 async def _handle_goal_op_error(
@@ -74,8 +80,9 @@ async def _handle_goal_op_error(
     callback: CallbackQuery | None = None,
 ) -> None:
     """Reports a deposit/withdraw failure to the user and returns to goals list."""
-    user_text = _GOAL_ERROR_MESSAGES.get(
-        str(error), "Не удалось выполнить операцию по цели."
+    user_text = next(
+        (msg for exc_type, msg in _GOAL_ERROR_MESSAGES if isinstance(error, exc_type)),
+        "Не удалось выполнить операцию по цели.",
     )
     goals, archive_count = await _load_goals_view(user_db_id)
     kb = (
@@ -89,9 +96,7 @@ async def _handle_goal_op_error(
         )
         await callback.answer()
     else:
-        await message.answer(
-            f"⚠️ {user_text}", parse_mode="HTML", reply_markup=kb
-        )
+        await message.answer(f"⚠️ {user_text}", parse_mode="HTML", reply_markup=kb)
     await state.set_state(GoalStates.viewing_list)
 
 
@@ -110,10 +115,14 @@ async def show_goals(message: Message, state: FSMContext, **kwargs) -> None:
     goals, archive_count = await _load_goals_view(user_id)
 
     if not goals and archive_count == 0:
-        await message.answer("🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard())
+        await message.answer(
+            "🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard()
+        )
     else:
         await message.answer(
-            format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
+            format_goals_list(goals)
+            if goals
+            else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
             reply_markup=goals_list_keyboard(goals, archive_count),
             parse_mode="HTML",
         )
@@ -122,7 +131,9 @@ async def show_goals(message: Message, state: FSMContext, **kwargs) -> None:
 
 @router.callback_query(F.data == "goal:list")
 @log_exceptions("Ошибка при обновлении списка целей")
-async def goal_list_callback(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_list_callback(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -131,10 +142,14 @@ async def goal_list_callback(callback: CallbackQuery, state: FSMContext, **kwarg
     goals, archive_count = await _load_goals_view(user_id)
 
     if not goals and archive_count == 0:
-        await callback.message.edit_text("🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard())
+        await callback.message.edit_text(
+            "🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard()
+        )
     else:
         await callback.message.edit_text(
-            format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
+            format_goals_list(goals)
+            if goals
+            else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
             reply_markup=goals_list_keyboard(goals, archive_count),
             parse_mode="HTML",
         )
@@ -180,7 +195,9 @@ async def goal_amount_entered(message: Message, state: FSMContext, **kwargs) -> 
             raise ValueError
     except (InvalidOperation, ValueError):
         await message.answer(
-            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(",", " ")
+            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
+                ",", " "
+            )
         )
         return
     await state.update_data(goal_target=str(amount))
@@ -198,10 +215,14 @@ async def goal_deadline_entered(message: Message, state: FSMContext, **kwargs) -
     try:
         deadline = datetime.strptime(text, "%d.%m.%Y").date()
         if deadline <= date.today():
-            await message.answer("Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:")
+            await message.answer(
+                "Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:"
+            )
             return
     except ValueError:
-        await message.answer("Неверный формат. Введите дату как ДД.ММ.ГГГГ или нажмите «Без дедлайна»:")
+        await message.answer(
+            "Неверный формат. Введите дату как ДД.ММ.ГГГГ или нажмите «Без дедлайна»:"
+        )
         return
     user_id = await get_user_id_from_event(message, kwargs)
     await _create_goal_and_confirm(message, state, deadline, user_id)
@@ -209,9 +230,13 @@ async def goal_deadline_entered(message: Message, state: FSMContext, **kwargs) -
 
 @router.callback_query(F.data == "goal:no_deadline")
 @log_exceptions("Ошибка при создании цели без дедлайна")
-async def goal_no_deadline(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_no_deadline(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
-    await _create_goal_and_confirm(callback.message, state, None, user_id, callback=callback)
+    await _create_goal_and_confirm(
+        callback.message, state, None, user_id, callback=callback
+    )
 
 
 @router.callback_query(F.data == "goal:cancel")
@@ -224,10 +249,14 @@ async def goal_cancel(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         return
     goals, archive_count = await _load_goals_view(user_id)
     if not goals and archive_count == 0:
-        await callback.message.edit_text("🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard())
+        await callback.message.edit_text(
+            "🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard()
+        )
     else:
         await callback.message.edit_text(
-            format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
+            format_goals_list(goals)
+            if goals
+            else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
             reply_markup=goals_list_keyboard(goals, archive_count),
             parse_mode="HTML",
         )
@@ -308,7 +337,9 @@ async def goal_detail(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 
 @router.callback_query(F.data.startswith("goal:deposit:"))
 @log_exceptions("Ошибка при начале пополнения цели")
-async def goal_deposit_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_deposit_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -338,7 +369,9 @@ async def goal_deposit_start(callback: CallbackQuery, state: FSMContext, **kwarg
         await state.update_data(deposit_account_id=None)
         remaining = float(goal.target_amount - goal.current_amount)
         monthly = monthly_deposit_amount(goal)
-        progress = f"Прогресс: {goal.current_amount:,.0f} / {goal.target_amount:,.0f}₽".replace(",", " ")
+        progress = f"Прогресс: {goal.current_amount:,.0f} / {goal.target_amount:,.0f}₽".replace(
+            ",", " "
+        )
         await callback.message.edit_text(
             f"Пополнение цели <b>{html.escape(goal.name)}</b>\n{progress}\n\nСколько откладываем (₽)? Введите вручную или выберите быструю сумму:",
             reply_markup=goal_quick_amounts_keyboard(goal_id, "qd", remaining, monthly),
@@ -350,7 +383,9 @@ async def goal_deposit_start(callback: CallbackQuery, state: FSMContext, **kwarg
 
 @router.callback_query(F.data.startswith("goal:deposit_acc:"))
 @log_exceptions("Ошибка при выборе счёта для пополнения")
-async def goal_deposit_account_selected(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_deposit_account_selected(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     parts = callback.data.split(":")
     goal_id = int(parts[2])
     account_id = int(parts[3])
@@ -369,7 +404,9 @@ async def goal_deposit_account_selected(callback: CallbackQuery, state: FSMConte
         remaining = float(goal.target_amount - goal.current_amount)
         monthly = monthly_deposit_amount(goal)
         goal_name = goal.name
-        progress = f"Прогресс: {goal.current_amount:,.0f} / {goal.target_amount:,.0f}₽".replace(",", " ")
+        progress = f"Прогресс: {goal.current_amount:,.0f} / {goal.target_amount:,.0f}₽".replace(
+            ",", " "
+        )
 
     await callback.message.edit_text(
         f"Пополнение цели <b>{html.escape(goal_name)}</b>\n{progress}\n\nСколько откладываем (₽)? Введите вручную или выберите быструю сумму:",
@@ -382,7 +419,9 @@ async def goal_deposit_account_selected(callback: CallbackQuery, state: FSMConte
 
 @router.message(GoalStates.entering_deposit_amount)
 @log_exceptions("Ошибка при вводе суммы пополнения")
-async def goal_deposit_amount_entered(message: Message, state: FSMContext, **kwargs) -> None:
+async def goal_deposit_amount_entered(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     text = (message.text or "").strip()
     try:
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
@@ -390,22 +429,33 @@ async def goal_deposit_amount_entered(message: Message, state: FSMContext, **kwa
             raise ValueError
     except (InvalidOperation, ValueError):
         await message.answer(
-            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(",", " ")
+            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
+                ",", " "
+            )
         )
         return
 
     await state.update_data(deposit_amount=str(amount))
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пропустить", callback_data="goal:deposit_skip_note")]
-    ])
+
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пропустить", callback_data="goal:deposit_skip_note"
+                )
+            ]
+        ]
+    )
     await message.answer("Добавить заметку к операции?", reply_markup=skip_kb)
     await state.set_state(GoalStates.entering_deposit_note)
 
 
 @router.message(GoalStates.entering_deposit_note)
 @log_exceptions("Ошибка при вводе заметки пополнения")
-async def goal_deposit_note_entered(message: Message, state: FSMContext, **kwargs) -> None:
+async def goal_deposit_note_entered(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     note = (message.text or "").strip() or None
     user_id = await get_user_id_from_event(message, kwargs)
     if not user_id:
@@ -416,7 +466,9 @@ async def goal_deposit_note_entered(message: Message, state: FSMContext, **kwarg
 
 @router.callback_query(F.data == "goal:deposit_skip_note")
 @log_exceptions("Ошибка при пропуске заметки пополнения")
-async def goal_deposit_skip_note(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_deposit_skip_note(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -443,14 +495,14 @@ async def _execute_deposit(
             achieved = bool(goal and goal.current_amount >= goal.target_amount)
             await session.commit()
     except ValueError as e:
-        await _handle_goal_op_error(
-            message, state, e, user_db_id, callback=callback
-        )
+        await _handle_goal_op_error(message, state, e, user_db_id, callback=callback)
         return
 
     text = f"✅ Добавлено <b>{amount:,.0f}₽</b> к цели.".replace(",", " ")
     if achieved:
-        text += "\n\n🎉 <b>Цель достигнута!</b>\nЗакрыть её сейчас или оставить открытой?"
+        text += (
+            "\n\n🎉 <b>Цель достигнута!</b>\nЗакрыть её сейчас или оставить открытой?"
+        )
         kb = goal_achievement_keyboard(goal_id)
         next_state = GoalStates.viewing_detail
     else:
@@ -472,7 +524,9 @@ async def _execute_deposit(
 
 @router.callback_query(F.data.startswith("goal:withdraw:"))
 @log_exceptions("Ошибка при начале снятия с цели")
-async def goal_withdraw_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_withdraw_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -493,7 +547,9 @@ async def goal_withdraw_start(callback: CallbackQuery, state: FSMContext, **kwar
 
     if accounts:
         await callback.message.edit_text(
-            f"Снятие с цели <b>{html.escape(goal.name)}</b>\nДоступно: {goal.current_amount:,.0f}₽\n\nВыберите счёт зачисления:".replace(",", " "),
+            f"Снятие с цели <b>{html.escape(goal.name)}</b>\nДоступно: {goal.current_amount:,.0f}₽\n\nВыберите счёт зачисления:".replace(
+                ",", " "
+            ),
             reply_markup=goal_account_keyboard(accounts, "withdraw_acc", goal_id),
             parse_mode="HTML",
         )
@@ -502,7 +558,9 @@ async def goal_withdraw_start(callback: CallbackQuery, state: FSMContext, **kwar
         await state.update_data(withdraw_account_id=None)
         available = float(goal.current_amount)
         await callback.message.edit_text(
-            f"Снятие с цели <b>{html.escape(goal.name)}</b>\nДоступно: {goal.current_amount:,.0f}₽\n\nСколько снять (₽)? Введите вручную или выберите быструю сумму:".replace(",", " "),
+            f"Снятие с цели <b>{html.escape(goal.name)}</b>\nДоступно: {goal.current_amount:,.0f}₽\n\nСколько снять (₽)? Введите вручную или выберите быструю сумму:".replace(
+                ",", " "
+            ),
             reply_markup=goal_quick_amounts_keyboard(goal_id, "qw", available),
             parse_mode="HTML",
         )
@@ -512,7 +570,9 @@ async def goal_withdraw_start(callback: CallbackQuery, state: FSMContext, **kwar
 
 @router.callback_query(F.data.startswith("goal:withdraw_acc:"))
 @log_exceptions("Ошибка при выборе счёта для снятия")
-async def goal_withdraw_account_selected(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_withdraw_account_selected(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     parts = callback.data.split(":")
     goal_id = int(parts[2])
     account_id = int(parts[3])
@@ -533,7 +593,9 @@ async def goal_withdraw_account_selected(callback: CallbackQuery, state: FSMCont
         current_amount = goal.current_amount
 
     await callback.message.edit_text(
-        f"Снятие с цели <b>{html.escape(goal_name)}</b>\nДоступно: {current_amount:,.0f}₽\n\nСколько снять (₽)? Введите вручную или выберите быструю сумму:".replace(",", " "),
+        f"Снятие с цели <b>{html.escape(goal_name)}</b>\nДоступно: {current_amount:,.0f}₽\n\nСколько снять (₽)? Введите вручную или выберите быструю сумму:".replace(
+            ",", " "
+        ),
         reply_markup=goal_quick_amounts_keyboard(goal_id, "qw", available),
         parse_mode="HTML",
     )
@@ -543,7 +605,9 @@ async def goal_withdraw_account_selected(callback: CallbackQuery, state: FSMCont
 
 @router.message(GoalStates.entering_withdraw_amount)
 @log_exceptions("Ошибка при вводе суммы снятия")
-async def goal_withdraw_amount_entered(message: Message, state: FSMContext, **kwargs) -> None:
+async def goal_withdraw_amount_entered(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     text = (message.text or "").strip()
     data = await state.get_data()
     goal_id = data.get("withdraw_goal_id")
@@ -558,7 +622,9 @@ async def goal_withdraw_amount_entered(message: Message, state: FSMContext, **kw
             raise ValueError
     except (InvalidOperation, ValueError):
         await message.answer(
-            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(",", " ")
+            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
+                ",", " "
+            )
         )
         return
 
@@ -571,22 +637,33 @@ async def goal_withdraw_amount_entered(message: Message, state: FSMContext, **kw
         if amount > goal.current_amount:
             available = goal.current_amount
             await message.answer(
-                f"Недостаточно средств в цели. Доступно: {available:,.0f}₽:".replace(",", " ")
+                f"Недостаточно средств в цели. Доступно: {available:,.0f}₽:".replace(
+                    ",", " "
+                )
             )
             return
 
     await state.update_data(withdraw_amount=str(amount))
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пропустить", callback_data="goal:withdraw_skip_note")]
-    ])
+
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пропустить", callback_data="goal:withdraw_skip_note"
+                )
+            ]
+        ]
+    )
     await message.answer("Добавить заметку к операции?", reply_markup=skip_kb)
     await state.set_state(GoalStates.entering_withdraw_note)
 
 
 @router.message(GoalStates.entering_withdraw_note)
 @log_exceptions("Ошибка при вводе заметки снятия")
-async def goal_withdraw_note_entered(message: Message, state: FSMContext, **kwargs) -> None:
+async def goal_withdraw_note_entered(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     note = (message.text or "").strip() or None
     user_id = await get_user_id_from_event(message, kwargs)
     if not user_id:
@@ -597,7 +674,9 @@ async def goal_withdraw_note_entered(message: Message, state: FSMContext, **kwar
 
 @router.callback_query(F.data == "goal:withdraw_skip_note")
 @log_exceptions("Ошибка при пропуске заметки снятия")
-async def goal_withdraw_skip_note(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_withdraw_skip_note(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -619,14 +698,10 @@ async def _execute_withdraw(
 
     try:
         async with async_session() as session:
-            await withdraw_goal(
-                session, goal_id, user_db_id, amount, note, account_id
-            )
+            await withdraw_goal(session, goal_id, user_db_id, amount, note, account_id)
             await session.commit()
     except ValueError as e:
-        await _handle_goal_op_error(
-            message, state, e, user_db_id, callback=callback
-        )
+        await _handle_goal_op_error(message, state, e, user_db_id, callback=callback)
         return
 
     text = f"📤 Снято <b>{amount:,.0f}₽</b> с цели.".replace(",", " ")
@@ -659,7 +734,9 @@ async def goal_complete(callback: CallbackQuery, state: FSMContext, **kwargs) ->
 
 @router.callback_query(F.data.startswith("goal:complete_confirm:"))
 @log_exceptions("Ошибка при завершении цели")
-async def goal_complete_confirm(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_complete_confirm(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -699,7 +776,9 @@ async def goal_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 
 @router.callback_query(F.data.startswith("goal:delete_confirm:"))
 @log_exceptions("Ошибка при удалении цели")
-async def goal_delete_confirm(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_delete_confirm(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -718,7 +797,11 @@ async def goal_delete_confirm(callback: CallbackQuery, state: FSMContext, **kwar
             reply_markup=goal_empty_keyboard(),
         )
     else:
-        body = format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>\n\nНет активных целей."
+        body = (
+            format_goals_list(goals)
+            if goals
+            else "🎯 <b>Мои цели</b>\n\nНет активных целей."
+        )
         await callback.message.edit_text(
             "🗑 Цель удалена.\n\n" + body,
             reply_markup=goals_list_keyboard(goals, archive_count),
@@ -734,18 +817,29 @@ async def goal_delete_confirm(callback: CallbackQuery, state: FSMContext, **kwar
 
 @router.callback_query(F.data.startswith("goal:qd:"))
 @log_exceptions("Ошибка при быстром пополнении")
-async def goal_quick_deposit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_quick_deposit(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Quick deposit amount: jump straight to note step."""
     parts = callback.data.split(":")
     goal_id = int(parts[2])
     amount = Decimal(parts[3])
     await state.update_data(deposit_goal_id=goal_id, deposit_amount=str(amount))
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пропустить", callback_data="goal:deposit_skip_note")]
-    ])
+
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пропустить", callback_data="goal:deposit_skip_note"
+                )
+            ]
+        ]
+    )
     await callback.message.edit_text(
-        f"Сумма: <b>{amount:,.0f}₽</b>\n\nДобавить заметку к операции?".replace(",", " "),
+        f"Сумма: <b>{amount:,.0f}₽</b>\n\nДобавить заметку к операции?".replace(
+            ",", " "
+        ),
         reply_markup=skip_kb,
         parse_mode="HTML",
     )
@@ -755,18 +849,29 @@ async def goal_quick_deposit(callback: CallbackQuery, state: FSMContext, **kwarg
 
 @router.callback_query(F.data.startswith("goal:qw:"))
 @log_exceptions("Ошибка при быстром снятии")
-async def goal_quick_withdraw(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_quick_withdraw(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Quick withdraw amount: jump straight to note step."""
     parts = callback.data.split(":")
     goal_id = int(parts[2])
     amount = Decimal(parts[3])
     await state.update_data(withdraw_goal_id=goal_id, withdraw_amount=str(amount))
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пропустить", callback_data="goal:withdraw_skip_note")]
-    ])
+
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пропустить", callback_data="goal:withdraw_skip_note"
+                )
+            ]
+        ]
+    )
     await callback.message.edit_text(
-        f"Сумма: <b>{amount:,.0f}₽</b>\n\nДобавить заметку к операции?".replace(",", " "),
+        f"Сумма: <b>{amount:,.0f}₽</b>\n\nДобавить заметку к операции?".replace(
+            ",", " "
+        ),
         reply_markup=skip_kb,
         parse_mode="HTML",
     )
@@ -796,11 +901,17 @@ async def goal_archive(callback: CallbackQuery, state: FSMContext, **kwargs) -> 
 
     lines = ["📁 <b>Архив целей</b>\n"]
     for g in completed:
-        lines.append(f"✅ <b>{html.escape(g.name)}</b> — {g.target_amount:,.0f}₽".replace(",", " "))
+        lines.append(
+            f"✅ <b>{html.escape(g.name)}</b> — {g.target_amount:,.0f}₽".replace(
+                ",", " "
+            )
+        )
         if g.completed_at:
-            closed_str = g.completed_at.strftime('%d.%m.%Y')
+            closed_str = g.completed_at.strftime("%d.%m.%Y")
             duration_days = (g.completed_at.date() - g.created_at.date()).days
-            lines.append(f"   📅 {closed_str} • за {format_duration_short(duration_days)}")
+            lines.append(
+                f"   📅 {closed_str} • за {format_duration_short(duration_days)}"
+            )
 
     await callback.message.edit_text(
         "\n".join(lines),
@@ -825,6 +936,7 @@ async def goal_reactivate(callback: CallbackQuery, state: FSMContext, **kwargs) 
         from sqlalchemy import update as _update
 
         from core.database.models import Goal
+
         await session.execute(
             _update(Goal)
             .where(Goal.id == goal_id, Goal.user_id == user_id)
@@ -834,7 +946,8 @@ async def goal_reactivate(callback: CallbackQuery, state: FSMContext, **kwargs) 
 
     goals, archive_count = await _load_goals_view(user_id)
     await callback.message.edit_text(
-        "↩️ Цель переоткрыта.\n\n" + (format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>"),
+        "↩️ Цель переоткрыта.\n\n"
+        + (format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>"),
         reply_markup=goals_list_keyboard(goals, archive_count),
         parse_mode="HTML",
     )
@@ -872,7 +985,9 @@ async def goal_edit_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -
 
 @router.callback_query(F.data.startswith("goal:edit_name:"))
 @log_exceptions("Ошибка при начале редактирования имени")
-async def goal_edit_name_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_edit_name_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -930,7 +1045,9 @@ async def goal_edit_name_entered(message: Message, state: FSMContext, **kwargs) 
 
 @router.callback_query(F.data.startswith("goal:edit_amount:"))
 @log_exceptions("Ошибка при начале редактирования суммы")
-async def goal_edit_amount_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_edit_amount_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -958,7 +1075,9 @@ async def goal_edit_amount_start(callback: CallbackQuery, state: FSMContext, **k
 
 @router.message(GoalStates.editing_amount)
 @log_exceptions("Ошибка при сохранении новой суммы")
-async def goal_edit_amount_entered(message: Message, state: FSMContext, **kwargs) -> None:
+async def goal_edit_amount_entered(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     text = (message.text or "").strip()
     try:
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
@@ -966,7 +1085,9 @@ async def goal_edit_amount_entered(message: Message, state: FSMContext, **kwargs
             raise ValueError
     except (InvalidOperation, ValueError):
         await message.answer(
-            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(",", " ")
+            f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
+                ",", " "
+            )
         )
         return
     user_id = await get_user_id_from_event(message, kwargs)
@@ -1006,7 +1127,9 @@ async def goal_edit_amount_entered(message: Message, state: FSMContext, **kwargs
 
 @router.callback_query(F.data.startswith("goal:edit_deadline:"))
 @log_exceptions("Ошибка при начале редактирования дедлайна")
-async def goal_edit_deadline_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_edit_deadline_start(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -1040,12 +1163,16 @@ async def goal_edit_deadline_start(callback: CallbackQuery, state: FSMContext, *
 
 @router.message(GoalStates.editing_deadline)
 @log_exceptions("Ошибка при сохранении нового дедлайна")
-async def goal_edit_deadline_entered(message: Message, state: FSMContext, **kwargs) -> None:
+async def goal_edit_deadline_entered(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
     text = (message.text or "").strip()
     try:
         deadline = datetime.strptime(text, "%d.%m.%Y").date()
         if deadline <= date.today():
-            await message.answer("Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:")
+            await message.answer(
+                "Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:"
+            )
             return
     except ValueError:
         await message.answer("Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
@@ -1075,7 +1202,9 @@ async def goal_edit_deadline_entered(message: Message, state: FSMContext, **kwar
 
 @router.callback_query(F.data.startswith("goal:clear_deadline:"))
 @log_exceptions("Ошибка при удалении дедлайна")
-async def goal_clear_deadline(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+async def goal_clear_deadline(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Removes deadline from goal."""
     goal_id = int(callback.data.split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)

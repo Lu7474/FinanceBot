@@ -24,6 +24,7 @@ from core.database.requests import (
     update_goal,
     withdraw_goal,
 )
+from core.exceptions import GoalNotFoundOrCompleted, InsufficientFundsInGoal
 from core.utils import (
     format_duration_short,
     format_goal_detail,
@@ -218,7 +219,7 @@ async def test_deposit_to_completed_goal_raises(session):
         await s.commit()
 
     async with test_session() as s:
-        with pytest.raises(ValueError, match="completed"):
+        with pytest.raises(GoalNotFoundOrCompleted):
             await deposit_goal(s, goal_id, user_id, Decimal("100"), None, None)
 
 
@@ -299,7 +300,7 @@ async def test_withdraw_more_than_available_raises(session):
         await s.commit()
 
     async with test_session() as s:
-        with pytest.raises(ValueError, match="Insufficient"):
+        with pytest.raises(InsufficientFundsInGoal):
             await withdraw_goal(s, goal_id, user_id, Decimal("10000"), None, None)
 
 
