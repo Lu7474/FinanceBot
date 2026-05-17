@@ -59,6 +59,43 @@ async def _load_goals_view(user_db_id: int) -> tuple[list, int]:
     return active, len(all_goals) - len(active)
 
 
+_GOAL_ERROR_MESSAGES = {
+    "Insufficient funds in goal": "Недостаточно средств в цели.",
+    "Goal is completed": "Цель уже закрыта.",
+    "Goal not found or completed": "Цель не найдена или уже закрыта.",
+    "Goal not found": "Цель не найдена.",
+}
+
+
+async def _handle_goal_op_error(
+    message: Message,
+    state: FSMContext,
+    error: ValueError,
+    user_db_id: int,
+    callback: CallbackQuery | None = None,
+) -> None:
+    """Reports a deposit/withdraw failure to the user and returns to goals list."""
+    user_text = _GOAL_ERROR_MESSAGES.get(
+        str(error), "Не удалось выполнить операцию по цели."
+    )
+    goals, archive_count = await _load_goals_view(user_db_id)
+    kb = (
+        goal_empty_keyboard()
+        if not goals and archive_count == 0
+        else goals_list_keyboard(goals, archive_count)
+    )
+    if callback:
+        await callback.message.edit_text(
+            f"⚠️ {user_text}", parse_mode="HTML", reply_markup=kb
+        )
+        await callback.answer()
+    else:
+        await message.answer(
+            f"⚠️ {user_text}", parse_mode="HTML", reply_markup=kb
+        )
+    await state.set_state(GoalStates.viewing_list)
+
+
 # ==================== Список целей ====================
 
 
@@ -401,11 +438,17 @@ async def _execute_deposit(
     amount = Decimal(data.get("deposit_amount", "0"))
     account_id = data.get("deposit_account_id")
 
-    async with async_session() as session:
-        await deposit_goal(session, goal_id, user_db_id, amount, note, account_id)
-        goal = await get_goal(session, goal_id, user_db_id)
-        achieved = bool(goal and goal.current_amount >= goal.target_amount)
-        await session.commit()
+    try:
+        async with async_session() as session:
+            await deposit_goal(session, goal_id, user_db_id, amount, note, account_id)
+            goal = await get_goal(session, goal_id, user_db_id)
+            achieved = bool(goal and goal.current_amount >= goal.target_amount)
+            await session.commit()
+    except ValueError as e:
+        await _handle_goal_op_error(
+            message, state, e, user_db_id, callback=callback
+        )
+        return
 
     text = f"✅ Добавлено <b>{amount:,.0f}₽</b> к цели.".replace(",", " ")
     if achieved:
@@ -576,9 +619,17 @@ async def _execute_withdraw(
     amount = Decimal(data.get("withdraw_amount", "0"))
     account_id = data.get("withdraw_account_id")
 
-    async with async_session() as session:
-        await withdraw_goal(session, goal_id, user_db_id, amount, note, account_id)
-        await session.commit()
+    try:
+        async with async_session() as session:
+            await withdraw_goal(
+                session, goal_id, user_db_id, amount, note, account_id
+            )
+            await session.commit()
+    except ValueError as e:
+        await _handle_goal_op_error(
+            message, state, e, user_db_id, callback=callback
+        )
+        return
 
     text = f"📤 Снято <b>{amount:,.0f}₽</b> с цели.".replace(",", " ")
 
