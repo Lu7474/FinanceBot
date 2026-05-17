@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 from conftest import test_session
 
-from core.database.models import Account, Goal, GoalDeposit, Record, User
+from core.database.models import Account, GoalDeposit, Record, User
 from core.database.requests import (
     complete_goal,
     create_goal,
@@ -33,7 +33,6 @@ from core.utils import (
     is_goal_overdue,
     monthly_deposit_amount,
 )
-
 
 # ==================== Helpers ====================
 
@@ -107,7 +106,7 @@ async def test_create_goal_with_deadline(session):
 @pytest.mark.asyncio
 async def test_get_goals_excludes_completed_by_default(session):
     user_id = await _make_user(903)
-    g1_id = await _make_goal(user_id, "Активная", Decimal("10000"))
+    await _make_goal(user_id, "Активная", Decimal("10000"))
     g2_id = await _make_goal(user_id, "Завершённая", Decimal("5000"))
 
     async with test_session() as s:
@@ -174,6 +173,7 @@ async def test_deposit_increases_current_amount(session):
 async def test_deposit_no_record_but_offsets_balance(session):
     """Deposit to goal with account: NO Record created, account.balance_offset decreased."""
     from sqlalchemy import select
+
     user_id = await _make_user(908)
     account_id = await _make_account(user_id)
     goal_id = await _make_goal(user_id, "Ноутбук", Decimal("100000"))
@@ -183,9 +183,7 @@ async def test_deposit_no_record_but_offsets_balance(session):
         await s.commit()
 
     async with test_session() as s:
-        records = list(await s.scalars(
-            select(Record).where(Record.user_id == user_id)
-        ))
+        records = list(await s.scalars(select(Record).where(Record.user_id == user_id)))
         acc = await s.get(Account, account_id)
         offset = acc.balance_offset
 
@@ -196,6 +194,7 @@ async def test_deposit_no_record_but_offsets_balance(session):
 @pytest.mark.asyncio
 async def test_deposit_no_record_without_account(session):
     from sqlalchemy import select
+
     user_id = await _make_user(909)
     goal_id = await _make_goal(user_id, "Телефон", Decimal("50000"))
 
@@ -229,7 +228,9 @@ async def test_deposit_saves_note(session):
     goal_id = await _make_goal(user_id, "Подушка", Decimal("200000"))
 
     async with test_session() as s:
-        await deposit_goal(s, goal_id, user_id, Decimal("20000"), "зарплата за май", None)
+        await deposit_goal(
+            s, goal_id, user_id, Decimal("20000"), "зарплата за май", None
+        )
         await s.commit()
 
     async with test_session() as s:
@@ -266,6 +267,7 @@ async def test_withdraw_decreases_current_amount(session):
 async def test_withdraw_no_record_but_offsets_balance(session):
     """Withdraw from goal with account: NO Record created, account.balance_offset increased."""
     from sqlalchemy import select
+
     user_id = await _make_user(913)
     account_id = await _make_account(user_id)
     goal_id = await _make_goal(user_id, "Резерв", Decimal("50000"))
@@ -279,9 +281,7 @@ async def test_withdraw_no_record_but_offsets_balance(session):
         await s.commit()
 
     async with test_session() as s:
-        records = list(await s.scalars(
-            select(Record).where(Record.user_id == user_id)
-        ))
+        records = list(await s.scalars(select(Record).where(Record.user_id == user_id)))
         acc = await s.get(Account, account_id)
         offset = acc.balance_offset
 
@@ -366,6 +366,7 @@ async def test_complete_goal_wrong_user_no_effect(session):
 @pytest.mark.asyncio
 async def test_delete_goal_removes_deposits(session):
     from sqlalchemy import select
+
     user_id = await _make_user(919)
     goal_id = await _make_goal(user_id, "Удалить", Decimal("10000"))
 
@@ -379,9 +380,9 @@ async def test_delete_goal_removes_deposits(session):
 
     async with test_session() as s:
         goals = await get_goals(s, user_id)
-        deposits = list(await s.scalars(
-            select(GoalDeposit).where(GoalDeposit.goal_id == goal_id)
-        ))
+        deposits = list(
+            await s.scalars(select(GoalDeposit).where(GoalDeposit.goal_id == goal_id))
+        )
 
     assert len(goals) == 0
     assert len(deposits) == 0
@@ -413,7 +414,9 @@ async def test_get_goal_deposits_order_and_limit(session):
 
     async with test_session() as s:
         for i in range(15):
-            await deposit_goal(s, goal_id, user_id, Decimal(str(1000 * (i + 1))), None, None)
+            await deposit_goal(
+                s, goal_id, user_id, Decimal(str(1000 * (i + 1))), None, None
+            )
         await s.commit()
 
     async with test_session() as s:
@@ -436,6 +439,7 @@ def _make_mock_goal(
     created_days_ago: int = 30,
 ):
     from datetime import datetime
+
     class MockGoal:
         pass
 
@@ -445,7 +449,9 @@ def _make_mock_goal(
     g.current_amount = Decimal(str(current))
     g.deadline = deadline
     g.is_completed = is_completed
-    g.created_at = datetime.combine(date.today() - timedelta(days=created_days_ago), datetime.min.time())
+    g.created_at = datetime.combine(
+        date.today() - timedelta(days=created_days_ago), datetime.min.time()
+    )
     return g
 
 
@@ -604,7 +610,9 @@ def test_is_goal_overdue_no_deadline():
 
 def test_is_goal_overdue_completed_ignored():
     """Завершённая цель не считается просроченной даже с прошедшим дедлайном."""
-    g = _make_mock_goal("X", 100, 100, deadline=date.today() - timedelta(days=5), is_completed=True)
+    g = _make_mock_goal(
+        "X", 100, 100, deadline=date.today() - timedelta(days=5), is_completed=True
+    )
     assert is_goal_overdue(g) is False
 
 
@@ -659,10 +667,16 @@ async def test_get_goals_smart_sort_order(session):
     """Overdue → with deadline (asc) → no deadline (by progress desc)."""
     user_id = await _make_user(950)
     # overdue
-    overdue_id = await _make_goal(user_id, "Overdue", Decimal("10000"), deadline=date.today() - timedelta(days=5))
+    overdue_id = await _make_goal(
+        user_id, "Overdue", Decimal("10000"), deadline=date.today() - timedelta(days=5)
+    )
     # future deadlines
-    far_id = await _make_goal(user_id, "Far", Decimal("10000"), deadline=date.today() + timedelta(days=180))
-    near_id = await _make_goal(user_id, "Near", Decimal("10000"), deadline=date.today() + timedelta(days=10))
+    far_id = await _make_goal(
+        user_id, "Far", Decimal("10000"), deadline=date.today() + timedelta(days=180)
+    )
+    near_id = await _make_goal(
+        user_id, "Near", Decimal("10000"), deadline=date.today() + timedelta(days=10)
+    )
     # no deadlines, different progress
     high_id = await _make_goal(user_id, "HighProgress", Decimal("10000"))
     low_id = await _make_goal(user_id, "LowProgress", Decimal("10000"))
@@ -762,14 +776,18 @@ async def test_update_goal_wrong_user_returns_false(session):
 
 
 def test_format_goals_list_marks_overdue():
-    overdue = _make_mock_goal("Просрочка", 10000, 500, deadline=date.today() - timedelta(days=3))
+    overdue = _make_mock_goal(
+        "Просрочка", 10000, 500, deadline=date.today() - timedelta(days=3)
+    )
     text = format_goals_list([overdue])
     assert "⚠️" in text
     assert "просрочено" in text
 
 
 def test_format_goal_detail_marks_overdue():
-    overdue = _make_mock_goal("Просрочка", 10000, 500, deadline=date.today() - timedelta(days=3))
+    overdue = _make_mock_goal(
+        "Просрочка", 10000, 500, deadline=date.today() - timedelta(days=3)
+    )
     text = format_goal_detail(overdue, [])
     assert "⚠️" in text
     assert "просрочено" in text
@@ -836,8 +854,12 @@ async def test_complete_goal_stamps_completed_at(session):
 async def test_get_goals_achieved_bumped_to_top(session):
     """Достигнутая, но не закрытая цель — выше overdue и прочих."""
     user_id = await _make_user(961)
-    overdue_id = await _make_goal(user_id, "Overdue", Decimal("10000"), deadline=date.today() - timedelta(days=5))
-    near_id = await _make_goal(user_id, "Near", Decimal("10000"), deadline=date.today() + timedelta(days=10))
+    overdue_id = await _make_goal(
+        user_id, "Overdue", Decimal("10000"), deadline=date.today() - timedelta(days=5)
+    )
+    near_id = await _make_goal(
+        user_id, "Near", Decimal("10000"), deadline=date.today() + timedelta(days=10)
+    )
     achieved_id = await _make_goal(user_id, "Achieved", Decimal("5000"))
 
     async with test_session() as s:
@@ -850,3 +872,112 @@ async def test_get_goals_achieved_bumped_to_top(session):
 
     # Achieved сверху, затем overdue, затем near
     assert order == [achieved_id, overdue_id, near_id]
+
+
+# ==================== Tests: regressions from PROJECT_REVIEW.md ====================
+
+
+@pytest.mark.asyncio
+async def test_delete_goal_restores_account_balance_offset(session):
+    """Critical #1: deleting a goal must restore balance_offset on all linked accounts."""
+    from sqlalchemy import select
+
+    user_id = await _make_user(970)
+    acc_id = await _make_account(user_id, "Карта")
+
+    async with test_session() as s:
+        await deposit_goal(
+            s,
+            (await _make_goal_inline(s, user_id, "Машина", Decimal("100000"))),
+            user_id,
+            Decimal("10000"),
+            None,
+            acc_id,
+        )
+        await s.commit()
+
+    # find the goal id we just made
+    async with test_session() as s:
+        goals = await get_goals(s, user_id)
+        goal_id = goals[0].id
+
+    async with test_session() as s:
+        acc = await s.scalar(select(Account).where(Account.id == acc_id))
+        assert Decimal(str(acc.balance_offset)) == Decimal("-10000")
+
+    async with test_session() as s:
+        await delete_goal(s, goal_id, user_id)
+        await s.commit()
+
+    async with test_session() as s:
+        acc = await s.scalar(select(Account).where(Account.id == acc_id))
+        assert Decimal(str(acc.balance_offset)) == Decimal("0"), (
+            "delete_goal должен вернуть деньги: было +10 000 на цели, "
+            "после удаления balance_offset обязан стать 0, иначе деньги «потеряны»"
+        )
+
+
+async def _make_goal_inline(s, user_id: int, name: str, target: Decimal):
+    """Helper: create goal inside an existing session, return id."""
+    g = await create_goal(s, user_id, name, target, None)
+    await s.flush()
+    return g.id
+
+
+@pytest.mark.asyncio
+async def test_goal_deposit_does_not_create_record(session):
+    """deposit_goal — перекладка денег в конверт, не расход. Record не создаётся."""
+    from sqlalchemy import select
+
+    user_id = await _make_user(971)
+    acc_id = await _make_account(user_id, "Карта")
+    goal_id = await _make_goal(user_id, "Отпуск", Decimal("50000"))
+
+    async with test_session() as s:
+        await deposit_goal(s, goal_id, user_id, Decimal("5000"), None, acc_id)
+        await s.commit()
+
+    async with test_session() as s:
+        records = list(await s.scalars(select(Record).where(Record.user_id == user_id)))
+
+    assert not records, (
+        "deposit_goal не должен создавать Record — деньги просто переложены в «конверт», "
+        "расход появляется только при завершении цели (complete_goal)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_complete_goal_creates_expense_record(session):
+    """complete_goal создаёт Record('-', category='Цели') и восстанавливает balance_offset."""
+    from sqlalchemy import select
+
+    user_id = await _make_user(972)
+    acc_id = await _make_account(user_id, "Карта")
+    goal_id = await _make_goal(user_id, "Машина", Decimal("10000"))
+
+    async with test_session() as s:
+        await deposit_goal(s, goal_id, user_id, Decimal("10000"), None, acc_id)
+        await s.commit()
+
+    async with test_session() as s:
+        await complete_goal(s, goal_id, user_id)
+        await s.commit()
+
+    async with test_session() as s:
+        acc = await s.scalar(select(Account).where(Account.id == acc_id))
+        records = list(
+            await s.scalars(
+                select(Record).where(
+                    Record.user_id == user_id, Record.category == "Цели"
+                )
+            )
+        )
+
+    assert Decimal(str(acc.balance_offset)) == Decimal("0"), (
+        "complete_goal должен восстановить balance_offset (снять earmark)"
+    )
+    assert len(records) == 1, (
+        "complete_goal должен создать одну запись-расход с категорией 'Цели'"
+    )
+    assert records[0].operation == "-"
+    assert Decimal(str(records[0].amount)) == Decimal("10000")

@@ -3,10 +3,10 @@
 from datetime import date as date_type
 from decimal import Decimal
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import Account, Goal, GoalDeposit, moscow_now
+from core.database.models import Account, Goal, GoalDeposit, Record, moscow_now
 
 
 async def get_goals(
@@ -94,20 +94,22 @@ async def deposit_goal(
     note: str | None,
     account_id: int | None,
 ) -> GoalDeposit:
-    """Adds deposit to goal. Adjusts account.balance_offset (no Record) if account_id provided."""
+    """Adds deposit to goal — earmark в «конверт». Adjusts balance_offset, NO Record:
+    реальный расход появляется только при complete_goal."""
     goal = await get_goal(session, goal_id, user_id)
     if not goal or goal.is_completed:
         raise ValueError("Goal not found or completed")
 
-    deposit = GoalDeposit(goal_id=goal_id, account_id=account_id, amount=amount, note=note)
+    deposit = GoalDeposit(
+        goal_id=goal_id, account_id=account_id, amount=amount, note=note
+    )
     session.add(deposit)
     goal.current_amount += amount
 
     if account_id:
-        acc_result = await session.execute(
+        acc = await session.scalar(
             select(Account).where(Account.id == account_id, Account.user_id == user_id)
         )
-        acc = acc_result.scalar_one_or_none()
         if acc:
             acc.balance_offset = Decimal(str(acc.balance_offset)) - amount
 
@@ -123,7 +125,7 @@ async def withdraw_goal(
     note: str | None,
     account_id: int | None,
 ) -> GoalDeposit:
-    """Withdraws from goal. Adjusts account.balance_offset (no Record) if account_id provided."""
+    """Withdraws from goal — снимает earmark. Adjusts balance_offset, no Record."""
     goal = await get_goal(session, goal_id, user_id)
     if not goal:
         raise ValueError("Goal not found")
@@ -132,15 +134,16 @@ async def withdraw_goal(
     if amount > goal.current_amount:
         raise ValueError("Insufficient funds in goal")
 
-    deposit = GoalDeposit(goal_id=goal_id, account_id=account_id, amount=-amount, note=note)
+    deposit = GoalDeposit(
+        goal_id=goal_id, account_id=account_id, amount=-amount, note=note
+    )
     session.add(deposit)
     goal.current_amount -= amount
 
     if account_id:
-        acc_result = await session.execute(
+        acc = await session.scalar(
             select(Account).where(Account.id == account_id, Account.user_id == user_id)
         )
-        acc = acc_result.scalar_one_or_none()
         if acc:
             acc.balance_offset = Decimal(str(acc.balance_offset)) + amount
 
@@ -149,30 +152,94 @@ async def withdraw_goal(
 
 
 async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
-    """Marks goal as completed, stamps completed_at."""
-    await session.execute(
-        update(Goal)
-        .where(Goal.id == goal_id, Goal.user_id == user_id)
-        .values(is_completed=True, completed_at=moscow_now())
-    )
-
-
-async def delete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
-    """Deletes goal and all its deposits."""
+    """Marks goal as completed. Restores account balance_offsets and creates expense Records."""
     goal = await get_goal(session, goal_id, user_id)
     if not goal:
         return
+    goal.is_completed = True
+    goal.completed_at = moscow_now()
+
+    deposits = list(
+        await session.scalars(
+            select(GoalDeposit).where(
+                GoalDeposit.goal_id == goal_id,
+                GoalDeposit.account_id.is_not(None),
+            )
+        )
+    )
+    net_by_account: dict[int, Decimal] = {}
+    for d in deposits:
+        net_by_account[d.account_id] = (
+            net_by_account.get(d.account_id, Decimal("0")) + d.amount
+        )
+
+    for account_id, net in net_by_account.items():
+        if net == Decimal("0"):
+            continue
+        acc = await session.scalar(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        if not acc:
+            continue
+        acc.balance_offset = Decimal(str(acc.balance_offset)) + net
+        if net > 0:
+            session.add(
+                Record(
+                    user_id=user_id,
+                    operation="-",
+                    amount=net,
+                    category="Цели",
+                    account_id=account_id,
+                )
+            )
+
+    await session.flush()
+
+
+async def delete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
+    """Deletes goal and all its deposits. Restores account balance_offsets."""
+    goal = await get_goal(session, goal_id, user_id)
+    if not goal:
+        return
+
+    deposits = list(
+        await session.scalars(
+            select(GoalDeposit).where(
+                GoalDeposit.goal_id == goal_id,
+                GoalDeposit.account_id.is_not(None),
+            )
+        )
+    )
+    net_by_account: dict[int, Decimal] = {}
+    for d in deposits:
+        net_by_account[d.account_id] = (
+            net_by_account.get(d.account_id, Decimal("0")) + d.amount
+        )
+
+    for account_id, net in net_by_account.items():
+        if net == Decimal("0"):
+            continue
+        acc = await session.scalar(
+            select(Account).where(Account.id == account_id, Account.user_id == user_id)
+        )
+        if acc:
+            acc.balance_offset = Decimal(str(acc.balance_offset)) + net
+
     await session.execute(delete(GoalDeposit).where(GoalDeposit.goal_id == goal_id))
-    await session.execute(delete(Goal).where(Goal.id == goal_id, Goal.user_id == user_id))
+    await session.execute(
+        delete(Goal).where(Goal.id == goal_id, Goal.user_id == user_id)
+    )
 
 
 async def get_goal_deposits(
     session: AsyncSession, goal_id: int, limit: int = 10
 ) -> list[GoalDeposit]:
     """Returns last N deposits for a goal (newest first)."""
-    return list(await session.scalars(
-        select(GoalDeposit)
-        .where(GoalDeposit.goal_id == goal_id)
-        .order_by(GoalDeposit.created_at.desc(), GoalDeposit.id.desc())
-        .limit(limit)
-    ))
+    return list(
+        await session.scalars(
+            select(GoalDeposit)
+            .where(GoalDeposit.goal_id == goal_id)
+            .order_by(GoalDeposit.created_at.desc(), GoalDeposit.id.desc())
+            .limit(limit)
+        )
+    )
