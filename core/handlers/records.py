@@ -355,6 +355,17 @@ async def handle_amount_and_category(
         await state.clear()
         return
 
+    if len(accounts) == 1:
+        acc = accounts[0]
+        added = await save_parsed_records(user_id, records_to_add, acc.id)
+        response = format_added_records_response(added, errors, account_name=acc.name)
+        await message.answer(
+            response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
+        )
+        await _send_budget_alerts(message, user_id, added)
+        await state.clear()
+        return
+
     await message.answer(
         "💳 <b>Выберите счёт:</b>",
         reply_markup=account_select_keyboard(accounts),
@@ -391,38 +402,6 @@ async def handle_record_account_select(
                 account_name = acc.name
                 break
 
-    response = format_added_records_response(added, errors, account_name=account_name)
-    await callback.message.edit_text(response, parse_mode="HTML")
-    await callback.message.answer(
-        "Выберите действие:", reply_markup=main_menu_keyboard()
-    )
-    await _send_budget_alerts(callback.message, user_id, added)
-    await state.clear()
-    await callback.answer()
-
-
-@router.callback_query(F.data == "acc_skip", AddRecord.waiting_for_account)
-@log_exceptions("Ошибка при пропуске выбора счёта")
-async def handle_record_account_skip(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
-    """Сохраняет записи с первым счётом (по умолчанию)."""
-    data = await state.get_data()
-    user_id = data.get("user_id")
-    serialized = data.get("pending_records", [])
-    errors = data.get("parse_errors", [])
-
-    records_to_add = _deserialize_records(serialized)
-
-    account_id: int | None = None
-    account_name: str | None = None
-    async with async_session() as session:
-        accounts = await get_accounts(session, user_id)
-        if accounts:
-            account_id = accounts[0].id
-            account_name = accounts[0].name
-
-    added = await save_parsed_records(user_id, records_to_add, account_id)
     response = format_added_records_response(added, errors, account_name=account_name)
     await callback.message.edit_text(response, parse_mode="HTML")
     await callback.message.answer(
@@ -497,6 +476,21 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
             )
             return
         response = format_added_records_response(added, errors)
+        await message.answer(
+            response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
+        )
+        await _send_budget_alerts(message, user_id, added)
+        return
+
+    if len(accounts) == 1:
+        acc = accounts[0]
+        added = await save_parsed_records(user_id, records_to_add, acc.id)
+        if not added:
+            await message.answer(
+                "Не удалось сохранить записи.", reply_markup=main_menu_keyboard()
+            )
+            return
+        response = format_added_records_response(added, errors, account_name=acc.name)
         await message.answer(
             response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
         )

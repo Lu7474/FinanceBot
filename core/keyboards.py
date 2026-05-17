@@ -204,11 +204,10 @@ def accounts_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def account_select_keyboard(accounts: List) -> InlineKeyboardMarkup:
-    """Keyboard for selecting account when adding a record (includes 'Skip')."""
+    """Keyboard for selecting account when adding a record. Used only when 2+ accounts."""
     builder = InlineKeyboardBuilder()
     for acc in accounts:
         builder.button(text=acc.name, callback_data=f"acc_select:{acc.id}")
-    builder.button(text="Пропустить", callback_data="acc_skip")
     builder.adjust(2)
     return builder.as_markup()
 
