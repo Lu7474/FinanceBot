@@ -1,4 +1,5 @@
 """Tests for format_snapshot, format_wealth, format_date_ru, normalize_category."""
+
 import sys
 from datetime import date
 from decimal import Decimal
@@ -15,6 +16,7 @@ from core.utils import (
 
 # ==================== format_date_ru ====================
 
+
 def test_format_date_ru_january():
     assert format_date_ru(date(2025, 1, 15)) == "15 января 2025"
 
@@ -29,9 +31,18 @@ def test_format_date_ru_june():
 
 def test_format_date_ru_all_months():
     expected = {
-        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-        5: "мая", 6: "июня", 7: "июля", 8: "августа",
-        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
     }
     for month, name in expected.items():
         result = format_date_ru(date(2025, month, 1))
@@ -39,6 +50,7 @@ def test_format_date_ru_all_months():
 
 
 # ==================== normalize_category ====================
+
 
 def test_normalize_category_lowercase():
     assert normalize_category("кофе") == "Кофе"
@@ -62,6 +74,7 @@ def test_normalize_category_preserves_rest():
 
 # ==================== format_snapshot helpers ====================
 
+
 class _Item:
     def __init__(self, name: str, amount):
         self.name = name
@@ -69,6 +82,7 @@ class _Item:
 
 
 # ==================== format_snapshot ====================
+
 
 def test_format_snapshot_contains_names():
     items = [_Item("Карта", "5000"), _Item("Наличные", "3000")]
@@ -135,6 +149,7 @@ def test_format_snapshot_empty_items():
 
 # ==================== format_wealth helpers ====================
 
+
 class _WealthItem:
     def __init__(self, type_: str, name: str, amount, note: str | None = None):
         self.type = type_
@@ -144,6 +159,7 @@ class _WealthItem:
 
 
 # ==================== format_wealth ====================
+
 
 def test_format_wealth_empty_shows_no_data():
     text = format_wealth([])
@@ -200,3 +216,50 @@ def test_format_wealth_liability_shown():
     text = format_wealth(items)
     assert "Ипотека" in text
     assert "2 000 000" in text
+
+
+# ==================== XSS: format_record_card (review #7) ====================
+
+
+class _FakeAccount:
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _FakeRecord:
+    def __init__(self, category: str, account_name: str | None):
+        from datetime import datetime
+
+        self.id = 1
+        self.operation = "-"
+        self.amount = Decimal("100")
+        self.category = category
+        self.created_at = datetime(2025, 5, 17, 12, 0, 0)
+        self.account = _FakeAccount(account_name) if account_name else None
+
+
+def test_format_record_card_escapes_html_in_category():
+    from core.utils import format_record_card
+
+    rec = _FakeRecord(category="<script>alert(1)</script>", account_name="Карта")
+    text = format_record_card(rec)
+    assert "<script>" not in text
+    assert "&lt;script&gt;" in text
+
+
+def test_format_record_card_escapes_html_in_account_name():
+    from core.utils import format_record_card
+
+    rec = _FakeRecord(category="Еда", account_name="<b>Карта</b>")
+    text = format_record_card(rec)
+    assert "<b>Карта</b>" not in text
+    assert "&lt;b&gt;Карта&lt;/b&gt;" in text
+
+
+def test_format_record_card_handles_missing_account():
+    """account=None — рендерится '—', без падения и без HTML-инъекций."""
+    from core.utils import format_record_card
+
+    rec = _FakeRecord(category="Еда", account_name=None)
+    text = format_record_card(rec)
+    assert "—" in text
