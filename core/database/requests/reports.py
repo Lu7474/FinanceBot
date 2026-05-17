@@ -1,11 +1,12 @@
 """Aggregated read queries used by reports & history views."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
+from dateutil.relativedelta import relativedelta
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -235,7 +236,9 @@ async def get_monthly_totals(
     """Sums grouped by (year, month) for the last N months. For trend charts."""
     try:
         now = datetime.now(ZoneInfo(TIMEZONE))
-        start_date = now - timedelta(days=months_back * 30)
+        start_date = (now - relativedelta(months=months_back - 1)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
 
         query = (
             select(

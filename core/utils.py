@@ -14,7 +14,7 @@ from typing import Callable
 from aiogram.exceptions import TelegramBadRequest
 
 
-def format_money(amount: float | int) -> str:
+def format_money(amount: Decimal | float | int) -> str:
     """Форматирует сумму с пробелами как разделителями тысяч (русская локаль)."""
     return f"{amount:,.0f}₽".replace(",", " ")
 

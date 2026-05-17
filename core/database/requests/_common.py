@@ -59,12 +59,12 @@ def apply_period_filter(
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         query = query.where(Record.created_at >= start)
     elif within == "date" and date_from:
-        start = date_from.replace(
-            hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(TIMEZONE)
-        )
-        end = date_from.replace(
-            hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE)
-        )
+        if date_from.tzinfo is None:
+            date_from = date_from.replace(tzinfo=ZoneInfo(TIMEZONE))
+        else:
+            date_from = date_from.astimezone(ZoneInfo(TIMEZONE))
+        start = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = date_from.replace(hour=23, minute=59, second=59, microsecond=999999)
         query = query.where(Record.created_at.between(start, end))
     elif within == "range" and date_from and date_to:
         if date_from.tzinfo is None:

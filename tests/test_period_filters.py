@@ -117,6 +117,41 @@ async def test_filter_prev_month_includes_only_prev_month(session):
     assert "curr_month" not in categories
 
 
+# ==================== date-filter with tz-aware date_from ====================
+
+
+@pytest.mark.asyncio
+async def test_filter_date_with_utc_aware_date_from(session):
+    """`within=date` correctly converts UTC-aware date_from to Moscow timezone."""
+    user_id = await _make_user(session)
+
+    moscow_noon = datetime.now(TZ).replace(hour=12, minute=0, second=0, microsecond=0)
+    session.add(_rec(user_id, moscow_noon, "target"))
+    await session.commit()
+
+    utc_same_instant = moscow_noon.astimezone(ZoneInfo("UTC"))
+
+    records = await get_records(session, user_id, "date", date_from=utc_same_instant)
+    categories = {r.category for r in records}
+    assert "target" in categories
+
+
+@pytest.mark.asyncio
+async def test_filter_date_with_naive_date_from_treated_as_moscow(session):
+    """Naive date_from is treated as Moscow-local — record on that day is found."""
+    user_id = await _make_user(session)
+
+    moscow_noon = datetime.now(TZ).replace(hour=12, minute=0, second=0, microsecond=0)
+    session.add(_rec(user_id, moscow_noon, "target"))
+    await session.commit()
+
+    naive = moscow_noon.replace(tzinfo=None)
+
+    records = await get_records(session, user_id, "date", date_from=naive)
+    categories = {r.category for r in records}
+    assert "target" in categories
+
+
 @pytest.mark.asyncio
 async def test_filter_prev_month_excludes_two_months_ago(session):
     user_id = await _make_user(session)

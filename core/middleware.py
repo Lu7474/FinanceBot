@@ -13,7 +13,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 class RateLimiter:
     CLEANUP_INTERVAL = 300  # 5 минут
 
-    def __init__(self, max_requests: int = 10, window_seconds: int = 60):
+    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: Dict[int, list] = {}
