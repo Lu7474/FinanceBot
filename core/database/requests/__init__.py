@@ -79,6 +79,7 @@ from .goals import (
 from .records import (
     add_record,
     check_duplicate_record,
+    check_duplicates_batch,
     count_records,
     delete_record,
     get_record_by_id,
@@ -125,6 +126,7 @@ __all__ = [
     # records
     "add_record",
     "check_duplicate_record",
+    "check_duplicates_batch",
     "count_records",
     "delete_record",
     "get_record_by_id",

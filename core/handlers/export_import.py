@@ -15,7 +15,7 @@ from core.charts import _chart_executor
 from core.database.models import async_session
 from core.database.requests import (
     bulk_insert_records,
-    check_duplicate_record,
+    check_duplicates_batch,
     get_all_budgets_for_backup,
     get_all_records_for_export,
     get_latest_snapshot_for_backup,
@@ -343,18 +343,8 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
         return
 
     # Считаем потенциальные дубли (не блокируем — только предупреждаем)
-    duplicates = 0
     async with async_session() as session:
-        for row in valid_rows:
-            if await check_duplicate_record(
-                session,
-                user_id,
-                row["date"],
-                row["operation"],
-                row["amount"],
-                row["category"],
-            ):
-                duplicates += 1
+        duplicates = len(await check_duplicates_batch(session, user_id, valid_rows))
 
     total = len(valid_rows) + len(errors)
     errors_count = len(errors)

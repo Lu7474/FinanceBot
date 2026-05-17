@@ -231,3 +231,43 @@ async def check_duplicate_record(
         )
     )
     return existing is not None
+
+
+async def check_duplicates_batch(
+    session: AsyncSession,
+    user_id: int,
+    rows: List[dict],
+) -> set:
+    """Batch dup-check for import: one SELECT for the whole date range.
+
+    Each row must have keys: date (date), operation (str), amount (Decimal), category (str).
+    Returns set of indices of `rows` that match an existing record.
+    """
+    if not rows:
+        return set()
+
+    dates = [r["date"] for r in rows]
+    min_d, max_d = min(dates), max(dates)
+
+    result = await session.execute(
+        select(
+            func.date(Record.created_at).label("d"),
+            Record.operation,
+            Record.amount,
+            Record.category,
+        ).where(
+            Record.user_id == user_id,
+            func.date(Record.created_at).between(min_d.isoformat(), max_d.isoformat()),
+        )
+    )
+    existing = {
+        (str(row.d), row.operation, Decimal(str(row.amount)), row.category)
+        for row in result.fetchall()
+    }
+
+    duplicates = set()
+    for idx, r in enumerate(rows):
+        key = (r["date"].isoformat(), r["operation"], Decimal(str(r["amount"])), r["category"])
+        if key in existing:
+            duplicates.add(idx)
+    return duplicates
