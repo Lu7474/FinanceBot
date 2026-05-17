@@ -19,7 +19,6 @@ from core.database.requests import (
     get_goal,
     get_goal_deposits,
     get_goals,
-    get_user_by_tg_id,
     update_goal,
     withdraw_goal,
 )
@@ -255,8 +254,7 @@ async def _create_goal_and_confirm(
     target = Decimal(data.get("goal_target", "0"))
 
     async with async_session() as session:
-        goal = await create_goal(session, user_db_id, name, target, deadline)
-        goal_id = goal.id  # flush already set the id — read before commit
+        await create_goal(session, user_db_id, name, target, deadline)
         await session.commit()
 
     deadline_str = f" до {deadline.strftime('%d.%m.%Y')}" if deadline else ""
@@ -825,6 +823,7 @@ async def goal_reactivate(callback: CallbackQuery, state: FSMContext, **kwargs) 
 
     async with async_session() as session:
         from sqlalchemy import update as _update
+
         from core.database.models import Goal
         await session.execute(
             _update(Goal)

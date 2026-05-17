@@ -5,6 +5,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 
 from config import TIMEZONE
 from core.database.models import (
@@ -34,10 +35,7 @@ from core.database.requests.admin import (
     get_user_records_csv,
     get_user_stats,
 )
-from sqlalchemy import select
-
 from tests.conftest import test_session
-
 
 # ---------- helpers ----------
 
