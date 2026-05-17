@@ -8,12 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from core.database.models import async_session
-from core.database.requests import (
-    create_account,
-    get_accounts,
-    seed_default_categories,
-    set_user,
-)
+from core.database.requests import set_user
 from core.keyboards import main_menu_keyboard
 from core.utils import log_exceptions
 
@@ -26,15 +21,14 @@ async def handle_start(message: Message, **kwargs) -> None:
     """Команда /start — регистрация пользователя и показ главного меню."""
     async with async_session() as session:
         user = await set_user(
-            session, message.from_user.id, name=message.from_user.full_name
+            session,
+            message.from_user.id,
+            name=message.from_user.full_name,
+            default_account_name="Наличные",
         )
         if not user:
             await message.answer("Ошибка при регистрации. Попробуйте позже.")
             return
-        accounts = await get_accounts(session, user.id)
-        if not accounts:
-            await create_account(session, user.id, "Наличные")
-        await seed_default_categories(session, user.id)
 
     first_name = html.escape(message.from_user.first_name or "друг")
 
@@ -87,12 +81,16 @@ async def handle_cancel_callback(
     """Обработка нажатия кнопки Отмена в inline-клавиатурах."""
     await state.clear()
     await callback.message.edit_text("Операция отменена.")
+    await callback.message.answer(
+        "Выберите действие:", reply_markup=main_menu_keyboard()
+    )
     await callback.answer()
 
 
 @router.message(Command("help"))
-async def handle_help(message: Message, **kwargs) -> None:
-    """Команда /help — справка по боту."""
+async def handle_help(message: Message, state: FSMContext, **kwargs) -> None:
+    """Команда /help — справка по боту. Сбрасывает FSM, чтобы /help не зависал в state."""
+    await state.clear()
     help_text = """<b>Справка по боту</b>
 
 <b>Команды:</b>
