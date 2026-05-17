@@ -21,7 +21,6 @@ from core.database.requests import (
     get_accounts,
     get_history_data,
     get_records,
-    get_user_by_tg_id,
     move_and_delete_account,
     rename_account,
     set_account_balance,
@@ -674,15 +673,11 @@ async def handle_acc_hist_period(
     acc_name = data.get("acc_hist_account_name", "Счёт")
     acc_balance = data.get("acc_hist_balance", "")
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
         total_count, income_sum, expense_sum, records = await get_history_data(
             session,
-            user.id,
+            user_id,
             period,
             limit=RECORDS_PER_PAGE,
             offset=0,
@@ -763,15 +758,11 @@ async def handle_acc_hist_page(
         await callback.answer("Страница не существует.")
         return
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
         records = await get_records(
             session,
-            user.id,
+            user_id,
             period,
             limit=RECORDS_PER_PAGE,
             offset=new_page * RECORDS_PER_PAGE,

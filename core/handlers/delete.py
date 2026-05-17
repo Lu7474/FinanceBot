@@ -17,7 +17,6 @@ from core.database.requests import (
     count_records,
     delete_record,
     get_records,
-    get_user_by_tg_id,
 )
 from core.keyboards import (
     confirm_delete_keyboard,
@@ -89,13 +88,9 @@ async def handle_del_select_month(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Показывает выбор года для удаления по месяцу."""
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
-        years_months = await get_available_years_and_months(session, user.id)
+        years_months = await get_available_years_and_months(session, user_id)
 
     if not years_months:
         await callback.message.edit_text("У вас пока нет записей.")
@@ -159,15 +154,10 @@ async def handle_del_month(
         year, month, monthrange(year, month)[1], 23, 59, 59, tzinfo=ZoneInfo(TIMEZONE)
     )
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
-
         total_count = await count_records(
-            session, user.id, "range", start_date, end_date
+            session, user_id, "range", start_date, end_date
         )
         if total_count == 0:
             await callback.answer("Записей за этот месяц нет.")
@@ -176,7 +166,7 @@ async def handle_del_month(
         total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
         records = await get_records(
             session,
-            user.id,
+            user_id,
             "range",
             start_date,
             end_date,
@@ -252,14 +242,9 @@ async def handle_del_period(
         await state.clear()
         return
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
-
-        total_count = await count_records(session, user.id, period)
+        total_count = await count_records(session, user_id, period)
         if total_count == 0:
             await callback.message.edit_text("Записей за выбранный период нет.")
             await state.clear()
@@ -268,7 +253,7 @@ async def handle_del_period(
 
         total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
         records = await get_records(
-            session, user.id, period, limit=RECORDS_PER_PAGE, offset=0
+            session, user_id, period, limit=RECORDS_PER_PAGE, offset=0
         )
 
     await state.update_data(
@@ -321,18 +306,12 @@ async def menu_delete_record(
             await callback.answer("Страница не существует.")
             return
 
+        user_id = kwargs["user_id"]
         async with async_session() as session:
-            user = await get_user_by_tg_id(session, callback.from_user.id)
-            if not user:
-                await callback.message.edit_text("Пользователь не найден.")
-                await state.clear()
-                await callback.answer()
-                return
-
             offset = new_page * RECORDS_PER_PAGE
             records = await get_records(
                 session,
-                user.id,
+                user_id,
                 period,
                 date_from,
                 date_to,
@@ -385,16 +364,10 @@ async def menu_delete_confirm(
     date_to = data.get("delete_date_to")
 
     if callback.data == "cancel_del":
+        user_id = kwargs["user_id"]
         async with async_session() as session:
-            user = await get_user_by_tg_id(session, callback.from_user.id)
-            if not user:
-                await callback.message.edit_text("Пользователь не найден.")
-                await state.clear()
-                await callback.answer()
-                return
-
             total_count = await count_records(
-                session, user.id, period, date_from, date_to
+                session, user_id, period, date_from, date_to
             )
             if total_count == 0:
                 await callback.message.edit_text("Записей нет.")
@@ -409,7 +382,7 @@ async def menu_delete_confirm(
             offset = current_page * RECORDS_PER_PAGE
             records = await get_records(
                 session,
-                user.id,
+                user_id,
                 period,
                 date_from,
                 date_to,
@@ -435,14 +408,8 @@ async def menu_delete_confirm(
             await state.clear()
             return
 
+        user_id = kwargs["user_id"]
         async with async_session() as session:
-            user = await get_user_by_tg_id(session, callback.from_user.id)
-            if not user:
-                await callback.answer("Пользователь не найден.")
-                await state.clear()
-                return
-
-            user_id = user.id
             deleted = await delete_record(session, user_id, record_id)
 
             if deleted:

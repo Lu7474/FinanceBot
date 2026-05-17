@@ -17,7 +17,6 @@ from core.database.requests import (
     get_history_data,
     get_records,
     get_top_categories_for_period,
-    get_user_by_tg_id,
     search_records,
 )
 from core.keyboards import (
@@ -205,6 +204,7 @@ async def _apply_filter_and_reload(
     callback: CallbackQuery,
     state: FSMContext,
     new_filter: dict,
+    user_id: int,
 ) -> None:
     """Apply new history_filter, refetch data, update state and message."""
     data = await state.get_data()
@@ -219,16 +219,9 @@ async def _apply_filter_and_reload(
     category_filter = new_filter.get("category")
 
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            await callback.answer()
-            return
-
         total_count, income_sum, expense_sum, records = await get_history_data(
             session,
-            user.id,
+            user_id,
             period,
             date_from,
             date_to,
@@ -305,15 +298,10 @@ async def menu_history_period(
         await callback.answer()
         return
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            return
-
         total_count, income_sum, expense_sum, records = await get_history_data(
-            session, user.id, period, limit=RECORDS_PER_PAGE, offset=0
+            session, user_id, period, limit=RECORDS_PER_PAGE, offset=0
         )
 
         if total_count == 0:
@@ -390,18 +378,12 @@ async def menu_history_page(
         await callback.answer()
         return
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            await callback.answer()
-            return
-
         offset = new_page * RECORDS_PER_PAGE
         records = await get_records(
             session,
-            user.id,
+            user_id,
             period,
             date_from,
             date_to,
@@ -457,17 +439,11 @@ async def menu_history_show_all(
         await callback.answer()
         return
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            await callback.answer()
-            return
-
         records = await get_records(
             session,
-            user.id,
+            user_id,
             period,
             date_from,
             date_to,
@@ -553,16 +529,11 @@ async def menu_history_custom_period(
         hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE)
     )
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, message.from_user.id)
-        if not user:
-            await message.answer("Пользователь не найден.")
-            await state.clear()
-            return
-
         total_count, income_sum, expense_sum, records = await get_history_data(
             session,
-            user.id,
+            user_id,
             "range",
             date_from,
             date_to,
@@ -627,16 +598,10 @@ async def show_category_filter(
     history_filter = data.get("history_filter", {})
     operation_filter = history_filter.get("operation")
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            await callback.answer()
-            return
-
         categories = await get_top_categories_for_period(
-            session, user.id, period, date_from, date_to,
+            session, user_id, period, date_from, date_to,
             operation_filter=operation_filter,
         )
 
@@ -653,7 +618,7 @@ async def show_category_filter(
 
 
 async def _restore_history_from_category_picker(
-    callback: CallbackQuery, state: FSMContext, data: dict
+    callback: CallbackQuery, state: FSMContext, data: dict, user_id: int
 ) -> None:
     """Restore history page from category picker (shared by back and no-op)."""
     period = data.get("history_period")
@@ -675,14 +640,8 @@ async def _restore_history_from_category_picker(
         return
 
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            await callback.answer()
-            return
         records = await get_records(
-            session, user.id, period, date_from, date_to,
+            session, user_id, period, date_from, date_to,
             limit=RECORDS_PER_PAGE, offset=page * RECORDS_PER_PAGE,
             operation_filter=operation_filter, category_filter=category_filter,
         )
@@ -707,7 +666,7 @@ async def category_filter_back(
 ) -> None:
     """Возврат из выбора категории обратно в историю."""
     data = await state.get_data()
-    await _restore_history_from_category_picker(callback, state, data)
+    await _restore_history_from_category_picker(callback, state, data, kwargs["user_id"])
 
 
 @router.callback_query(
@@ -733,9 +692,9 @@ async def apply_category_filter(
     current_filter = data.get("history_filter", {})
     new_filter = {**current_filter, "category": category}
     if new_filter == current_filter:
-        await _restore_history_from_category_picker(callback, state, data)
+        await _restore_history_from_category_picker(callback, state, data, kwargs["user_id"])
         return
-    await _apply_filter_and_reload(callback, state, new_filter)
+    await _apply_filter_and_reload(callback, state, new_filter, kwargs["user_id"])
 
 
 @router.callback_query(
@@ -746,7 +705,7 @@ async def reset_filter(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Сбрасывает все фильтры."""
-    await _apply_filter_and_reload(callback, state, {})
+    await _apply_filter_and_reload(callback, state, {}, kwargs["user_id"])
 
 
 @router.callback_query(
@@ -774,7 +733,7 @@ async def apply_operation_filter(
         await callback.answer()
         return
 
-    await _apply_filter_and_reload(callback, state, new_filter)
+    await _apply_filter_and_reload(callback, state, new_filter, kwargs["user_id"])
 
 
 # ==================== Поиск ====================
@@ -806,17 +765,9 @@ async def handle_search_input(
     if not query_str:
         await message.answer("Введите запрос для поиска.")
         return
-    user_id = kwargs.get("user_id")
+    user_id = kwargs["user_id"]
 
     async with async_session() as session:
-        if not user_id:
-            user = await get_user_by_tg_id(session, message.from_user.id)
-            if not user:
-                await message.answer("Пользователь не найден.")
-                await state.clear()
-                return
-            user_id = user.id
-
         total, income_sum, expense_sum, records = await search_records(
             session, user_id, query_str, limit=RECORDS_PER_PAGE, offset=0
         )
@@ -868,22 +819,13 @@ async def search_page_nav(
     total = data.get("search_total", 0)
     income_sum = Decimal(data.get("search_income_sum", "0"))
     expense_sum = Decimal(data.get("search_expense_sum", "0"))
-    user_id = kwargs.get("user_id")
+    user_id = kwargs["user_id"]
 
     if new_page < 0 or new_page >= total_pages:
         await callback.answer("Страница не существует.")
         return
 
     async with async_session() as session:
-        if not user_id:
-            user = await get_user_by_tg_id(session, callback.from_user.id)
-            if not user:
-                await callback.message.edit_text("Пользователь не найден.")
-                await state.clear()
-                await callback.answer()
-                return
-            user_id = user.id
-
         _, _, _, records = await search_records(
             session, user_id, query_str,
             limit=RECORDS_PER_PAGE, offset=new_page * RECORDS_PER_PAGE,
@@ -936,15 +878,10 @@ async def search_back_to_history(
         await callback.answer()
         return
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.message.edit_text("Пользователь не найден.")
-            await state.clear()
-            await callback.answer()
-            return
         records = await get_records(
-            session, user.id, period, date_from, date_to,
+            session, user_id, period, date_from, date_to,
             limit=RECORDS_PER_PAGE, offset=page * RECORDS_PER_PAGE,
             operation_filter=operation_filter, category_filter=category_filter,
         )

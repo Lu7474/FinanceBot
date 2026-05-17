@@ -16,7 +16,6 @@ from core.database.requests import (
     get_history_data,
     get_record_by_id,
     get_records,
-    get_user_by_tg_id,
     update_record,
 )
 from core.keyboards import (
@@ -34,19 +33,13 @@ from core.utils import (
     parse_edit_date,
 )
 
-from .common import RecordEditStates, get_user_id_from_event, is_main_menu_button
+from .common import RecordEditStates, is_main_menu_button
 from .history import build_history_page
 
 router = Router()
 
 
 # ==================== Helpers ====================
-
-
-async def _get_user_id(callback: CallbackQuery) -> int | None:
-    async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        return user.id if user else None
 
 
 async def _show_record_card(
@@ -66,7 +59,9 @@ async def _show_record_card(
     return True
 
 
-async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None:
+async def _return_to_history(
+    callback: CallbackQuery, state: FSMContext, user_id: int
+) -> None:
     """Reload history page from DB and display it. Falls back to period selection."""
     from core.keyboards import history_period_keyboard
 
@@ -95,16 +90,10 @@ async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None
             date_to = datetime.fromisoformat(dt)
 
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await state.clear()
-            await callback.message.edit_text("Пользователь не найден.")
-            return
-
         offset = page * RECORDS_PER_PAGE
         total_count, income_sum, expense_sum, records = await get_history_data(
             session,
-            user.id,
+            user_id,
             period,
             date_from,
             date_to,
@@ -127,7 +116,7 @@ async def _return_to_history(callback: CallbackQuery, state: FSMContext) -> None
         async with async_session() as session:
             records = await get_records(
                 session,
-                user.id,
+                user_id,
                 period,
                 date_from,
                 date_to,
@@ -193,15 +182,12 @@ async def hist_open_record(
             date_from = datetime.fromisoformat(df)
             date_to = datetime.fromisoformat(dt)
 
+    user_id = kwargs["user_id"]
     async with async_session() as session:
-        user = await get_user_by_tg_id(session, callback.from_user.id)
-        if not user:
-            await callback.answer("Пользователь не найден.")
-            return
         offset = page * RECORDS_PER_PAGE
         records = await get_records(
             session,
-            user.id,
+            user_id,
             period,
             date_from,
             date_to,
@@ -228,7 +214,7 @@ async def hist_back_from_select(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Return from record select list back to history page."""
-    await _return_to_history(callback, state)
+    await _return_to_history(callback, state, kwargs["user_id"])
     await callback.answer()
 
 
@@ -245,10 +231,7 @@ async def record_view(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         await callback.answer("Некорректные данные.")
         return
 
-    user_id = await _get_user_id(callback)
-    if not user_id:
-        await callback.answer("Пользователь не найден.")
-        return
+    user_id = kwargs["user_id"]
 
     await _show_record_card(callback, record_id, user_id)
     await state.update_data(edit_record_id=record_id)
@@ -268,10 +251,7 @@ async def record_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         await callback.answer("Некорректные данные.")
         return
 
-    user_id = await _get_user_id(callback)
-    if not user_id:
-        await callback.answer("Пользователь не найден.")
-        return
+    user_id = kwargs["user_id"]
 
     async with async_session() as session:
         record = await get_record_by_id(session, record_id, user_id)
@@ -306,10 +286,7 @@ async def record_field_select(
         await callback.answer("Некорректные данные.")
         return
 
-    user_id = await _get_user_id(callback)
-    if not user_id:
-        await callback.answer("Пользователь не найден.")
-        return
+    user_id = kwargs["user_id"]
 
     async with async_session() as session:
         record = await get_record_by_id(session, record_id, user_id)
@@ -366,11 +343,7 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
         await state.clear()
         return
 
-    user_id = await get_user_id_from_event(message, kwargs)
-    if not user_id:
-        await message.answer("Пользователь не найден.")
-        await state.clear()
-        return
+    user_id = kwargs["user_id"]
 
     text = message.text.strip() if message.text else ""
 
@@ -500,10 +473,7 @@ async def record_account_select(
         await callback.answer("Некорректные данные.")
         return
 
-    user_id = await _get_user_id(callback)
-    if not user_id:
-        await callback.answer("Пользователь не найден.")
-        return
+    user_id = kwargs["user_id"]
 
     async with async_session() as session:
         old_record = await get_record_by_id(session, record_id, user_id)
@@ -580,10 +550,7 @@ async def record_delete_confirm(
         await callback.answer("Некорректные данные.")
         return
 
-    user_id = await _get_user_id(callback)
-    if not user_id:
-        await callback.answer("Пользователь не найден.")
-        return
+    user_id = kwargs["user_id"]
 
     async with async_session() as session:
         deleted = await delete_record(session, user_id, record_id)
@@ -594,7 +561,7 @@ async def record_delete_confirm(
         return
 
     await callback.answer("Запись удалена.")
-    await _return_to_history(callback, state)
+    await _return_to_history(callback, state, kwargs["user_id"])
 
 
 # ==================== Back to history ====================
@@ -606,5 +573,5 @@ async def record_back_history(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Return from record card back to the history page."""
-    await _return_to_history(callback, state)
+    await _return_to_history(callback, state, kwargs["user_id"])
     await callback.answer()
