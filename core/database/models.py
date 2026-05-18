@@ -299,7 +299,10 @@ class GoalDeposit(Base):
 
 
 async def _migrate(conn) -> None:
-    """Applies additive schema migrations safe for existing DBs."""
+    """Applies additive schema migrations safe for existing SQLite DBs.
+    Skipped on PostgreSQL — create_all builds schema from scratch there."""
+    if conn.dialect.name != "sqlite":
+        return
     result = await conn.execute(
         text("SELECT name FROM sqlite_master WHERE type='table' AND name='budgets'")
     )

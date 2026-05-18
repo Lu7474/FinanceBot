@@ -8,8 +8,9 @@ from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 
-from config import BOT_TOKEN, PROXY_URL
+from config import BOT_API_BASE_URL, BOT_TOKEN, PROXY_URL
 from core.charts import shutdown_executor
 from core.database.models import async_main, engine
 from core.handlers import router
@@ -20,8 +21,13 @@ async def main():
     # Создаём таблицы в БД (если не существуют)
     await async_main()
 
-    # Прокси для обхода блокировок (опционально)
-    session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
+    # Nginx reverse proxy → Telegram API (приоритет над SOCKS)
+    if BOT_API_BASE_URL:
+        session = AiohttpSession(api=TelegramAPIServer.from_base(BOT_API_BASE_URL))
+    elif PROXY_URL:
+        session = AiohttpSession(proxy=PROXY_URL)
+    else:
+        session = None
 
     # Инициализация бота и диспетчера
     bot = Bot(token=BOT_TOKEN, session=session)

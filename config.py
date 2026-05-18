@@ -6,8 +6,8 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-# Прокси для обхода блокировок (опционально, None если не нужен)
 PROXY_URL = os.getenv("PROXY_URL")
+BOT_API_BASE_URL = os.getenv("BOT_API_BASE_URL")
 
 # URL базы данных (по умолчанию SQLite в корне проекта)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///db.sqlite3")

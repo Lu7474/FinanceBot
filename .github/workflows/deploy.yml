@@ -1,0 +1,22 @@
+name: Deploy FinanceBot
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            cd /var/www/financebot
+            git pull origin main
+            venv/bin/pip install -r requirements.txt -q
+            systemctl restart financebot
+            systemctl is-active financebot
