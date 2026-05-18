@@ -42,7 +42,7 @@ async def set_budget(
                 alerted_100=False,
             )
         )
-    await session.commit()
+    await session.flush()
 
 
 async def delete_budget(session: AsyncSession, budget_id: int, user_id: int) -> bool:
@@ -50,7 +50,7 @@ async def delete_budget(session: AsyncSession, budget_id: int, user_id: int) -> 
     result = await session.execute(
         delete(Budget).where(Budget.id == budget_id, Budget.user_id == user_id)
     )
-    await session.commit()
+    await session.flush()
     return result.rowcount > 0
 
 
@@ -72,17 +72,24 @@ async def get_budget_status(
             seconds=1
         )
 
+    categories = [b.category for b in budgets]
+    rows = await session.execute(
+        select(Record.category, func.sum(Record.amount).label("total"))
+        .where(
+            Record.user_id == user_id,
+            Record.operation == "-",
+            Record.category.in_(categories),
+            Record.created_at.between(date_from, date_to),
+        )
+        .group_by(Record.category)
+    )
+    spent_map: dict[str, Decimal] = {
+        row.category: Decimal(str(row.total)) for row in rows
+    }
+
     result = []
     for budget in budgets:
-        spent = await session.scalar(
-            select(func.coalesce(func.sum(Record.amount), 0)).where(
-                Record.user_id == user_id,
-                Record.operation == "-",
-                Record.category == budget.category,
-                Record.created_at.between(date_from, date_to),
-            )
-        )
-        spent = Decimal(str(spent))
+        spent = spent_map.get(budget.category, Decimal("0"))
         pct = int((spent / budget.amount) * 100) if budget.amount > 0 else 0
         result.append(
             {
@@ -154,6 +161,6 @@ async def check_and_alert_budget(
         budget.alerted_80 = True
 
     if alerts or reset:
-        await session.commit()
+        await session.flush()
 
     return alerts

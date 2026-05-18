@@ -63,6 +63,7 @@ async def test_set_budget_creates(session):
     user_id = await _make_user(201)
     async with test_session() as s:
         await set_budget(s, user_id, "Еда", Decimal("10000"))
+        await s.commit()
 
     async with test_session() as s:
         budgets = await get_budgets(s, user_id)
@@ -77,6 +78,7 @@ async def test_set_budget_upsert_resets_flags(session):
 
     async with test_session() as s:
         await set_budget(s, user_id, "Транспорт", Decimal("5000"))
+        await s.commit()
 
     # Manually set alert flags
     async with test_session() as s:
@@ -88,6 +90,7 @@ async def test_set_budget_upsert_resets_flags(session):
     # Update via set_budget — flags must reset
     async with test_session() as s:
         await set_budget(s, user_id, "Транспорт", Decimal("7000"))
+        await s.commit()
 
     async with test_session() as s:
         budget = await s.scalar(select(Budget).where(Budget.user_id == user_id))
@@ -105,10 +108,12 @@ async def test_delete_budget(session):
     async with test_session() as s:
         await set_budget(s, user_id, "Кафе", Decimal("3000"))
         budgets = await get_budgets(s, user_id)
-    budget_id = budgets[0].id
+        budget_id = budgets[0].id
+        await s.commit()
 
     async with test_session() as s:
         ok = await delete_budget(s, budget_id, user_id)
+        await s.commit()
     assert ok is True
 
     async with test_session() as s:
@@ -123,7 +128,8 @@ async def test_delete_budget_wrong_user(session):
     async with test_session() as s:
         await set_budget(s, user_id, "Здоровье", Decimal("2000"))
         budgets = await get_budgets(s, user_id)
-    budget_id = budgets[0].id
+        budget_id = budgets[0].id
+        await s.commit()
 
     async with test_session() as s:
         ok = await delete_budget(s, budget_id, other_id)
@@ -144,6 +150,7 @@ async def test_get_budget_status(session):
 
     async with test_session() as s:
         await set_budget(s, user_id, "Еда", Decimal("10000"))
+        await s.commit()
 
     await _add_expense(user_id, "Еда", Decimal("4000"))
 
@@ -166,6 +173,7 @@ async def test_alert_at_80_percent(session):
     user_id = await _make_user(207)
     async with test_session() as s:
         await set_budget(s, user_id, "Развлечения", Decimal("10000"))
+        await s.commit()
 
     await _add_expense(user_id, "Развлечения", Decimal("8000"))
 
@@ -182,6 +190,7 @@ async def test_alert_at_100_percent(session):
     user_id = await _make_user(208)
     async with test_session() as s:
         await set_budget(s, user_id, "Связь", Decimal("1000"))
+        await s.commit()
 
     await _add_expense(user_id, "Связь", Decimal("1100"))
 
@@ -196,11 +205,13 @@ async def test_alert_not_repeated(session):
     user_id = await _make_user(209)
     async with test_session() as s:
         await set_budget(s, user_id, "Кафе", Decimal("5000"))
+        await s.commit()
 
     await _add_expense(user_id, "Кафе", Decimal("4500"))
 
     async with test_session() as s:
         alerts1 = await check_and_alert_budget(s, user_id, "Кафе", Decimal("4500"))
+        await s.commit()
     assert len(alerts1) == 1
 
     # Second call — flag already set, no repeat
@@ -292,3 +303,42 @@ async def test_weekday_report_zero_days(session):
 
     assert len(data) == 7
     assert all(v == Decimal("0") for v in data.values())
+
+
+# ==================== Tests: N+1 query prevention ====================
+
+
+@pytest.mark.asyncio
+async def test_get_budget_status_no_n_plus_one(session):
+    """get_budget_status must issue ≤ 2 queries for any number of budgets (1 SELECT budgets + 1 batch GROUP BY)."""
+    from sqlalchemy import event
+
+    from tests.conftest import test_engine
+
+    user_id = await _make_user(299)
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    async with test_session() as s:
+        for cat in ("Еда", "Транспорт", "Развлечения"):
+            await set_budget(s, user_id, cat, Decimal("5000"))
+        await s.commit()
+
+    await _add_expense(user_id, "Еда", Decimal("1000"))
+    await _add_expense(user_id, "Транспорт", Decimal("500"))
+
+    query_log: list[str] = []
+
+    def _count(conn, cursor, stmt, params, ctx, executemany):
+        query_log.append(stmt)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", _count)
+    try:
+        async with test_session() as s:
+            status = await get_budget_status(s, user_id, now.month, now.year)
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", _count)
+
+    assert len(status) == 3
+    assert len(query_log) <= 2, (
+        f"N+1 detected: {len(query_log)} queries for 3 budgets. Queries:\n"
+        + "\n---\n".join(query_log)
+    )
