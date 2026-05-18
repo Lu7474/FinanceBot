@@ -137,6 +137,7 @@ async def show_categories_menu(message: Message, state: FSMContext, **kwargs) ->
         return
     async with async_session() as session:
         await seed_default_categories(session, user_id)
+        await session.commit()
     await _show_categories_menu(message, user_id, state)
 
 
@@ -216,6 +217,8 @@ async def handle_cat_name_input(message: Message, state: FSMContext, **kwargs) -
 
     async with async_session() as session:
         cat = await add_user_category(session, user_id, name, cat_type)
+        if cat is not None:
+            await session.commit()
 
     if cat is None:
         await message.answer(
@@ -321,6 +324,8 @@ async def handle_cat_new_name_input(
 
     async with async_session() as session:
         ok = await rename_user_category(session, cat_id, user_id, new_name)
+        if ok:
+            await session.commit()
 
     if not ok:
         await message.answer(
@@ -454,6 +459,8 @@ async def handle_cat_delete_confirm(
 
     async with async_session() as session:
         ok = await delete_user_category(session, cat_id, user_id)
+        if ok:
+            await session.commit()
 
     if ok:
         await callback.message.edit_text(
@@ -493,6 +500,7 @@ async def handle_cat_select_for_record(
             pending_records[0]["cat"] = cat.name
             if original_description:
                 await learn_keyword(session, user_id, original_description, cat_id)
+        await session.commit()
 
     await callback.answer()
     await _continue_to_account_or_save(
@@ -564,6 +572,7 @@ async def handle_suggest_yes(
                 )
                 if cat:
                     await learn_keyword(session, user_id, original_description, cat.id)
+                await session.commit()
 
     await callback.answer()
     await _continue_to_account_or_save(

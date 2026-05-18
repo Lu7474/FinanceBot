@@ -31,8 +31,7 @@ async def create_account(
 
         account = Account(user_id=user_id, name=name)
         session.add(account)
-        await session.commit()
-        await session.refresh(account)
+        await session.flush()
         return account
     except Exception as e:
         await session.rollback()
@@ -76,7 +75,7 @@ async def rename_account(
             return False
 
         account.name = new_name
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -99,7 +98,7 @@ async def delete_account(session: AsyncSession, account_id: int, user_id: int) -
             .values(account_id=None)
         )
         await session.delete(account)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -123,7 +122,7 @@ async def move_and_delete_account(
             .values(account_id=target_account_id)
         )
         await session.delete(account)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -244,7 +243,7 @@ async def set_account_balance(
             )
         )
 
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -319,7 +318,7 @@ async def create_transfer(
                 ),
             ]
         )
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()

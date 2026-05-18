@@ -119,6 +119,7 @@ async def test_delete_user_cascade_removes_all_related_data():
     async with test_session() as s:
         ok = await delete_user_cascade(s, tg_id=7)
         assert ok is True
+        await s.commit()
 
     # ----- verify session (also fresh) -----
     async with test_session() as s:

@@ -104,7 +104,7 @@ async def ban_user(session: AsyncSession, tg_id: int, is_banned: bool) -> bool:
         result = await session.execute(
             update(User).where(User.tg_id == tg_id).values(is_banned=is_banned)
         )
-        await session.commit()
+        await session.flush()
         return result.rowcount > 0
     except Exception as e:
         await session.rollback()
@@ -155,7 +155,7 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
         await session.execute(delete(Account).where(Account.user_id == uid))
 
         await session.delete(user)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()

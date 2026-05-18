@@ -411,6 +411,7 @@ async def menu_delete_confirm(
         user_id = kwargs["user_id"]
         async with async_session() as session:
             deleted = await delete_record(session, user_id, record_id)
+            await session.commit()
 
             if deleted:
                 await callback.answer("✅ Запись удалена!")

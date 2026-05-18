@@ -99,8 +99,7 @@ async def add_user_category(
             sort_order=(max_order or 0) + 1,
         )
         session.add(cat)
-        await session.commit()
-        await session.refresh(cat)
+        await session.flush()
         return cat
     except Exception as e:
         await session.rollback()
@@ -144,7 +143,7 @@ async def rename_user_category(
             .values(category=new_name)
         )
         cat.name = new_name
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -171,7 +170,7 @@ async def delete_user_category(
             delete(CategoryKeyword).where(CategoryKeyword.category_id == cat_id)
         )
         await session.delete(cat)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -234,7 +233,7 @@ async def seed_default_categories(
                 )
             )
         if commit:
-            await session.commit()
+            await session.flush()
     except Exception as e:
         if commit:
             await session.rollback()
@@ -325,7 +324,7 @@ async def learn_keyword(
                         user_id=user_id, category_id=category_id, keyword=word
                     )
                 )
-        await session.commit()
+        await session.flush()
     except Exception as e:
         await session.rollback()
         logging.exception(f"Ошибка в learn_keyword для user_id {user_id}: {e}")

@@ -400,6 +400,7 @@ async def cb_ban_do(query: CallbackQuery, state: FSMContext) -> None:
     tg_id = int((query.data or "")[10:])  # "adm_bando_" = 10 chars
     async with async_session() as session:
         await db.ban_user(session, tg_id, is_banned=True)
+        await session.commit()
     page = (await state.get_data()).get("users_page", 0)
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -427,6 +428,7 @@ async def cb_unban_do(query: CallbackQuery, state: FSMContext) -> None:
     tg_id = int((query.data or "")[10:])  # "adm_unban_" = 10 chars
     async with async_session() as session:
         await db.ban_user(session, tg_id, is_banned=False)
+        await session.commit()
     page = (await state.get_data()).get("users_page", 0)
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -514,6 +516,7 @@ async def cb_deldo(query: CallbackQuery) -> None:
     tg_id = int((query.data or "")[10:])  # "adm_deldo_" = 10 chars
     async with async_session() as session:
         ok = await db.delete_user_cascade(session, tg_id)
+        await session.commit()
     text = (
         f"🗑️ Пользователь <code>{tg_id}</code> удалён." if ok else "Ошибка при удалении."
     )

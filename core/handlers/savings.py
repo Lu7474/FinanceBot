@@ -454,6 +454,8 @@ async def msg_savings_field_amount(
             item = await add_snapshot_item(
                 session, snapshot_id, user_id, pending_name, amount
             )
+            if item:
+                await session.commit()
         await state.clear()
         if not item:
             await message.answer("Ошибка при добавлении поля.")
@@ -484,6 +486,8 @@ async def cb_sav_confirm_save(
     items = [(item["name"], Decimal(item["amount"])) for item in entered]
     async with async_session() as session:
         snapshot = await upsert_snapshot(session, user_id, target_date, items)
+        if snapshot:
+            await session.commit()
 
     await state.clear()
     if not snapshot:
@@ -636,6 +640,8 @@ async def msg_savings_edit_amount(
 
     async with async_session() as session:
         ok = await update_snapshot_item(session, item_id, user_id, amount)
+        if ok:
+            await session.commit()
 
     await state.clear()
     if not ok:
@@ -684,6 +690,8 @@ async def cb_sav_delete_item(
 
     async with async_session() as session:
         snap_date = await delete_snapshot_item(session, item_id, user_id)
+        if snap_date is not None:
+            await session.commit()
 
     if snap_date is None:
         await callback.answer("Ошибка при удалении.", show_alert=True)
@@ -705,6 +713,8 @@ async def cb_sav_delete_all(
 
     async with async_session() as session:
         ok = await delete_snapshot(session, snapshot_id, user_id)
+        if ok:
+            await session.commit()
 
     if not ok:
         await callback.answer("Ошибка при удалении.", show_alert=True)
@@ -864,6 +874,8 @@ async def msg_wealth_note(message: Message, state: FSMContext, **kwargs) -> None
         item = await add_wealth_item(
             session, user_id, data["type_"], data["name"], Decimal(data["amount"]), note
         )
+        if item:
+            await session.commit()
     await state.clear()
     if not item:
         await message.answer("Ошибка при сохранении.")
@@ -882,6 +894,8 @@ async def _save_wealth_item(
         item = await add_wealth_item(
             session, user_id, data["type_"], data["name"], Decimal(data["amount"]), note
         )
+        if item:
+            await session.commit()
     await state.clear()
     if not item:
         await callback.answer("Ошибка при сохранении.", show_alert=True)
@@ -967,6 +981,8 @@ async def msg_wealth_edit_amount(message: Message, state: FSMContext, **kwargs) 
 
     async with async_session() as session:
         ok = await update_wealth_item(session, item_id, user_id, amount=amount)
+        if ok:
+            await session.commit()
 
     await state.clear()
     if not ok:
@@ -1011,6 +1027,8 @@ async def cb_wealth_delete_item(
 
     async with async_session() as session:
         ok = await delete_wealth_item(session, item_id, user_id)
+        if ok:
+            await session.commit()
 
     if not ok:
         await callback.answer("Ошибка при удалении.", show_alert=True)

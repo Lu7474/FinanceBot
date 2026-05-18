@@ -421,6 +421,7 @@ async def handle_import_confirm(
                 )
 
             inserted = await bulk_insert_records(session, user_id, rows_with_acc)
+            await session.commit()
 
         await callback.message.edit_text(f"✅ Импортировано {inserted} записей.")
     except Exception:

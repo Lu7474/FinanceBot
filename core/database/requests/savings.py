@@ -91,8 +91,7 @@ async def upsert_snapshot(
 
         for name, amount in items:
             session.add(SavingsItem(snapshot_id=snapshot.id, name=name, amount=amount))
-        await session.commit()
-        await session.refresh(snapshot)
+        await session.flush()
         return snapshot
     except Exception as e:
         await session.rollback()
@@ -114,8 +113,7 @@ async def add_snapshot_item(
             return None
         item = SavingsItem(snapshot_id=snapshot_id, name=name, amount=amount)
         session.add(item)
-        await session.commit()
-        await session.refresh(item)
+        await session.flush()
         return item
     except Exception as e:
         await session.rollback()
@@ -140,7 +138,7 @@ async def update_snapshot_item(
         if not item:
             return False
         item.amount = amount
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -166,7 +164,8 @@ async def delete_snapshot_item(
         snap = await session.get(SavingsSnapshot, item.snapshot_id)
         snap_date = snap.date
         await session.delete(item)
-        await session.commit()
+        await session.flush()
+        session.expire(snap, ["items"])
         return snap_date
     except Exception as e:
         await session.rollback()
@@ -185,7 +184,7 @@ async def delete_snapshot(
         if not snap or snap.user_id != user_id:
             return False
         await session.delete(snap)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -220,8 +219,7 @@ async def add_wealth_item(
             user_id=user_id, type=type_, name=name, amount=amount, note=note
         )
         session.add(item)
-        await session.commit()
-        await session.refresh(item)
+        await session.flush()
         return item
     except Exception as e:
         await session.rollback()
@@ -242,7 +240,7 @@ async def update_wealth_item(
             return False
         for key, value in fields.items():
             setattr(item, key, value)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()
@@ -261,7 +259,7 @@ async def delete_wealth_item(
         if not item or item.user_id != user_id:
             return False
         await session.delete(item)
-        await session.commit()
+        await session.flush()
         return True
     except Exception as e:
         await session.rollback()

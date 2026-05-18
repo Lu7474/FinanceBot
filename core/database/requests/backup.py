@@ -105,5 +105,5 @@ async def bulk_insert_records(
             )
         )
         count += 1
-    await session.commit()
+    await session.flush()
     return count

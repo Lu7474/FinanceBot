@@ -58,6 +58,7 @@ async def _send_budget_alerts(
                         await message.bot.send_message(message.chat.id, alert_text)
                 except Exception:
                     logging.exception("Budget alert error")
+        await session.commit()
 
 
 def _deserialize_records(

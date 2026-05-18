@@ -154,6 +154,7 @@ async def handle_new_account_name(
                 return
         else:
             balances = await get_account_balances(session, user_id)
+            await session.commit()
             await message.answer(
                 f"✅ Счёт «{html.escape(acc.name)}» создан!\n\n"
                 + _build_accounts_text(balances),
@@ -255,6 +256,7 @@ async def handle_rename_name(message: Message, state: FSMContext, **kwargs) -> N
             return
 
         balances = await get_account_balances(session, user_id)
+        await session.commit()
 
     await message.answer(
         f"✅ Счёт переименован в «{html.escape(new_name)}»!\n\n"
@@ -364,6 +366,7 @@ async def handle_acc_delete_move(
             await state.clear()
             return
         balances = await get_account_balances(session, user_id)
+        await session.commit()
 
     await callback.message.edit_text(
         "✅ Записи перенесены, счёт удалён.\n\n" + _build_accounts_text(balances),
@@ -396,6 +399,7 @@ async def handle_acc_delete_confirm(
             await state.clear()
             return
         balances = await get_account_balances(session, user_id)
+        await session.commit()
 
     await callback.message.edit_text(
         "✅ Счёт удалён.\n\n" + _build_accounts_text(balances),
@@ -583,6 +587,7 @@ async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) 
         from_name = next((a.name for a in accounts if a.id == from_id), "—")
         to_name = next((a.name for a in accounts if a.id == to_id), "—")
         balances = await get_account_balances(session, user_id)
+        await session.commit()
 
     amount_str = f"{amount:,.0f}₽".replace(",", " ")
     await message.answer(
@@ -880,6 +885,7 @@ async def handle_set_balance_amount(
         balances = await get_account_balances(session, user_id)
         accounts = await get_accounts(session, user_id)
         acc_name = next((a.name for a in accounts if a.id == account_id), "—")
+        await session.commit()
 
     await state.clear()
     desired_str = f"{desired:,.0f} ₽".replace(",", " ")

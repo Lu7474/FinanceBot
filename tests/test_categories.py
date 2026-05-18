@@ -59,6 +59,7 @@ async def test_add_user_category_duplicate(session):
 
     async with test_session() as s:
         cat1 = await add_user_category(s, user_id, "Еда", "-")
+        await s.commit()
 
     async with test_session() as s:
         cat2 = await add_user_category(s, user_id, "Еда", "-")
@@ -75,6 +76,7 @@ async def test_add_user_category_limit(session):
         async with test_session() as s:
             cat = await add_user_category(s, user_id, f"Кат{i}", "-")
             assert cat is not None, f"Category {i} should be created"
+            await s.commit()
 
     async with test_session() as s:
         extra = await add_user_category(s, user_id, "Лишняя", "-")
@@ -88,6 +90,7 @@ async def test_rename_user_category(session):
     async with test_session() as s:
         cat = await add_user_category(s, user_id, "Старое", "-")
         cat_id = cat.id
+        await s.commit()
 
     async with test_session() as s:
         await add_record(s, user_id, "-", Decimal("100"), "Старое")
@@ -95,6 +98,7 @@ async def test_rename_user_category(session):
 
     async with test_session() as s:
         ok = await rename_user_category(s, cat_id, user_id, "Новое")
+        await s.commit()
     assert ok
 
     async with test_session() as s:
@@ -116,6 +120,7 @@ async def test_delete_user_category(session):
     async with test_session() as s:
         cat = await add_user_category(s, user_id, "Удалимая", "-")
         cat_id = cat.id
+        await s.commit()
 
     async with test_session() as s:
         await add_record(s, user_id, "-", Decimal("200"), "Удалимая")
@@ -123,6 +128,7 @@ async def test_delete_user_category(session):
 
     async with test_session() as s:
         ok = await delete_user_category(s, cat_id, user_id)
+        await s.commit()
     assert ok
 
     async with test_session() as s:
@@ -140,6 +146,7 @@ async def test_seed_default_categories(session):
 
     async with test_session() as s:
         await seed_default_categories(s, user_id)
+        await s.commit()
 
     async with test_session() as s:
         cats = await get_user_categories(s, user_id)
@@ -148,6 +155,7 @@ async def test_seed_default_categories(session):
     # Second call is no-op
     async with test_session() as s:
         await seed_default_categories(s, user_id)
+        await s.commit()
 
     async with test_session() as s:
         cats2 = await get_user_categories(s, user_id)
@@ -160,6 +168,7 @@ async def test_suggest_category_user_rule(session):
 
     async with test_session() as s:
         await seed_default_categories(s, user_id)
+        await s.commit()
 
     async with test_session() as s:
         cats = await get_user_categories(s, user_id)
@@ -169,6 +178,7 @@ async def test_suggest_category_user_rule(session):
     # Learn user rule: "метро" → Транспорт
     async with test_session() as s:
         await learn_keyword(s, user_id, "метро", transport_id)
+        await s.commit()
 
     # User rule should match
     async with test_session() as s:
@@ -182,6 +192,7 @@ async def test_suggest_category_system(session):
 
     async with test_session() as s:
         await seed_default_categories(s, user_id)
+        await s.commit()
 
     # "продукты" is in SYSTEM_KEYWORDS → "Еда", and "Еда" is in user's categories
     async with test_session() as s:
@@ -195,6 +206,7 @@ async def test_suggest_category_no_match(session):
 
     async with test_session() as s:
         await seed_default_categories(s, user_id)
+        await s.commit()
 
     async with test_session() as s:
         result = await suggest_category(s, user_id, "абракадабра xyz")
@@ -217,6 +229,7 @@ async def test_learn_keyword(session):
 
     async with test_session() as s:
         await seed_default_categories(s, user_id)
+        await s.commit()
 
     async with test_session() as s:
         cats = await get_user_categories(s, user_id)
@@ -225,6 +238,7 @@ async def test_learn_keyword(session):
 
     async with test_session() as s:
         await learn_keyword(s, user_id, "поход пятёрочку молоком", eat_id)
+        await s.commit()
 
     async with test_session() as s:
         result = await s.execute(
@@ -244,10 +258,16 @@ async def test_sort_order_increment(session):
 
     async with test_session() as s:
         cat1 = await add_user_category(s, user_id, "Первая", "-")
+        await s.commit()
+        await s.refresh(cat1)
     async with test_session() as s:
         cat2 = await add_user_category(s, user_id, "Вторая", "-")
+        await s.commit()
+        await s.refresh(cat2)
     async with test_session() as s:
         cat3 = await add_user_category(s, user_id, "Третья", "+")
+        await s.commit()
+        await s.refresh(cat3)
 
     assert cat1.sort_order == 1
     assert cat2.sort_order == 2

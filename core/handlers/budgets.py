@@ -191,6 +191,7 @@ async def budget_category_selected(
             deleted = False
             if target_budget:
                 deleted = await delete_budget(session, target_budget.id, user_id)
+            await session.commit()
         await callback.answer("Удалено." if deleted else "Бюджет не найден.")
         await _show_budget_status(callback, user_id, state)
     else:
@@ -233,6 +234,7 @@ async def budget_amount_entered(message: Message, state: FSMContext, **kwargs) -
 
     async with async_session() as session:
         await set_budget(session, user_id, category, amount)
+        await session.commit()
 
     await message.answer(
         f"✅ Лимит для <b>{html.escape(str(category))}</b> установлен: {amount:,.0f}₽/мес".replace(

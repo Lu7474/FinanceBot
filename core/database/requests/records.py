@@ -146,7 +146,7 @@ async def delete_record(session: AsyncSession, user_id: int, record_id: int) -> 
         result = await session.execute(
             delete(Record).where(Record.id == record_id, Record.user_id == user_id)
         )
-        await session.commit()
+        await session.flush()
         return result.rowcount > 0
     except Exception as e:
         await session.rollback()
@@ -196,8 +196,7 @@ async def update_record(
         for key, value in fields.items():
             setattr(record, key, value)
 
-        await session.commit()
-        await session.refresh(record)
+        await session.flush()
 
         result = await session.execute(
             select(Record)

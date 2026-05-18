@@ -427,6 +427,7 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
             new_amount = updated.amount
             new_category = updated.category
             new_date_str = updated.created_at.strftime("%d.%m.%Y")
+            await session.commit()
 
     # Build confirmation message (all values captured inside session)
     if no_change:
@@ -496,6 +497,8 @@ async def record_account_select(
         updated = await update_record(
             session, record_id, user_id, account_id=account_id
         )
+        if updated:
+            await session.commit()
 
     if not updated:
         await callback.message.edit_text("Не удалось сохранить изменение.")
@@ -554,6 +557,7 @@ async def record_delete_confirm(
 
     async with async_session() as session:
         deleted = await delete_record(session, user_id, record_id)
+        await session.commit()
 
     if not deleted:
         await callback.message.edit_text("Запись не найдена или уже удалена.")
