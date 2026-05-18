@@ -4,22 +4,21 @@ import html
 import re
 from datetime import datetime
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE, TIMEZONE
+from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE
 from core.database.models import Record, async_session
-from core.database.requests._common import now_moscow
 from core.database.requests import (
     get_history_data,
     get_records,
     get_top_categories_for_period,
     search_records,
 )
+from core.database.requests._common import now_moscow
 from core.keyboards import (
     history_category_filter_keyboard,
     history_period_keyboard,

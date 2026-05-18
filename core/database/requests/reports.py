@@ -10,10 +10,9 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.requests._common import now_moscow
-
 from config import TIMEZONE
 from core.database.models import Record
+from core.database.requests._common import now_moscow
 from core.utils import parse_search_query
 
 from ._common import SYSTEM_CATEGORIES, apply_period_filter

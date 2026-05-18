@@ -2,14 +2,12 @@
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import TIMEZONE
-from core.database.requests._common import now_moscow
 from core.database.models import Budget, Record
+from core.database.requests._common import now_moscow
 from core.utils import format_money
 
 

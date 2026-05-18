@@ -13,7 +13,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH, TIMEZONE
-from core.database.requests._common import now_moscow
 from core.database.models import async_session
 from core.database.requests import (
     check_and_alert_budget,
@@ -21,6 +20,7 @@ from core.database.requests import (
     get_user_categories,
     suggest_category,
 )
+from core.database.requests._common import now_moscow
 from core.keyboards import (
     account_select_keyboard,
     category_suggest_keyboard,

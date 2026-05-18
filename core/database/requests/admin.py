@@ -6,15 +6,11 @@ import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional
-from zoneinfo import ZoneInfo
-
-from core.database.requests._common import now_moscow
 
 from sqlalchemy import case, delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from config import TIMEZONE
 from core.database.models import (
     Account,
     Budget,
@@ -28,6 +24,7 @@ from core.database.models import (
     UserCategory,
     WealthItem,
 )
+from core.database.requests._common import now_moscow
 
 from ._common import SYSTEM_CATEGORIES
 

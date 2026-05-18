@@ -2,15 +2,15 @@
 
 from datetime import date as date_type
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from config import TIMEZONE
 from core.database.models import Budget, Record, SavingsSnapshot, WealthItem
-from core.database.requests._common import now_moscow  # noqa: F401 (unused here, but keeps import consistent)
+from core.database.requests._common import (
+    now_moscow,  # noqa: F401 (unused here, but keeps import consistent)
+)
 
 
 async def get_all_records_for_export(
