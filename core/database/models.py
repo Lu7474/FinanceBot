@@ -32,7 +32,7 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 # Возвращает текущее время по Москве (для default в моделях)
 def moscow_now():
-    return datetime.now(ZoneInfo(TIMEZONE))
+    return datetime.now(ZoneInfo(TIMEZONE)).replace(tzinfo=None)
 
 
 # ==================== Модели ====================
