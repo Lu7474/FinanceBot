@@ -263,3 +263,67 @@ def test_format_record_card_handles_missing_account():
     rec = _FakeRecord(category="Еда", account_name=None)
     text = format_record_card(rec)
     assert "—" in text
+
+
+# ==================== XSS: format_snapshot ====================
+
+
+class _FakeSnapshotItem:
+    def __init__(self, name: str, amount: Decimal):
+        self.name = name
+        self.amount = amount
+
+
+def test_format_snapshot_escapes_html_in_item_name():
+    name_xss = '<script>alert("xss")</script>'
+    item = _FakeSnapshotItem(name=name_xss, amount=Decimal("500"))
+    text = format_snapshot([item], None, date(2025, 5, 1))
+    assert "<script>" not in text
+    assert "&lt;script&gt;" in text
+
+
+def test_format_snapshot_escapes_html_in_prev_item_name():
+    """prev_items are used as a lookup map by name — injection via previous snapshot."""
+    name_xss = '<img src=x onerror="steal()">'
+    curr = _FakeSnapshotItem(name=name_xss, amount=Decimal("600"))
+    prev = _FakeSnapshotItem(name=name_xss, amount=Decimal("400"))
+    text = format_snapshot([curr], [prev], date(2025, 5, 1))
+    assert "<img" not in text
+    assert "&lt;img" in text
+
+
+# ==================== XSS: format_wealth ====================
+
+
+class _FakeWealthItem:
+    def __init__(self, name: str, amount: Decimal, type_: str, note: str = ""):
+        self.name = name
+        self.amount = amount
+        self.type = type_
+        self.note = note
+
+
+def test_format_wealth_escapes_html_in_asset_name():
+    item = _FakeWealthItem(name="<img src=x>", amount=Decimal("1000"), type_="A")
+    text = format_wealth([item])
+    assert "<img src=x>" not in text
+    assert "&lt;img src=x&gt;" in text
+
+
+def test_format_wealth_escapes_html_in_liability_name():
+    item = _FakeWealthItem(name='<a href="evil">', amount=Decimal("200"), type_="P")
+    text = format_wealth([item])
+    assert '<a href="evil">' not in text
+    assert "&lt;a href=" in text
+
+
+def test_format_wealth_escapes_html_in_note():
+    item = _FakeWealthItem(
+        name="Квартира",
+        amount=Decimal("5000000"),
+        type_="A",
+        note="<script>steal()</script>",
+    )
+    text = format_wealth([item])
+    assert "<script>" not in text
+    assert "&lt;script&gt;" in text

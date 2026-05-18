@@ -1,5 +1,7 @@
 """Tests for typed goal exceptions and their handler mapping."""
 
+import inspect
+import re
 import sys
 from pathlib import Path
 
@@ -78,3 +80,41 @@ def test_goal_completed_does_not_match_goal_not_found():
     """GoalCompleted must NOT be matched as GoalNotFound."""
     instance = GoalCompleted()
     assert not isinstance(instance, GoalNotFound)
+
+
+# --- Source-level: every raise in requests/goals.py must have a translation ---
+
+
+def test_all_raised_goal_exceptions_covered_in_handler():
+    """Every GoalError subclass raised in requests/goals.py must have an entry in _GOAL_ERROR_MESSAGES.
+
+    Catches the drift where a new exception is added to the data layer
+    but the handler mapping is not updated.
+    """
+    import core.database.requests.goals as goals_module
+
+    source = inspect.getsource(goals_module)
+    raised_names = set(re.findall(r"\braise\s+(\w+)\s*\(", source))
+    module_ns = vars(goals_module)
+
+    uncovered = []
+    for name in sorted(raised_names):
+        cls = module_ns.get(name)
+        if cls is None or not (isinstance(cls, type) and issubclass(cls, GoalError)):
+            continue
+        instance = cls()
+        matched = next(
+            (
+                msg
+                for exc_type, msg in _GOAL_ERROR_MESSAGES
+                if isinstance(instance, exc_type)
+            ),
+            None,
+        )
+        if matched is None:
+            uncovered.append(name)
+
+    assert not uncovered, (
+        f"These exceptions are raised in requests/goals.py but missing from "
+        f"_GOAL_ERROR_MESSAGES: {uncovered}"
+    )
