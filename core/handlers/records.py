@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH, TIMEZONE
+from core.database.requests._common import now_moscow
 from core.database.models import async_session
 from core.database.requests import (
     check_and_alert_budget,
@@ -162,13 +163,11 @@ def parse_record_line(
             year = datetime.now(ZoneInfo(TIMEZONE)).year
 
         try:
-            record_date = datetime(
-                year, month, day, 12, 0, 0, tzinfo=ZoneInfo(TIMEZONE)
-            )
+            record_date = datetime(year, month, day, 12, 0, 0)
         except ValueError:
             return None
 
-        now = datetime.now(ZoneInfo(TIMEZONE))
+        now = now_moscow()
         if record_date.date() > (now + timedelta(days=1)).date():
             return None
 

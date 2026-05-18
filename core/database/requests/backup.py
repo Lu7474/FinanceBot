@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from config import TIMEZONE
 from core.database.models import Budget, Record, SavingsSnapshot, WealthItem
+from core.database.requests._common import now_moscow  # noqa: F401 (unused here, but keeps import consistent)
 
 
 async def get_all_records_for_export(
@@ -31,14 +32,10 @@ async def get_all_records_for_export(
     if operation is not None:
         query = query.where(Record.operation == operation)
     if date_from is not None:
-        dt_from = datetime.combine(date_from, datetime.min.time()).replace(
-            tzinfo=ZoneInfo(TIMEZONE)
-        )
+        dt_from = datetime.combine(date_from, datetime.min.time())
         query = query.where(Record.created_at >= dt_from)
     if date_to is not None:
-        dt_to = datetime.combine(date_to, datetime.max.time()).replace(
-            tzinfo=ZoneInfo(TIMEZONE)
-        )
+        dt_to = datetime.combine(date_to, datetime.max.time())
         query = query.where(Record.created_at <= dt_to)
     query = query.order_by(Record.created_at)
     result = await session.execute(query)
@@ -91,9 +88,7 @@ async def bulk_insert_records(
     count = 0
     for row in rows:
         d = row["date"]
-        created_at = datetime.combine(d, datetime.min.time()).replace(
-            tzinfo=ZoneInfo(TIMEZONE)
-        )
+        created_at = datetime.combine(d, datetime.min.time())
         session.add(
             Record(
                 user_id=user_id,

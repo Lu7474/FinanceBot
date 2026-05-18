@@ -8,6 +8,8 @@ from decimal import Decimal
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
+from core.database.requests._common import now_moscow
+
 from sqlalchemy import case, delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -164,7 +166,7 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
 
 
 async def get_bot_stats(session: AsyncSession) -> dict:
-    now = datetime.now(ZoneInfo(TIMEZONE))
+    now = now_moscow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = (now - timedelta(days=7)).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -255,7 +257,7 @@ async def get_user_last_activity(
 
 
 async def get_active_user_tg_ids(session: AsyncSession, days: int = 7) -> List[int]:
-    since = datetime.now(ZoneInfo(TIMEZONE)) - timedelta(days=days)
+    since = now_moscow() - timedelta(days=days)
     result = await session.execute(
         select(User.tg_id)
         .join(Record, Record.user_id == User.id)

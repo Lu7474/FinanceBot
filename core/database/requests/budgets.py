@@ -8,6 +8,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
+from core.database.requests._common import now_moscow
 from core.database.models import Budget, Record
 from core.utils import format_money
 
@@ -62,15 +63,11 @@ async def get_budget_status(
     if not budgets:
         return []
 
-    date_from = datetime(year, month, 1, tzinfo=ZoneInfo(TIMEZONE))
+    date_from = datetime(year, month, 1)
     if month == 12:
-        date_to = datetime(year + 1, 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
-            seconds=1
-        )
+        date_to = datetime(year + 1, 1, 1) - timedelta(seconds=1)
     else:
-        date_to = datetime(year, month + 1, 1, tzinfo=ZoneInfo(TIMEZONE)) - timedelta(
-            seconds=1
-        )
+        date_to = datetime(year, month + 1, 1) - timedelta(seconds=1)
 
     categories = [b.category for b in budgets]
     rows = await session.execute(
@@ -107,7 +104,7 @@ async def reset_budget_alerts_if_new_month(
     session: AsyncSession, budget: Budget
 ) -> bool:
     """Resets alert flags if current month differs from last_reset_month. Returns True if reset occurred."""
-    now = datetime.now(ZoneInfo(TIMEZONE))
+    now = now_moscow()
     current_yyyymm = now.year * 100 + now.month
     if budget.last_reset_month != current_yyyymm:
         budget.alerted_80 = False
@@ -133,7 +130,7 @@ async def check_and_alert_budget(
 
     reset = await reset_budget_alerts_if_new_month(session, budget)
 
-    now = datetime.now(ZoneInfo(TIMEZONE))
+    now = now_moscow()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     spent = await session.scalar(

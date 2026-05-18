@@ -10,6 +10,8 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.database.requests._common import now_moscow
+
 from config import TIMEZONE
 from core.database.models import Record
 from core.utils import parse_search_query
@@ -235,7 +237,7 @@ async def get_monthly_totals(
 ) -> list[tuple[int, int, Decimal]]:
     """Sums grouped by (year, month) for the last N months. For trend charts."""
     try:
-        now = datetime.now(ZoneInfo(TIMEZONE))
+        now = now_moscow()
         start_date = (now - relativedelta(months=months_back - 1)).replace(
             day=1, hour=0, minute=0, second=0, microsecond=0
         )

@@ -15,6 +15,11 @@ SYSTEM_CATEGORIES = (TRANSFER_CATEGORY, BALANCE_SET_CATEGORY)
 VALID_OPERATIONS = ("+", "-")
 
 
+def now_moscow() -> datetime:
+    """Naive Moscow datetime for TIMESTAMP WITHOUT TIME ZONE columns."""
+    return datetime.now(ZoneInfo(TIMEZONE)).replace(tzinfo=None)
+
+
 def apply_period_filter(
     query,
     within: str,
@@ -24,7 +29,9 @@ def apply_period_filter(
 ):
     """Apply a period-based WHERE clause to a Record query."""
     if now is None:
-        now = datetime.now(ZoneInfo(TIMEZONE))
+        now = datetime.now(ZoneInfo(TIMEZONE)).replace(tzinfo=None)
+    elif now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
 
     if within == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -59,18 +66,13 @@ def apply_period_filter(
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         query = query.where(Record.created_at >= start)
     elif within == "date" and date_from:
-        if date_from.tzinfo is None:
-            date_from = date_from.replace(tzinfo=ZoneInfo(TIMEZONE))
-        else:
-            date_from = date_from.astimezone(ZoneInfo(TIMEZONE))
-        start = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = date_from.replace(hour=23, minute=59, second=59, microsecond=999999)
+        start = date_from.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+        end = date_from.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=None)
         query = query.where(Record.created_at.between(start, end))
     elif within == "range" and date_from and date_to:
-        if date_from.tzinfo is None:
-            date_from = date_from.replace(tzinfo=ZoneInfo(TIMEZONE))
-        if date_to.tzinfo is None:
-            date_to = date_to.replace(tzinfo=ZoneInfo(TIMEZONE))
-        query = query.where(Record.created_at.between(date_from, date_to))
+        query = query.where(Record.created_at.between(
+            date_from.replace(tzinfo=None),
+            date_to.replace(tzinfo=None),
+        ))
 
     return query

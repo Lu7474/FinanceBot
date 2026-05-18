@@ -13,6 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE, TIMEZONE
 from core.database.models import Record, async_session
+from core.database.requests._common import now_moscow
 from core.database.requests import (
     get_history_data,
     get_records,
@@ -517,17 +518,13 @@ async def menu_history_custom_period(
         await message.answer("Начальная дата не может быть позже конечной.")
         return
 
-    now = datetime.now(ZoneInfo(TIMEZONE))
-    if date_from.replace(tzinfo=ZoneInfo(TIMEZONE)) > now:
+    now = now_moscow()
+    if date_from > now:
         await message.answer("Начальная дата не может быть в будущем.")
         return
 
-    date_from = date_from.replace(
-        hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(TIMEZONE)
-    )
-    date_to = date_to.replace(
-        hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo(TIMEZONE)
-    )
+    date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+    date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     user_id = kwargs["user_id"]
     async with async_session() as session:
