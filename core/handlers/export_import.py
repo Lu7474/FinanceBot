@@ -324,6 +324,7 @@ async def handle_import(message: Message, state: FSMContext) -> None:
 
 
 @router.message(StateFilter(ExportImportStates.waiting_for_import_file), F.document)
+@log_exceptions("Ошибка при импорте файла")
 async def handle_import_file(message: Message, state: FSMContext, user_id: int) -> None:
     doc = message.document
     if not doc.file_name.endswith(".xlsx"):
