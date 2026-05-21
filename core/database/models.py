@@ -97,7 +97,7 @@ class Account(Base):
     )
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     balance_offset: Mapped[Decimal] = mapped_column(
-        DECIMAL(10, 2), default=Decimal("0"), server_default="0"
+        DECIMAL(14, 2), default=Decimal("0"), server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
@@ -127,7 +127,7 @@ class Record(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )  # Индекс на FK
     operation: Mapped[str] = mapped_column(String(1))  # "+" (доход) или "-" (расход)
-    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2))  # Сумма
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2))  # Сумма
     category: Mapped[str] = mapped_column(
         String(50), default="не указано"
     )  # Категория (макс 50 символов)
@@ -181,7 +181,7 @@ class SavingsItem(Base):
         ForeignKey("savings_snapshots.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(50), nullable=False)
-    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
 
     snapshot = relationship("SavingsSnapshot", back_populates="items")
 
@@ -198,7 +198,7 @@ class WealthItem(Base):
         String(1), nullable=False
     )  # "A" = актив, "P" = пассив
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
@@ -217,7 +217,7 @@ class Budget(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     category: Mapped[str] = mapped_column(String(50), nullable=False)
-    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     alerted_80: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     alerted_100: Mapped[bool] = mapped_column(
@@ -278,8 +278,8 @@ class Goal(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    target_amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
-    current_amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), default=Decimal("0"), server_default="0")
+    target_amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    current_amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), default=Decimal("0"), server_default="0")
     deadline: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
@@ -295,7 +295,7 @@ class GoalDeposit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id", ondelete="CASCADE"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
-    amount: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
@@ -320,7 +320,7 @@ async def _migrate(conn) -> None:
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id),
                 category VARCHAR(50) NOT NULL,
-                amount DECIMAL(10,2) NOT NULL,
+                amount DECIMAL(14,2) NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 alerted_80 INTEGER NOT NULL DEFAULT 0,
                 alerted_100 INTEGER NOT NULL DEFAULT 0,
@@ -348,7 +348,7 @@ async def _migrate(conn) -> None:
     if "balance_offset" not in acc_columns:
         await conn.execute(
             text(
-                "ALTER TABLE accounts ADD COLUMN balance_offset DECIMAL(10,2) NOT NULL DEFAULT 0"
+                "ALTER TABLE accounts ADD COLUMN balance_offset DECIMAL(14,2) NOT NULL DEFAULT 0"
             )
         )
     result = await conn.execute(text("PRAGMA table_info(users)"))
@@ -367,8 +367,8 @@ async def _migrate(conn) -> None:
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id),
                 name VARCHAR(100) NOT NULL,
-                target_amount DECIMAL(10,2) NOT NULL,
-                current_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+                target_amount DECIMAL(14,2) NOT NULL,
+                current_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
                 deadline DATE,
                 is_completed INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL,
@@ -394,7 +394,7 @@ async def _migrate(conn) -> None:
                 id INTEGER PRIMARY KEY,
                 goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
                 account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
-                amount DECIMAL(10,2) NOT NULL,
+                amount DECIMAL(14,2) NOT NULL,
                 note VARCHAR(200),
                 created_at DATETIME NOT NULL
             )
