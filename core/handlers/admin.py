@@ -4,7 +4,11 @@ import asyncio
 import html
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -713,16 +717,31 @@ async def cb_bc_confirm(query: CallbackQuery, state: FSMContext) -> None:
     await _safe_edit(query.message, f"📢 Рассылка запущена... (0/{len(tg_ids)})")
     await query.answer()
 
-    sent, failed = 0, 0
+    sent, blocked, failed = 0, 0, 0
     for tg_id in tg_ids:
         try:
             await query.bot.send_message(tg_id, text)
             sent += 1
-            await asyncio.sleep(0.05)
+        except TelegramRetryAfter as e:
+            # Flood control: ждём указанное время и дослыем один раз
+            await asyncio.sleep(e.retry_after)
+            try:
+                await query.bot.send_message(tg_id, text)
+                sent += 1
+            except TelegramForbiddenError:
+                blocked += 1
+            except Exception:
+                failed += 1
+        except TelegramForbiddenError:
+            # Юзер заблокировал бота — норма, не считаем ошибкой
+            blocked += 1
         except Exception:
             failed += 1
+        await asyncio.sleep(0.05)
 
     result = f"✅ Рассылка завершена.\nОтправлено: {sent}/{len(tg_ids)}"
+    if blocked:
+        result += f"\nЗаблокировали бота: {blocked}"
     if failed:
         result += f"\nНе доставлено: {failed}"
     await state.update_data(broadcast_text=None, broadcast_tg_ids=None)
