@@ -1,3 +1,4 @@
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -6,6 +7,8 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+if ADMIN_ID == 0:
+    logging.warning("ADMIN_ID не задан — admin-функции недоступны")
 PROXY_URL = os.getenv("PROXY_URL")
 BOT_API_BASE_URL = os.getenv("BOT_API_BASE_URL")
 
