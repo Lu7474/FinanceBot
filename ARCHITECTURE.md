@@ -15,6 +15,7 @@ FinanceBot/
 │   ├── middleware.py           # RateLimitMiddleware, UserMiddleware
 │   ├── keyboards.py            # ReplyKeyboard и InlineKeyboard
 │   ├── export.py               # Excel export/import/backup: build и validate функции
+│   ├── exceptions.py           # Доменные исключения (GoalError и наследники)
 │   ├── handlers/
 │   │   ├── __init__.py         # Сборка всех роутеров в один Router
 │   │   ├── common.py           # FSM states, фильтры кнопок, get_user_id_from_event
@@ -46,7 +47,7 @@ FinanceBot/
 │           ├── goals.py        # CRUD целей, deposit/withdraw, complete
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 334 pytest-тестов
+├── tests/                      # 454 pytest-теста
 └── requirements.txt
 ```
 
@@ -75,8 +76,8 @@ created_at: datetime (Moscow TZ)
 ```
 id: int (PK)
 user_id: int (FK → User.id)
-name: str (max 40 символов)
-balance_offset: Decimal(10, 2)  — сдвиг баланса для ручной установки
+name: str (max 50 символов; валидация ввода ограничивает 40 — MAX_ACCOUNT_NAME_LENGTH)
+balance_offset: Decimal(14, 2)  — сдвиг баланса для ручной установки
 created_at: datetime
 ```
 
@@ -86,7 +87,7 @@ id: int (PK)
 user_id: int (FK → User.id)
 account_id: int (FK → Account.id, nullable, SET NULL при удалении счёта)
 operation: str  — "+" (доход) или "-" (расход)
-amount: Decimal(10, 2)
+amount: Decimal(14, 2)
 category: str (max 50 символов)
 created_at: datetime (Moscow TZ)
 ```
@@ -105,7 +106,7 @@ items: relationship → SavingsItem (cascade delete)
 id: int (PK)
 snapshot_id: int (FK → SavingsSnapshot.id, CASCADE)
 name: str (max 50)
-amount: Decimal(10, 2)
+amount: Decimal(14, 2)
 ```
 
 ### WealthItem
@@ -114,7 +115,7 @@ id: int (PK)
 user_id: int (FK → User.id)
 type: str  — "A" (актив) или "P" (пассив)
 name: str (max 100)
-amount: Decimal(10, 2)
+amount: Decimal(14, 2)
 note: str (max 200, nullable)
 updated_at: datetime
 ```
@@ -124,7 +125,7 @@ updated_at: datetime
 id: int (PK)
 user_id: int (FK → User.id)
 category: str (max 50)
-amount: Decimal(10, 2)  — месячный лимит
+amount: Decimal(14, 2)  — месячный лимит
 is_active: bool (default True)
 alerted_80: bool  — флаг уведомления при 80%
 alerted_100: bool  — флаг уведомления при 100%
@@ -136,8 +137,8 @@ last_reset_month: int (nullable)  — месяц последнего сброс
 id: int (PK)
 user_id: int (FK → User.id)
 name: str (max 100 — синхронно со схемой и app-валидацией `MAX_GOAL_NAME_LENGTH`)
-target_amount: Decimal(10, 2)
-current_amount: Decimal(10, 2)  — накоплено (default 0)
+target_amount: Decimal(14, 2)
+current_amount: Decimal(14, 2)  — накоплено (default 0)
 deadline: date (nullable)
 is_completed: bool (default False)
 created_at: datetime
@@ -150,7 +151,7 @@ deposits: relationship → GoalDeposit (cascade delete)
 id: int (PK)
 goal_id: int (FK → Goal.id, CASCADE)
 account_id: int (FK → Account.id, nullable, SET NULL)
-amount: Decimal(10, 2)  — положительный = пополнение, отрицательный = снятие
+amount: Decimal(14, 2)  — положительный = пополнение, отрицательный = снятие
 note: str (max 200, nullable)
 created_at: datetime
 ```
@@ -313,10 +314,10 @@ editing_deadline           — редактирование дедлайна
 
 ## Конвенции
 
-### Транзакции в репозиториях
-Функции-репозитории (`core/database/requests/*`) **сами вызывают `await session.commit()`** после write-операций и `rollback()` в `except`. Хендлеры не делают commit поверх — только вызывают функцию репозитория и используют результат.
+### Транзакции: коммитят хендлеры
+Хендлеры открывают сессию (`async with async_session() as session:`) и **сами вызывают `await session.commit()`** после write-операций. Функции-репозитории (`core/database/requests/*`) только добавляют/изменяют объекты (`session.add`, `session.flush`, `delete`) и не коммитят — транзакцией владеет вызывающий хендлер.
 
-**Исключение:** `core/database/requests/goals.py` — функции `create_goal`, `update_goal`, `deposit_goal`, `withdraw_goal`, `complete_goal`, `delete_goal` НЕ коммитят сами. Коммит делает вызывающий хендлер (`core/handlers/goals.py`). Это техдолг, требующий выравнивания с остальными модулями.
+**Исключение:** `set_user` (`users.py`) коммитит сам — вызывается при `/start` для регистрации пользователя и передаёт `commit=False` в `seed_default_categories`, чтобы избежать вложенных коммитов.
 
 Read-only функции (`reports.py`, `_common.py`) commit не делают.
 
@@ -493,7 +494,7 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (334)
+## Тесты (454)
 
 ```bash
 pytest tests/ -v
@@ -517,4 +518,10 @@ pytest tests/ -v
 | test_search_filter.py | Поиск записей и фильтры истории |
 | test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов; weekday-отчёт |
 | test_export_import.py | Экспорт/импорт: парсинг xlsx, валидация строк, bulk insert, дубли |
+| test_export_import_tz.py | Экспорт/импорт: корректность временной зоны |
 | test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
+| test_goals_errors.py | Цели: обработка ошибок и граничные случаи |
+| test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка |
+| test_charts.py | Генерация графиков (matplotlib) |
+| test_middleware.py | RateLimitMiddleware и UserMiddleware |
+| test_set_user.py | Регистрация пользователя, дефолтный счёт |

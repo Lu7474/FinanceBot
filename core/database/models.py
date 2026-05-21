@@ -1,5 +1,6 @@
 """
-SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem.
+SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem,
+Budget, UserCategory, CategoryKeyword, Goal, GoalDeposit.
 """
 
 from datetime import date, datetime

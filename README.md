@@ -1,16 +1,16 @@
 # FinanceBot
 
 [![Tests](https://github.com/Lu7474/FinanceBot/actions/workflows/tests.yml/badge.svg)](https://github.com/Lu7474/FinanceBot/actions/workflows/tests.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Telegram-бот для учёта личных финансов на aiogram 3 + SQLAlchemy 2.0 async. Записи через текст без кнопок, история за любой период, графики по категориям, бюджеты по категориям, накопления и учёт активов/пассивов, финансовые цели, экспорт/импорт в Excel. 312 тестов, модульная архитектура.
+Telegram-бот для учёта личных финансов на aiogram 3 + SQLAlchemy 2.0 async. Записи через текст без кнопок, история за любой период, графики по категориям, бюджеты по категориям, накопления и учёт активов/пассивов, финансовые цели, экспорт/импорт в Excel. 454 теста, модульная архитектура.
 
 ## Стек
 
 | | |
 |---|---|
-| Язык | Python 3.11+ |
+| Язык | Python 3.10+ |
 | Фреймворк | aiogram 3 |
 | ORM / БД | SQLAlchemy 2.0 async + aiosqlite |
 | Графики | matplotlib |
