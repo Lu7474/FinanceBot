@@ -258,7 +258,7 @@ async def _render_users_page(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"👤 {u.name or '—'}{ban_mark}  |  {u.tg_id}",
+                    text=f"👤 {(u.name or '—')[:30]}{ban_mark}  |  {u.tg_id}",
                     callback_data=f"adm_user_{u.tg_id}",
                 )
             ]
@@ -594,7 +594,7 @@ async def search_text(message: Message, state: FSMContext) -> None:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"👤 {u.name or '—'}{ban_mark}  |  {u.tg_id}",
+                    text=f"👤 {(u.name or '—')[:30]}{ban_mark}  |  {u.tg_id}",
                     callback_data=f"adm_user_{u.tg_id}",
                 )
             ]
