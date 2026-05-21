@@ -297,7 +297,7 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
     lines = [
         "👤 <b>Пользователь</b>",
         f"🆔 tg_id: <code>{user.tg_id}</code>",
-        f"📛 Имя: {user.name or '—'}",
+        f"📛 Имя: {html.escape(user.name or '—')}",
         f"📱 Телефон: {user.phone or '—'}",
         f"📅 Регистрация: {user.created_at.strftime('%d.%m.%Y %H:%M')}",
         f"🕐 Последняя активность: {last_str}",
@@ -307,7 +307,7 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
     if balances:
         lines.append(f"💳 <b>Счета ({len(balances)}):</b>")
         for acc, bal in balances:
-            lines.append(f"  • {acc.name} — {format_money(bal)}")
+            lines.append(f"  • {html.escape(acc.name)} — {format_money(bal)}")
         lines.append("")
     lines += [
         f"📊 Записей: {stats['total_records']} "
@@ -541,7 +541,7 @@ async def cb_top(query: CallbackQuery) -> None:
     lines = ["🏆 <b>Топ-5 активных пользователей</b>\n"]
     for i, (user, count) in enumerate(top):
         lines.append(
-            f"{medals[i]} {user.name or '—'} | <code>{user.tg_id}</code> | {count} зап."
+            f"{medals[i]} {html.escape(user.name or '—')} | <code>{user.tg_id}</code> | {count} зап."
         )
     await _safe_edit(
         query.message, "\n".join(lines), parse_mode="HTML", reply_markup=_back_kb()
