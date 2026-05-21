@@ -14,12 +14,12 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-from matplotlib.figure import Figure
+from matplotlib.figure import Figure  # noqa: E402
 
 matplotlib.rcParams["font.family"] = "DejaVu Sans"
 
-from config import CHART_DPI, CHART_TIMEOUT_SECONDS, MAX_CATEGORIES_IN_PIE
-from core.utils import RU_MONTHS, format_money
+from config import CHART_DPI, CHART_TIMEOUT_SECONDS, MAX_CATEGORIES_IN_PIE  # noqa: E402
+from core.utils import RU_MONTHS, format_money  # noqa: E402
 
 INCOME_COLORS = [
     "#2ecc71",
