@@ -224,7 +224,7 @@ async def menu_report_month(
         )
         total = sum(categories.values()) if categories else Decimal("0.0")
 
-        records = await get_records(session, user_id, "range", date_from, date_to)
+        records = await get_records(session, user_id, "range", date_from, date_to, limit=30)
 
         if categories:
             buf, caption = await build_report_pie(
