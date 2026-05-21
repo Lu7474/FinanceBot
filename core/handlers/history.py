@@ -409,6 +409,9 @@ async def menu_history_page(
         operation_filter=operation_filter,
         category_filter=category_filter,
     )
+    if len(text) > MAX_MESSAGE_LENGTH - 100:
+        text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
+
     await callback.message.edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
     )
