@@ -11,10 +11,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from core.database.models import Base
+from core.database.models import Base, setup_sqlite_engine
 
 # Подключение к тестовой БД (отдельная от основной)
 test_engine = create_async_engine(url="sqlite+aiosqlite:///test_db.sqlite3")
+setup_sqlite_engine(test_engine)  # Unicode lower() + FK, как на проде
 test_session = async_sessionmaker(test_engine)
 
 

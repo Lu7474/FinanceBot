@@ -29,12 +29,26 @@ from config import DATABASE_URL, TIMEZONE
 engine = create_async_engine(url=DATABASE_URL)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-if DATABASE_URL.startswith("sqlite"):
+
+def setup_sqlite_engine(target_engine) -> None:
+    """Registers FK enforcement and a Unicode-aware lower() on SQLite connections.
+
+    SQLite's built-in lower() only folds ASCII, breaking case-insensitive
+    search for Cyrillic. We override it with Python's str.lower(). On
+    PostgreSQL native lower() is already Unicode-correct, so this is a no-op there.
+    """
     from sqlalchemy import event
 
-    @event.listens_for(engine.sync_engine, "connect")
-    def _enable_sqlite_fk(dbapi_conn, _):
+    @event.listens_for(target_engine.sync_engine, "connect")
+    def _configure_sqlite(dbapi_conn, _):
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
+        dbapi_conn.create_function(
+            "lower", 1, lambda s: s.lower() if s is not None else s, deterministic=True
+        )
+
+
+if DATABASE_URL.startswith("sqlite"):
+    setup_sqlite_engine(engine)
 
 
 # Возвращает текущее время по Москве (для default в моделях)
@@ -82,9 +96,7 @@ class User(Base):
     category_keywords = relationship(
         "CategoryKeyword", back_populates="user", cascade="all, delete-orphan"
     )
-    goals = relationship(
-        "Goal", back_populates="user", cascade="all, delete-orphan"
-    )
+    goals = relationship("Goal", back_populates="user", cascade="all, delete-orphan")
 
 
 # Счёт пользователя (Наличные, Карта и т.д.)
@@ -279,22 +291,32 @@ class Goal(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     target_amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
-    current_amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), default=Decimal("0"), server_default="0")
+    current_amount: Mapped[Decimal] = mapped_column(
+        DECIMAL(14, 2), default=Decimal("0"), server_default="0"
+    )
     deadline: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    is_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_completed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="goals")
-    deposits = relationship("GoalDeposit", back_populates="goal", cascade="all, delete-orphan")
+    deposits = relationship(
+        "GoalDeposit", back_populates="goal", cascade="all, delete-orphan"
+    )
 
 
 class GoalDeposit(Base):
     __tablename__ = "goal_deposits"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id", ondelete="CASCADE"), index=True)
-    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey("goals.id", ondelete="CASCADE"), index=True
+    )
+    account_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
+    )
     amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
@@ -362,7 +384,8 @@ async def _migrate(conn) -> None:
         text("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'")
     )
     if not result.fetchone():
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             CREATE TABLE goals (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id),
@@ -374,22 +397,28 @@ async def _migrate(conn) -> None:
                 created_at DATETIME NOT NULL,
                 completed_at DATETIME
             )
-        """))
-        await conn.execute(text(
-            "CREATE INDEX ix_goals_user_completed ON goals(user_id, is_completed)"
-        ))
+        """)
+        )
+        await conn.execute(
+            text("CREATE INDEX ix_goals_user_completed ON goals(user_id, is_completed)")
+        )
     else:
         # Additive: add completed_at to existing goals table if missing
         cols = await conn.execute(text("PRAGMA table_info(goals)"))
         col_names = {row[1] for row in cols.fetchall()}
         if "completed_at" not in col_names:
-            await conn.execute(text("ALTER TABLE goals ADD COLUMN completed_at DATETIME"))
+            await conn.execute(
+                text("ALTER TABLE goals ADD COLUMN completed_at DATETIME")
+            )
 
     result = await conn.execute(
-        text("SELECT name FROM sqlite_master WHERE type='table' AND name='goal_deposits'")
+        text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='goal_deposits'"
+        )
     )
     if not result.fetchone():
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             CREATE TABLE goal_deposits (
                 id INTEGER PRIMARY KEY,
                 goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
@@ -398,10 +427,11 @@ async def _migrate(conn) -> None:
                 note VARCHAR(200),
                 created_at DATETIME NOT NULL
             )
-        """))
-        await conn.execute(text(
-            "CREATE INDEX ix_goal_deposits_goal_id ON goal_deposits(goal_id)"
-        ))
+        """)
+        )
+        await conn.execute(
+            text("CREATE INDEX ix_goal_deposits_goal_id ON goal_deposits(goal_id)")
+        )
 
 
 # Создаёт таблицы в БД и применяет миграции (вызывается при старте бота)
