@@ -226,22 +226,22 @@ async def set_account_balance(
         tx_balance = Decimal(str(row.income)) - Decimal(str(row.expense))
         acc.balance_offset = desired_balance - tx_balance
 
-        # Replace old balance-set record with new one
         await session.execute(
             delete(Record).where(
                 Record.account_id == account_id,
                 Record.category == BALANCE_SET_CATEGORY,
             )
         )
-        session.add(
-            Record(
-                user_id=user_id,
-                account_id=account_id,
-                operation="+",
-                amount=desired_balance,
-                category=BALANCE_SET_CATEGORY,
+        if desired_balance != Decimal("0"):
+            session.add(
+                Record(
+                    user_id=user_id,
+                    account_id=account_id,
+                    operation="+",
+                    amount=desired_balance,
+                    category=BALANCE_SET_CATEGORY,
+                )
             )
-        )
 
         await session.flush()
         return True
