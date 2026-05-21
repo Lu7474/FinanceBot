@@ -13,7 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+
+from matplotlib.figure import Figure
+
+matplotlib.rcParams["font.family"] = "DejaVu Sans"
 
 from config import CHART_DPI, CHART_TIMEOUT_SECONDS, MAX_CATEGORIES_IN_PIE
 from core.utils import RU_MONTHS, format_money
@@ -76,15 +79,13 @@ def _build_report_pie_sync(
 
     from core.reports import make_report_text
 
-    fig = None
     try:
-        plt.rcParams["font.family"] = "DejaVu Sans"
-
         month_name = RU_MONTHS[date.month]
         title_type = "Доходы" if report_type == "income" else "Расходы"
         colors = INCOME_COLORS if report_type == "income" else EXPENSE_COLORS
 
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig = Figure(figsize=(8, 5))
+        ax = fig.subplots()
 
         sorted_categories = dict(sorted(categories.items(), key=lambda x: -x[1]))
 
@@ -143,13 +144,11 @@ def _build_report_pie_sync(
             color="#2c3e50",
         )
 
-        plt.tight_layout()
+        fig.tight_layout()
         fig.subplots_adjust(bottom=0.2)
 
         buf = io.BytesIO()
-        plt.savefig(
-            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
-        )
+        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
         buf.seek(0)
 
         caption = make_report_text(categories, total, date, report_type, records)
@@ -158,9 +157,6 @@ def _build_report_pie_sync(
     except Exception:
         logging.exception("Ошибка при построении графика")
         return None, "Ошибка при построении отчета"
-    finally:
-        if fig is not None:
-            plt.close(fig)
 
 
 async def build_report_pie(
@@ -207,11 +203,9 @@ def _build_trend_chart_sync(
     if not monthly_data:
         return None
 
-    fig = None
     try:
-        plt.rcParams["font.family"] = "DejaVu Sans"
-
-        fig, ax = plt.subplots(figsize=(8, 4))
+        fig = Figure(figsize=(8, 4))
+        ax = fig.subplots()
 
         labels = [f"{RU_MONTHS_SHORT[m]}\n{y}" for y, m, _ in monthly_data]
         values = [float(v) for _, _, v in monthly_data]
@@ -286,21 +280,16 @@ def _build_trend_chart_sync(
             color="#7f8c8d",
         )
 
-        plt.tight_layout()
+        fig.tight_layout()
 
         buf = io.BytesIO()
-        plt.savefig(
-            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
-        )
+        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
         buf.seek(0)
         return buf
 
     except Exception:
         logging.exception("Ошибка при построении графика тренда")
         return None
-    finally:
-        if fig is not None:
-            plt.close(fig)
 
 
 def _build_weekday_chart_sync(
@@ -311,10 +300,7 @@ def _build_weekday_chart_sync(
     """Builds a horizontal bar chart of spending/income by weekday (Mon–Sun)."""
     from core.utils import RU_WEEKDAYS
 
-    fig = None
     try:
-        plt.rcParams["font.family"] = "DejaVu Sans"
-
         values = [float(data.get(i, 0)) for i in range(7)]
         labels = [RU_WEEKDAYS[i] for i in range(7)]
 
@@ -327,7 +313,8 @@ def _build_weekday_chart_sync(
         title_type = "Расходы" if operation == "-" else "Доходы"
         title = f"{title_type} по дням недели ({period_label})"
 
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig = Figure(figsize=(8, 5))
+        ax = fig.subplots()
         ax.barh(labels, values, color=colors, edgecolor="white", linewidth=1.2)
         ax.invert_yaxis()
 
@@ -339,19 +326,14 @@ def _build_weekday_chart_sync(
             if v > 0:
                 ax.text(v + max_val * 0.01, i, format_money(v), va="center", fontsize=9)
 
-        plt.tight_layout()
+        fig.tight_layout()
         buf = io.BytesIO()
-        plt.savefig(
-            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
-        )
+        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
         buf.seek(0)
         return buf
     except Exception:
         logging.exception("Ошибка при построении weekday chart")
         return None
-    finally:
-        if fig is not None:
-            plt.close(fig)
 
 
 async def build_weekday_chart(
