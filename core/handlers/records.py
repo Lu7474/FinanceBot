@@ -67,9 +67,12 @@ def _deserialize_records(
 ) -> list[tuple[str, Decimal, str, datetime | None]]:
     """Восстанавливает записи из FSM-state (str → Decimal/datetime)."""
     result = []
-    for d in serialized:
-        date = datetime.fromisoformat(d["date"]) if d.get("date") else None
-        result.append((d["op"], Decimal(d["amount"]), d["cat"], date))
+    try:
+        for d in serialized:
+            date = datetime.fromisoformat(d["date"]) if d.get("date") else None
+            result.append((d["op"], Decimal(d["amount"]), d["cat"], date))
+    except (InvalidOperation, ValueError, TypeError, KeyError) as e:
+        raise ValueError(f"Повреждённые данные в FSM: {e}") from e
     return result
 
 
@@ -391,7 +394,17 @@ async def handle_record_account_select(
     serialized = data.get("pending_records", [])
     errors = data.get("parse_errors", [])
 
-    records_to_add = _deserialize_records(serialized)
+    try:
+        records_to_add = _deserialize_records(serialized)
+    except ValueError:
+        logging.exception("FSM deserialization error")
+        await state.clear()
+        await callback.message.answer(
+            "⚠️ Данные сессии повреждены. Попробуйте ввести записи заново.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
     added = await save_parsed_records(user_id, records_to_add, account_id)
 
     account_name: str | None = None
