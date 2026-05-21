@@ -145,28 +145,8 @@ async def search_records(
         elif parsed["type"] == "eq":
             conditions.append(Record.amount == parsed["value"])
         elif parsed["type"] == "text" and parsed["value"]:
-            records_q = (
-                select(Record).where(*conditions).order_by(Record.created_at.desc())
-            )
-            result = await session.execute(records_q)
-            needle = parsed["value"].casefold()
-            matched = [
-                record
-                for record in result.scalars().all()
-                if needle in (record.category or "").casefold()
-            ]
-            total = len(matched)
-            income_sum = sum(
-                (record.amount for record in matched if record.operation == "+"),
-                Decimal("0"),
-            )
-            expense_sum = sum(
-                (record.amount for record in matched if record.operation == "-"),
-                Decimal("0"),
-            )
-            if limit is not None:
-                matched = matched[offset : offset + limit]
-            return total, income_sum, expense_sum, matched
+            needle = parsed["value"].lower()
+            conditions.append(func.lower(Record.category).contains(needle))
 
         count_sum_q = select(
             func.count(Record.id).label("cnt"),
