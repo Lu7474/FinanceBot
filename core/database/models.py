@@ -29,6 +29,13 @@ from config import DATABASE_URL, TIMEZONE
 engine = create_async_engine(url=DATABASE_URL)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
+if DATABASE_URL.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_sqlite_fk(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
 
 # Возвращает текущее время по Москве (для default в моделях)
 def moscow_now():
