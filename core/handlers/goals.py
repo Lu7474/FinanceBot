@@ -44,6 +44,7 @@ from core.keyboards import (
     main_menu_keyboard,
 )
 from core.utils import (
+    clean_text,
     format_duration_short,
     format_goal_detail,
     format_goals_list,
@@ -172,7 +173,7 @@ async def goal_new_start(callback: CallbackQuery, state: FSMContext, **kwargs) -
 @router.message(GoalStates.entering_name)
 @log_exceptions("Ошибка при вводе названия цели")
 async def goal_name_entered(message: Message, state: FSMContext, **kwargs) -> None:
-    name = (message.text or "").strip()
+    name = clean_text(message.text or "")
     if not name or len(name) > MAX_GOAL_NAME_LENGTH:
         await message.answer(
             f"Название должно быть от 1 до {MAX_GOAL_NAME_LENGTH} символов. Попробуйте ещё раз:"
@@ -1015,7 +1016,7 @@ async def goal_edit_name_start(
 @router.message(GoalStates.editing_name)
 @log_exceptions("Ошибка при сохранении нового имени")
 async def goal_edit_name_entered(message: Message, state: FSMContext, **kwargs) -> None:
-    name = (message.text or "").strip()
+    name = clean_text(message.text or "")
     if not name or len(name) > MAX_GOAL_NAME_LENGTH:
         await message.answer(
             f"Название должно быть от 1 до {MAX_GOAL_NAME_LENGTH} символов. Попробуйте ещё раз:"

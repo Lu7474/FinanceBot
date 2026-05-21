@@ -34,7 +34,7 @@ from core.keyboards import (
     history_period_keyboard,
     main_menu_keyboard,
 )
-from core.utils import log_exceptions
+from core.utils import clean_text, log_exceptions
 
 from .common import (
     AccountStates,
@@ -125,7 +125,7 @@ async def handle_new_account_name(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
     """Создаёт новый счёт с введённым названием."""
-    name = message.text.strip()
+    name = clean_text(message.text or "")
     if not name:
         await message.answer("Название не может быть пустым. Введите снова:")
         return
@@ -233,7 +233,7 @@ async def handle_acc_rename_select(
 @log_exceptions("Ошибка при применении нового названия")
 async def handle_rename_name(message: Message, state: FSMContext, **kwargs) -> None:
     """Переименовывает счёт."""
-    new_name = message.text.strip()
+    new_name = clean_text(message.text or "")
     if not new_name:
         await message.answer("Название не может быть пустым. Введите снова:")
         return

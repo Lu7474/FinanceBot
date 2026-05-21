@@ -361,15 +361,15 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
         update_fields = {"amount": value}
 
     elif field == "category":
-        if not text:
+        normalized = normalize_category(text)
+        if not normalized:
             await message.answer("Категория не может быть пустой.")
             return
-        if len(text) > MAX_CATEGORY_LENGTH:
+        if len(normalized) > MAX_CATEGORY_LENGTH:
             await message.answer(
                 f"Категория не может быть длиннее {MAX_CATEGORY_LENGTH} символов."
             )
             return
-        normalized = normalize_category(text)
         if normalized in SYSTEM_CATEGORIES:
             await message.answer("Эта категория зарезервирована системой.")
             return

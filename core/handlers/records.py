@@ -26,7 +26,7 @@ from core.keyboards import (
     category_suggest_keyboard,
     main_menu_keyboard,
 )
-from core.utils import log_exceptions
+from core.utils import clean_text, log_exceptions
 
 from .common import (
     AddRecord,
@@ -198,7 +198,7 @@ def parse_record_line(
     except (InvalidOperation, ValueError):
         return None
 
-    category = line.replace(match.group(0), "").strip()
+    category = clean_text(line.replace(match.group(0), ""))
     if not category:
         category = "Не указано"
     else:

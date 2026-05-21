@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.models import Account, User
+from core.utils import clean_text
 
 from .categories import seed_default_categories
 
@@ -30,6 +31,7 @@ async def set_user(
     in the same transaction. Concurrent /start from the same tg_id is handled:
     UNIQUE violation on tg_id → re-read and return existing user.
     """
+    name = clean_text(name) if name else name
     try:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if user is None:
@@ -39,9 +41,7 @@ async def set_user(
                 await session.flush()
             except IntegrityError:
                 await session.rollback()
-                return await session.scalar(
-                    select(User).where(User.tg_id == tg_id)
-                )
+                return await session.scalar(select(User).where(User.tg_id == tg_id))
             await seed_default_categories(session, user.id, commit=False)
             if default_account_name:
                 session.add(Account(user_id=user.id, name=default_account_name))
@@ -54,7 +54,5 @@ async def set_user(
         return user
     except Exception as e:
         await session.rollback()
-        logging.exception(
-            f"Ошибка при добавлении/обновлении пользователя {tg_id}: {e}"
-        )
+        logging.exception(f"Ошибка при добавлении/обновлении пользователя {tg_id}: {e}")
         return None

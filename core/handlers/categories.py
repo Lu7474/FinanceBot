@@ -30,7 +30,7 @@ from core.keyboards import (
     main_menu_keyboard,
     user_categories_menu_keyboard,
 )
-from core.utils import log_exceptions
+from core.utils import clean_text, log_exceptions
 
 from .common import (
     AddRecord,
@@ -202,7 +202,7 @@ async def handle_cat_type_selected(
 @router.message(CategoryStates.entering_name_for_add)
 @log_exceptions("Ошибка при сохранении категории")
 async def handle_cat_name_input(message: Message, state: FSMContext, **kwargs) -> None:
-    name = message.text.strip().capitalize()
+    name = clean_text(message.text or "").capitalize()
     if not name or len(name) > MAX_CATEGORY_LENGTH:
         await message.answer(
             f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов."
@@ -309,7 +309,7 @@ async def handle_cat_rename_select(
 async def handle_cat_new_name_input(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
-    new_name = message.text.strip().capitalize()
+    new_name = clean_text(message.text or "").capitalize()
     if not new_name or len(new_name) > MAX_CATEGORY_LENGTH:
         await message.answer(
             f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов."
@@ -524,7 +524,7 @@ async def handle_cat_select_other(
 async def handle_cat_manual_input(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
-    cat_name = message.text.strip().capitalize()
+    cat_name = clean_text(message.text or "").capitalize()
     if not cat_name or len(cat_name) > MAX_CATEGORY_LENGTH:
         await message.answer(
             f"Название должно быть от 1 до {MAX_CATEGORY_LENGTH} символов."

@@ -44,7 +44,13 @@ from core.keyboards import (
     wealth_menu_keyboard,
     wealth_type_keyboard,
 )
-from core.utils import format_money, format_snapshot, format_wealth, log_exceptions
+from core.utils import (
+    clean_text,
+    format_money,
+    format_snapshot,
+    format_wealth,
+    log_exceptions,
+)
 
 from .common import (
     SavingsStates,
@@ -397,7 +403,7 @@ async def msg_savings_enter_amount(
 @log_exceptions("Ошибка при вводе названия поля")
 async def msg_savings_field_name(message: Message, state: FSMContext, **kwargs) -> None:
     """Принимает название нового поля."""
-    name = message.text.strip()
+    name = clean_text(message.text or "")
     if not name:
         await message.answer("Название не может быть пустым.")
         return
@@ -813,7 +819,7 @@ async def cb_wealth_type(callback: CallbackQuery, state: FSMContext, **kwargs) -
 
 @router.message(WealthStates.entering_name, ~F.func(is_main_menu_button))
 async def msg_wealth_name(message: Message, state: FSMContext, **kwargs) -> None:
-    name = message.text.strip()
+    name = clean_text(message.text or "")
     if not name or len(name) > 100:
         await message.answer("Название от 1 до 100 символов.")
         return
@@ -867,7 +873,7 @@ async def cb_wealth_skip_note(
 @log_exceptions("Ошибка при сохранении актива")
 async def msg_wealth_note(message: Message, state: FSMContext, **kwargs) -> None:
     """Сохраняет запись с заметкой."""
-    note = message.text.strip()[:200]
+    note = clean_text(message.text or "")[:200]
     data = await state.get_data()
     user_id = await get_user_id_from_event(message, kwargs)
     async with async_session() as session:

@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from config import MAX_ACCOUNT_NAME_LENGTH, MAX_AMOUNT, MAX_CATEGORY_LENGTH
+from core.utils import clean_text
 
 # ── Style constants ───────────────────────────────────────────────────────────
 _HDR_FILL = PatternFill("solid", fgColor="1F3864")
@@ -345,7 +346,7 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
         return None, f"Строка {row_num}: неверная сумма «{raw_amount}»"
 
     # --- Категория ---
-    raw_cat = str(row.get("Категория", "")).strip()
+    raw_cat = clean_text(str(row.get("Категория", "")))
     if not raw_cat:
         return None, f"Строка {row_num}: категория пустая"
     if len(raw_cat) > MAX_CATEGORY_LENGTH:
@@ -359,7 +360,7 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
     raw_acc = row.get("Счёт")
     account_name: str | None = None
     if raw_acc is not None:
-        s = str(raw_acc).strip()
+        s = clean_text(str(raw_acc))
         if s and s != "nan":
             if len(s) > MAX_ACCOUNT_NAME_LENGTH:
                 return None, (

@@ -5,6 +5,7 @@ Common utilities: money formatting, locale constants, exception decorator.
 import html
 import logging
 import re
+import unicodedata
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -25,6 +26,26 @@ def today_msk() -> date_type:
 def format_money(amount: Decimal | float | int) -> str:
     """Форматирует сумму с пробелами как разделителями тысяч (русская локаль)."""
     return f"{amount:,.0f}₽".replace(",", " ")
+
+
+# Невидимые/опасные символы Юникода: soft hyphen, zero-width, word joiner,
+# bidi-override (RTL/LTR) и BOM. Срезаются с пользовательского ввода.
+_UNSAFE_CHARS_RE = re.compile(
+    "[\u00ad\u200b-\u200f\u2060-\u2064\u202a-\u202e\u2066-\u2069\ufeff]"
+)
+
+
+def clean_text(text: str) -> str:
+    """Sanitize user input: NFKC-normalize, drop hidden/bidi chars, trim.
+
+    Защита от Unicode-abuse (zero-width «пустые» строки, RTL-разворот UI,
+    визуальные дубли). Может вернуть пустую строку — проверяй после вызова.
+    """
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKC", text)
+    text = _UNSAFE_CHARS_RE.sub("", text)
+    return text.strip()
 
 
 RU_MONTHS = {
@@ -325,8 +346,8 @@ def format_day_total(total: float) -> str:
 
 
 def normalize_category(text: str) -> str:
-    """Capitalizes first letter, strips whitespace."""
-    text = text.strip()
+    """Sanitizes (NFKC + strip hidden chars) and capitalizes first letter."""
+    text = clean_text(text)
     return text[0].upper() + text[1:] if text else text
 
 
