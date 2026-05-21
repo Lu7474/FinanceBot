@@ -75,6 +75,7 @@ async def handle_cancel(message: Message, state: FSMContext, **kwargs) -> None:
 
 
 @router.callback_query(F.data == "cancel")
+@log_exceptions("Ошибка при отмене")
 async def handle_cancel_callback(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
