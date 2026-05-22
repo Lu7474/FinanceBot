@@ -147,6 +147,7 @@ async def handle_export_period(callback: CallbackQuery, state: FSMContext) -> No
     period = (callback.data or "").split(":")[1]
     await state.update_data(export_period=period)
     await state.set_state(ExportImportStates.waiting_for_export_type)
+    await callback.answer()
     await get_message(callback).edit_text(
         f"Период: {_PERIOD_LABELS.get(period, period)}\nВыберите тип записей:",
         reply_markup=export_type_keyboard(),
@@ -174,6 +175,7 @@ async def handle_export_back_to_period(
 async def handle_export_type(
     callback: CallbackQuery, state: FSMContext, user_id: int
 ) -> None:
+    await callback.answer()
     type_key = (callback.data or "").split(":")[1]
     data = await state.get_data()
     period = data.get("export_period", "all")
@@ -228,7 +230,9 @@ async def handle_export_type(
         )
     except Exception:
         logging.exception("Ошибка при создании экспорта")
-        await get_message(callback).answer("❌ Ошибка при создании файла. Попробуйте позже.")
+        await get_message(callback).answer(
+            "❌ Ошибка при создании файла. Попробуйте позже."
+        )
 
 
 # ==================== Бэкап ====================
@@ -400,6 +404,7 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
 async def handle_import_confirm(
     callback: CallbackQuery, state: FSMContext, user_id: int
 ) -> None:
+    await callback.answer()
     data = await state.get_data()
     serialized = data.get("import_rows", [])
     await state.clear()
@@ -430,7 +435,9 @@ async def handle_import_confirm(
         await get_message(callback).edit_text(f"✅ Импортировано {inserted} записей.")
     except Exception:
         logging.exception("Ошибка при импорте записей")
-        await get_message(callback).edit_text("❌ Ошибка при импорте. Попробуйте позже.")
+        await get_message(callback).edit_text(
+            "❌ Ошибка при импорте. Попробуйте позже."
+        )
 
 
 @router.callback_query(
@@ -439,6 +446,7 @@ async def handle_import_confirm(
 )
 async def handle_import_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
+    await callback.answer()
     await get_message(callback).edit_text("Импорт отменён.")
 
 
