@@ -412,12 +412,16 @@ async def handle_import_confirm(
     try:
         async with async_session() as session:
             rows_with_acc: list[dict] = []
+            skipped_accounts: set[str] = set()
             for row in serialized:
                 acc_id = None
                 acc_name = row.get("account_name")
                 if acc_name:
                     acc = await get_or_create_account(session, user_id, acc_name)
-                    acc_id = acc.id if acc else None
+                    if acc:
+                        acc_id = acc.id
+                    else:
+                        skipped_accounts.add(acc_name)
 
                 rows_with_acc.append(
                     {
@@ -432,7 +436,13 @@ async def handle_import_confirm(
             inserted = await bulk_insert_records(session, user_id, rows_with_acc)
             await session.commit()
 
-        await get_message(callback).edit_text(f"✅ Импортировано {inserted} записей.")
+        result_text = f"✅ Импортировано {inserted} записей."
+        if skipped_accounts:
+            names = ", ".join(sorted(skipped_accounts))
+            if len(names) > 200:
+                names = names[:200] + "…"
+            result_text += f"\n⚠️ Следующие счета не удалось привязать (достигнут лимит 10): {names}."
+        await get_message(callback).edit_text(result_text)
     except Exception:
         logging.exception("Ошибка при импорте записей")
         await get_message(callback).edit_text(
