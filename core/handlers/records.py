@@ -49,6 +49,7 @@ async def _send_budget_alerts(
     added_records: list[tuple],
 ) -> None:
     """Checks budget thresholds for expense records and sends alerts."""
+    assert message.bot is not None
     async with async_session() as session:
         for op, amount, category, _ in added_records:
             if op == "-":
@@ -392,6 +393,7 @@ async def handle_record_account_select(
 
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     serialized = data.get("pending_records", [])
     errors = data.get("parse_errors", [])
 

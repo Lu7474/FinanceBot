@@ -162,6 +162,7 @@ async def delete_snapshot_item(
         if not item:
             return None
         snap = await session.get(SavingsSnapshot, item.snapshot_id)
+        assert snap is not None
         snap_date = snap.date
         await session.delete(item)
         await session.flush()

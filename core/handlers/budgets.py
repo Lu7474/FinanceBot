@@ -176,6 +176,7 @@ async def budget_category_selected(
     data = await state.get_data()
     action = data.get("budget_action")
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     categories = data.get("budget_categories", [])
     try:
         idx = int((callback.data or "").split(":", 1)[1])
@@ -183,6 +184,7 @@ async def budget_category_selected(
     except (ValueError, IndexError):
         await callback.answer("Ошибка: категория не найдена.")
         return
+    assert isinstance(category, str)
 
     if action == "delete":
         async with async_session() as session:
@@ -220,7 +222,9 @@ async def budget_category_selected(
 async def budget_amount_entered(message: Message, state: FSMContext, **kwargs) -> None:
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     category = data.get("chosen_category")
+    assert isinstance(category, str)
 
     try:
         amount = Decimal((message.text or "").strip().replace(",", ".").replace(" ", ""))
@@ -252,5 +256,6 @@ async def budget_back_to_menu(
 ) -> None:
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     await _show_budget_status(callback, user_id, state)
     await callback.answer()

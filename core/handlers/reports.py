@@ -316,8 +316,8 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
             session, user_id, operation_sign, prev_date_from, prev_date_to
         )
 
-        cur_total = sum(cur_categories.values()) if cur_categories else Decimal("0")
-        prev_total = sum(prev_categories.values()) if prev_categories else Decimal("0")
+        cur_total = sum(cur_categories.values(), Decimal(0))
+        prev_total = sum(prev_categories.values(), Decimal(0))
 
         monthly_data = await get_monthly_totals(session, user_id, operation_sign)
 
@@ -327,9 +327,9 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
         )
         return
 
-    avg_monthly = None
+    avg_monthly: Decimal | None = None
     if monthly_data:
-        avg_monthly = sum(v for _, _, v in monthly_data) / len(monthly_data)
+        avg_monthly = sum((v for _, _, v in monthly_data), Decimal(0)) / len(monthly_data)
 
     comparison_text = make_comparison_text(
         current_categories=cur_categories,

@@ -717,6 +717,7 @@ async def cb_bc_confirm(query: CallbackQuery, state: FSMContext) -> None:
     await _safe_edit(get_message(query), f"📢 Рассылка запущена... (0/{len(tg_ids)})")
     await query.answer()
 
+    assert query.bot is not None
     sent, blocked, failed = 0, 0, 0
     for tg_id in tg_ids:
         try:

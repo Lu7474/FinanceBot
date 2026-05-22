@@ -137,6 +137,7 @@ async def handle_savings(message: Message, state: FSMContext, **kwargs) -> None:
     if not user_id:
         await message.answer("Ошибка. Отправьте /start.")
         return
+    assert isinstance(user_id, int)
     text, keyboard = await _build_savings_view(user_id)
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -153,6 +154,7 @@ async def cb_sav_date(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
     date_str = (callback.data or "").split(":")[1]
     target_date = date_type.fromisoformat(date_str)
     text, keyboard = await _build_savings_view(user_id, target_date)
@@ -198,6 +200,7 @@ async def cb_sav_cancel_action(
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
     text, keyboard = await _build_savings_view(user_id)
     await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -215,6 +218,7 @@ async def cb_sav_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
 
     today = _today()
     async with async_session() as session:
@@ -314,6 +318,7 @@ async def cb_sav_from_accounts(
 ) -> None:
     """Заполняет снимок текущими балансами счетов как стартовой точкой."""
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         balances = await get_account_balances(session, user_id)
 
@@ -431,6 +436,7 @@ async def msg_savings_field_amount(
     mode: str = data.get("mode", "create")
     pending_name: str = data.get("pending_name", "")
     user_id = await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     try:
         amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
@@ -456,7 +462,9 @@ async def msg_savings_field_amount(
         )
     elif mode == "add":
         snapshot_id = data.get("snapshot_id")
+        assert isinstance(snapshot_id, int)
         snapshot_date_str = data.get("snapshot_date")
+        assert isinstance(snapshot_date_str, str)
         async with async_session() as session:
             item = await add_snapshot_item(
                 session, snapshot_id, user_id, pending_name, amount
@@ -489,6 +497,7 @@ async def cb_sav_confirm_save(
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
 
     items = [(item["name"], Decimal(item["amount"])) for item in entered]
     async with async_session() as session:
@@ -539,6 +548,7 @@ async def cb_sav_add_field(
 
     snapshot_id = int(snapshot_id_str)
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         snap = await session.get(SavingsSnapshot, snapshot_id)
 
@@ -571,6 +581,7 @@ async def cb_sav_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     """Показывает список полей снимка для редактирования."""
     snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         snapshot = await get_snapshot_by_id(session, snapshot_id, user_id)
 
@@ -594,6 +605,7 @@ async def cb_sav_edit_item(
     """Запрашивает новую сумму для выбранного поля."""
     item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         result = await session.execute(
@@ -630,8 +642,11 @@ async def msg_savings_edit_amount(
     """Сохраняет новую сумму для выбранного поля снимка."""
     data = await state.get_data()
     item_id = data.get("item_id")
+    assert isinstance(item_id, int)
     snapshot_date_str = data.get("snapshot_date")
+    assert isinstance(snapshot_date_str, str)
     user_id = await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     try:
         amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
@@ -669,6 +684,7 @@ async def cb_sav_delete(callback: CallbackQuery, state: FSMContext, **kwargs) ->
     """Показывает список полей и опцию удаления всего снимка."""
     snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         snapshot = await get_snapshot_by_id(session, snapshot_id, user_id)
 
@@ -694,6 +710,7 @@ async def cb_sav_delete_item(
     """Удаляет конкретное поле из снимка."""
     item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         snap_date = await delete_snapshot_item(session, item_id, user_id)
@@ -717,6 +734,7 @@ async def cb_sav_delete_all(
     """Удаляет весь снимок."""
     snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await delete_snapshot(session, snapshot_id, user_id)
@@ -752,6 +770,7 @@ async def cb_sav_wealth(callback: CallbackQuery, state: FSMContext, **kwargs) ->
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
     text, keyboard = await _build_wealth_view(user_id)
     await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -766,6 +785,7 @@ async def cb_wealth_back(callback: CallbackQuery, state: FSMContext, **kwargs) -
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
     text, keyboard = await _build_savings_view(user_id)
     await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -782,6 +802,7 @@ async def cb_wealth_back_to_view(
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
+    assert isinstance(user_id, int)
     text, keyboard = await _build_wealth_view(user_id)
     await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -877,6 +898,7 @@ async def msg_wealth_note(message: Message, state: FSMContext, **kwargs) -> None
     note = clean_text(message.text or "")[:200]
     data = await state.get_data()
     user_id = await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         item = await add_wealth_item(
             session, user_id, data["type_"], data["name"], Decimal(data["amount"]), note
@@ -897,6 +919,7 @@ async def _save_wealth_item(
     """Helper: saves wealth item and shows updated wealth view."""
     data = await state.get_data()
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         item = await add_wealth_item(
             session, user_id, data["type_"], data["name"], Decimal(data["amount"]), note
@@ -920,6 +943,7 @@ async def _save_wealth_item(
 async def cb_wealth_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Показывает список активов/пассивов для выбора редактирования."""
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         items = await get_wealth_items(session, user_id)
     if not items:
@@ -941,6 +965,7 @@ async def cb_wealth_edit_item(
     """Запрашивает новую сумму для выбранного актива/пассива."""
     item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         result = await session.execute(
@@ -975,7 +1000,9 @@ async def msg_wealth_edit_amount(message: Message, state: FSMContext, **kwargs) 
     """Сохраняет новую сумму актива/пассива."""
     data = await state.get_data()
     item_id = data.get("item_id")
+    assert isinstance(item_id, int)
     user_id = await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     try:
         amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
@@ -1010,6 +1037,7 @@ async def cb_wealth_delete(
 ) -> None:
     """Показывает список для выбора записи на удаление."""
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
     async with async_session() as session:
         items = await get_wealth_items(session, user_id)
     if not items:
@@ -1031,6 +1059,7 @@ async def cb_wealth_delete_item(
     """Удаляет выбранный актив/пассив."""
     item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await delete_wealth_item(session, item_id, user_id)

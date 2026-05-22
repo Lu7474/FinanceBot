@@ -281,6 +281,7 @@ async def menu_delete_record(
     """Обработка: навигация по страницам или удаление выбранной записи."""
     data = await state.get_data()
     period = data.get("delete_period")
+    assert isinstance(period, str)
     total_count = data.get("delete_total_count", 0)
     date_from = data.get("delete_date_from")
     date_to = data.get("delete_date_to")
@@ -359,6 +360,7 @@ async def menu_delete_confirm(
     """Обработка подтверждения или отмены удаления."""
     data = await state.get_data()
     period = data.get("delete_period")
+    assert isinstance(period, str)
     current_page = data.get("delete_page", 0)
     date_from = data.get("delete_date_from")
     date_to = data.get("delete_date_to")

@@ -215,6 +215,7 @@ async def handle_cat_name_input(message: Message, state: FSMContext, **kwargs) -
     user_id = kwargs.get("user_id") or data.get("user_id")
     if not user_id:
         user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         cat = await add_user_category(session, user_id, name, cat_type)
@@ -244,6 +245,7 @@ async def handle_cat_rename_start(
     user_id = kwargs.get("user_id") or (await state.get_data()).get("user_id")
     if not user_id:
         user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         cats = await get_user_categories(session, user_id)
@@ -284,6 +286,7 @@ async def handle_cat_rename_select(
     cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         cat = await session.scalar(
@@ -319,9 +322,11 @@ async def handle_cat_new_name_input(
 
     data = await state.get_data()
     cat_id = data.get("rename_cat_id")
+    assert isinstance(cat_id, int)
     user_id = kwargs.get("user_id") or data.get("user_id")
     if not user_id:
         user_id = await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await rename_user_category(session, cat_id, user_id, new_name)
@@ -354,6 +359,7 @@ async def handle_cat_delete_start(
     user_id = kwargs.get("user_id") or (await state.get_data()).get("user_id")
     if not user_id:
         user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         cats = await get_user_categories(session, user_id)
@@ -394,6 +400,7 @@ async def handle_cat_delete_select(
     cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         cat = await session.scalar(
@@ -456,6 +463,7 @@ async def handle_cat_delete_confirm(
     cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
+    assert isinstance(user_id, int)
     cat_name = data.get("delete_cat_name", "")
 
     async with async_session() as session:
@@ -487,6 +495,7 @@ async def handle_cat_select_for_record(
     cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     pending_records = data.get("pending_records", [])
     errors = data.get("parse_errors", [])
     original_description = data.get("original_description", "")
@@ -534,6 +543,7 @@ async def handle_cat_manual_input(
 
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     pending_records = data.get("pending_records", [])
     errors = data.get("parse_errors", [])
 
@@ -555,6 +565,7 @@ async def handle_suggest_yes(
 ) -> None:
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     suggested = data.get("suggested_category", "")
     pending_records = data.get("pending_records", [])
     errors = data.get("parse_errors", [])
@@ -590,6 +601,7 @@ async def handle_suggest_other(
 ) -> None:
     data = await state.get_data()
     user_id = data.get("user_id")
+    assert isinstance(user_id, int)
     pending_op = data.get("pending_op", "")
 
     async with async_session() as session:

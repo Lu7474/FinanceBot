@@ -409,7 +409,7 @@ def parse_import_file(
         parsed, err = validate_import_row(row, idx)
         if err:
             errors.append(err)
-        else:
+        elif parsed is not None:
             valid_rows.append(parsed)
 
     return valid_rows, errors, 0

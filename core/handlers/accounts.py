@@ -138,6 +138,7 @@ async def handle_new_account_name(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         acc = await create_account(session, user_id, name)
@@ -210,6 +211,7 @@ async def handle_acc_rename_select(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -246,7 +248,9 @@ async def handle_rename_name(message: Message, state: FSMContext, **kwargs) -> N
 
     data = await state.get_data()
     account_id = data.get("rename_account_id")
+    assert isinstance(account_id, int)
     user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await rename_account(session, account_id, user_id, new_name)
@@ -316,6 +320,7 @@ async def handle_acc_delete_select(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -359,6 +364,7 @@ async def handle_acc_delete_move(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await move_and_delete_account(session, from_id, user_id, to_id)
@@ -392,6 +398,7 @@ async def handle_acc_delete_confirm(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await delete_account(session, account_id, user_id)
@@ -488,6 +495,7 @@ async def handle_acc_transfer_from(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -523,6 +531,7 @@ async def handle_acc_transfer_to(
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -563,8 +572,11 @@ async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) 
 
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
     from_id = data.get("transfer_from_id")
+    assert isinstance(from_id, int)
     to_id = data.get("transfer_to_id")
+    assert isinstance(to_id, int)
 
     async with async_session() as session:
         balance = await get_account_balance(session, from_id, user_id)
@@ -637,6 +649,7 @@ async def handle_acc_history_select(
         return
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -679,7 +692,7 @@ async def handle_acc_hist_period(
     acc_name = data.get("acc_hist_account_name", "Счёт")
     acc_balance = data.get("acc_hist_balance", "")
 
-    user_id = kwargs["user_id"]
+    user_id: int = kwargs["user_id"]
     async with async_session() as session:
         total_count, income_sum, expense_sum, records = await get_history_data(
             session,
@@ -755,6 +768,7 @@ async def handle_acc_hist_page(
     acc_name = data.get("acc_hist_account_name", "Счёт")
     acc_balance = data.get("acc_hist_balance", "")
     period = data.get("acc_hist_period")
+    assert isinstance(period, str)
     total_pages = data.get("acc_hist_total_pages", 1)
     total_count = data.get("acc_hist_total_count", 0)
     income_sum = Decimal(data.get("acc_hist_income", "0"))
@@ -764,7 +778,7 @@ async def handle_acc_hist_page(
         await callback.answer("Страница не существует.")
         return
 
-    user_id = kwargs["user_id"]
+    user_id: int = kwargs["user_id"]
     async with async_session() as session:
         records = await get_records(
             session,
@@ -831,6 +845,7 @@ async def handle_acc_set_balance_select(
         return
     data = await state.get_data()
     user_id = data.get("acc_user_id") or await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
@@ -873,7 +888,9 @@ async def handle_set_balance_amount(
 
     data = await state.get_data()
     account_id = data.get("set_balance_account_id")
+    assert isinstance(account_id, int)
     user_id = data.get("acc_user_id") or await get_user_id_from_event(message, kwargs)
+    assert isinstance(user_id, int)
 
     async with async_session() as session:
         ok = await set_account_balance(session, account_id, desired, user_id)

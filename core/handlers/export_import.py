@@ -327,7 +327,8 @@ async def handle_import(message: Message, state: FSMContext) -> None:
 @log_exceptions("Ошибка при импорте файла")
 async def handle_import_file(message: Message, state: FSMContext, user_id: int) -> None:
     doc = message.document
-    if not doc.file_name.endswith(".xlsx"):
+    assert doc is not None
+    if not (doc.file_name or "").endswith(".xlsx"):
         await message.answer("Пожалуйста, отправьте файл в формате .xlsx")
         return
 
@@ -335,7 +336,9 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
         await message.answer("❌ Файл слишком большой. Максимум 5 МБ.")
         return
 
+    assert message.bot is not None
     file_bytes_io = await message.bot.download(doc)
+    assert file_bytes_io is not None
     file_bytes = file_bytes_io.read()
 
     loop = asyncio.get_running_loop()

@@ -21,6 +21,7 @@ router = Router()
 @log_exceptions("Ошибка при инициализации пользователя")
 async def handle_start(message: Message, **kwargs) -> None:
     """Команда /start — регистрация пользователя и показ главного меню."""
+    assert message.from_user is not None
     async with async_session() as session:
         user = await set_user(
             session,

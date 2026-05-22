@@ -487,6 +487,7 @@ async def _execute_deposit(
 ) -> None:
     data = await state.get_data()
     goal_id = data.get("deposit_goal_id")
+    assert isinstance(goal_id, int)
     amount = Decimal(data.get("deposit_amount", "0"))
     account_id = data.get("deposit_account_id")
 
@@ -613,6 +614,7 @@ async def goal_withdraw_amount_entered(
     text = (message.text or "").strip()
     data = await state.get_data()
     goal_id = data.get("withdraw_goal_id")
+    assert isinstance(goal_id, int)
     user_id = await get_user_id_from_event(message, kwargs)
     if not user_id:
         await message.answer("Ошибка.")
@@ -695,6 +697,7 @@ async def _execute_withdraw(
 ) -> None:
     data = await state.get_data()
     goal_id = data.get("withdraw_goal_id")
+    assert isinstance(goal_id, int)
     amount = Decimal(data.get("withdraw_amount", "0"))
     account_id = data.get("withdraw_account_id")
 
@@ -1028,6 +1031,7 @@ async def goal_edit_name_entered(message: Message, state: FSMContext, **kwargs) 
         return
     data = await state.get_data()
     goal_id = data.get("edit_goal_id")
+    assert isinstance(goal_id, int)
 
     async with async_session() as session:
         await update_goal(session, goal_id, user_id, name=name)
@@ -1098,6 +1102,7 @@ async def goal_edit_amount_entered(
         return
     data = await state.get_data()
     goal_id = data.get("edit_goal_id")
+    assert isinstance(goal_id, int)
 
     async with async_session() as session:
         goal = await get_goal(session, goal_id, user_id)
@@ -1185,6 +1190,7 @@ async def goal_edit_deadline_entered(
         return
     data = await state.get_data()
     goal_id = data.get("edit_goal_id")
+    assert isinstance(goal_id, int)
 
     async with async_session() as session:
         await update_goal(session, goal_id, user_id, deadline=deadline)
