@@ -628,25 +628,15 @@ def test_record_delete_confirm_keyboard():
 # ==================== Budget keyboards ====================
 
 
-def test_budget_category_keyboard_index_based():
-    """callback_data должен быть index-based (обход лимита 64 байта Telegram)."""
+def test_budget_category_keyboard_name_based():
+    """callback_data должен содержать имя категории."""
     cats = ["Еда", "Транспорт", "Развлечения"]
     kb = budget_category_keyboard(cats)
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-    assert "budget_cat:0" in callbacks
-    assert "budget_cat:1" in callbacks
-    assert "budget_cat:2" in callbacks
+    assert "budget_cat:Еда" in callbacks
+    assert "budget_cat:Транспорт" in callbacks
+    assert "budget_cat:Развлечения" in callbacks
     assert "budget_to_menu" in callbacks
-
-
-def test_budget_category_keyboard_not_name_based():
-    """Имена категорий НЕ должны попасть в callback_data."""
-    cats = [
-        "Очень длинное название категории которое превысит лимит Telegram в 64 байта!!"
-    ]
-    kb = budget_category_keyboard(cats)
-    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-    assert not any(cats[0] in cb for cb in callbacks)
 
 
 # ==================== Category keyboards ====================
@@ -716,7 +706,8 @@ def test_history_category_filter_keyboard():
     cats = ["Еда", "Транспорт", "Хобби"]
     kb = history_category_filter_keyboard(cats)
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "hist_cat_filter:0" for btn in callbacks)
+    assert any(btn.callback_data == "hist_cat_filter:Еда" for btn in callbacks)
+    assert any(btn.callback_data == "hist_cat_filter:Транспорт" for btn in callbacks)
     assert any(btn.callback_data == "hist_cat_filter_back" for btn in callbacks)
 
 

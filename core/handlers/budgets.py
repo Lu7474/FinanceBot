@@ -93,9 +93,7 @@ async def budget_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
         await callback.answer()
         return
 
-    await state.update_data(
-        user_id=user_id, budget_action="set", budget_categories=categories
-    )
+    await state.update_data(user_id=user_id, budget_action="set")
     await get_message(callback).edit_text(
         "Выберите категорию для нового лимита:",
         reply_markup=budget_category_keyboard(categories),
@@ -124,9 +122,7 @@ async def budget_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         await callback.answer()
         return
 
-    await state.update_data(
-        user_id=user_id, budget_action="set", budget_categories=categories
-    )
+    await state.update_data(user_id=user_id, budget_action="set")
     await get_message(callback).edit_text(
         "Выберите бюджет для изменения лимита:",
         reply_markup=budget_category_keyboard(categories),
@@ -157,9 +153,7 @@ async def budget_delete_start(
         return
 
     categories = [b.category for b in budgets]
-    await state.update_data(
-        user_id=user_id, budget_action="delete", budget_categories=categories
-    )
+    await state.update_data(user_id=user_id, budget_action="delete")
     await get_message(callback).edit_text(
         "Выберите бюджет для удаления:",
         reply_markup=budget_category_keyboard(categories),
@@ -177,14 +171,10 @@ async def budget_category_selected(
     action = data.get("budget_action")
     user_id = data.get("user_id")
     assert isinstance(user_id, int)
-    categories = data.get("budget_categories", [])
-    try:
-        idx = int((callback.data or "").split(":", 1)[1])
-        category = categories[idx]
-    except (ValueError, IndexError):
+    category = (callback.data or "").split(":", 1)[1]
+    if not category:
         await callback.answer("Ошибка: категория не найдена.")
         return
-    assert isinstance(category, str)
 
     if action == "delete":
         async with async_session() as session:
@@ -206,9 +196,7 @@ async def budget_category_selected(
                 cur = next((b for b in budgets if b.category == category), None)
                 if cur:
                     cur_raw = f"{cur.amount:.0f}"
-                    current_hint = (
-                        f"Текущий лимит: <code>{cur_raw}</code>\n\n"
-                    )
+                    current_hint = f"Текущий лимит: <code>{cur_raw}</code>\n\n"
         await get_message(callback).edit_text(
             f"{current_hint}Введите лимит для <b>{html.escape(category)}</b> на месяц (₽):",
             parse_mode="HTML",
@@ -227,7 +215,9 @@ async def budget_amount_entered(message: Message, state: FSMContext, **kwargs) -
     assert isinstance(category, str)
 
     try:
-        amount = Decimal((message.text or "").strip().replace(",", ".").replace(" ", ""))
+        amount = Decimal(
+            (message.text or "").strip().replace(",", ".").replace(" ", "")
+        )
         if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
             raise ValueError
     except (InvalidOperation, ValueError):

@@ -515,13 +515,10 @@ def budget_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def budget_category_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
-    """Shows expense categories as selectable buttons for budget setup.
-
-    Uses index-based callback_data to avoid Telegram's 64-byte callback_data limit.
-    """
+    """Shows expense categories as selectable buttons for budget setup."""
     builder = InlineKeyboardBuilder()
-    for i, name in enumerate(categories):
-        builder.button(text=name, callback_data=f"budget_cat:{i}")
+    for name in categories:
+        builder.button(text=name, callback_data=f"budget_cat:{name}")
     builder.button(text="← Назад", callback_data="budget_to_menu")
     builder.adjust(1)
     return builder.as_markup()
@@ -683,10 +680,10 @@ def history_filter_keyboard(
 
 
 def history_category_filter_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
-    """Grid of category buttons (max 15). Each: callback hist_cat_filter:{index}."""
+    """Grid of category buttons (max 15). Each: callback hist_cat_filter:{name}."""
     kb = InlineKeyboardBuilder()
-    for i, cat in enumerate(categories[:15]):
-        kb.button(text=cat, callback_data=f"hist_cat_filter:{i}")
+    for cat in categories[:15]:
+        kb.button(text=cat, callback_data=f"hist_cat_filter:{cat}")
     kb.button(text="◀ Назад", callback_data="hist_cat_filter_back")
     kb.adjust(2)
     return kb.as_markup()

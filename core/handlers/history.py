@@ -124,7 +124,9 @@ def build_history_page(
         row_sizes.append(len(nav_buttons))
 
         if total_count > 0 and total_count <= MAX_SHOW_ALL_RECORDS:
-            kb.button(text=f"Показать все ({total_count})", callback_data="hist_show_all")
+            kb.button(
+                text=f"Показать все ({total_count})", callback_data="hist_show_all"
+            )
             row_sizes.append(1)
 
     kb.button(text="📋 Открыть запись", callback_data="hist_open_record")
@@ -196,7 +198,9 @@ def _extract_date_range(data: dict) -> tuple[datetime | None, datetime | None]:
     date_from_str = data.get("history_date_from")
     date_to_str = data.get("history_date_to")
     if date_from_str and date_to_str:
-        return datetime.fromisoformat(date_from_str), datetime.fromisoformat(date_to_str)
+        return datetime.fromisoformat(date_from_str), datetime.fromisoformat(
+            date_to_str
+        )
     return None, None
 
 
@@ -248,14 +252,20 @@ async def _apply_filter_and_reload(
     await state.set_state(MenuStates.waiting_for_history_page)
 
     text, kb = build_history_page(
-        records, 0, total_pages, income_sum, expense_sum,
+        records,
+        0,
+        total_pages,
+        income_sum,
+        expense_sum,
         period=period,
         period_label=period_label,
         total_count=total_count,
         operation_filter=operation_filter,
         category_filter=category_filter,
     )
-    await get_message(callback).edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await get_message(callback).edit_text(
+        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -305,7 +315,9 @@ async def menu_history_period(
         )
 
         if total_count == 0:
-            await get_message(callback).edit_text("Записей не найдено за указанный период.")
+            await get_message(callback).edit_text(
+                "Записей не найдено за указанный период."
+            )
             await state.clear()
             await callback.answer()
             return
@@ -373,7 +385,9 @@ async def menu_history_page(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await get_message(callback).edit_text("Данные истории устарели. Попробуйте снова.")
+        await get_message(callback).edit_text(
+            "Данные истории устарели. Попробуйте снова."
+        )
         await state.clear()
         await callback.answer()
         return
@@ -437,7 +451,9 @@ async def menu_history_show_all(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await get_message(callback).edit_text("Данные истории устарели. Попробуйте снова.")
+        await get_message(callback).edit_text(
+            "Данные истории устарели. Попробуйте снова."
+        )
         await state.clear()
         await callback.answer()
         return
@@ -600,7 +616,11 @@ async def show_category_filter(
     user_id = kwargs["user_id"]
     async with async_session() as session:
         categories = await get_top_categories_for_period(
-            session, user_id, period, date_from, date_to,
+            session,
+            user_id,
+            period,
+            date_from,
+            date_to,
             operation_filter=operation_filter,
         )
 
@@ -608,7 +628,6 @@ async def show_category_filter(
         await callback.answer("Нет категорий для выбора.", show_alert=True)
         return
 
-    await state.update_data(hist_categories=categories)
     await get_message(callback).edit_reply_markup(
         reply_markup=history_category_filter_keyboard(categories)
     )
@@ -640,18 +659,33 @@ async def _restore_history_from_category_picker(
 
     async with async_session() as session:
         records = await get_records(
-            session, user_id, period, date_from, date_to,
-            limit=RECORDS_PER_PAGE, offset=page * RECORDS_PER_PAGE,
-            operation_filter=operation_filter, category_filter=category_filter,
+            session,
+            user_id,
+            period,
+            date_from,
+            date_to,
+            limit=RECORDS_PER_PAGE,
+            offset=page * RECORDS_PER_PAGE,
+            operation_filter=operation_filter,
+            category_filter=category_filter,
         )
 
     await state.set_state(MenuStates.waiting_for_history_page)
     text, kb = build_history_page(
-        records, page, total_pages, income_sum, expense_sum,
-        period=period, period_label=period_label, total_count=total_count,
-        operation_filter=operation_filter, category_filter=category_filter,
+        records,
+        page,
+        total_pages,
+        income_sum,
+        expense_sum,
+        period=period,
+        period_label=period_label,
+        total_count=total_count,
+        operation_filter=operation_filter,
+        category_filter=category_filter,
     )
-    await get_message(callback).edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await get_message(callback).edit_text(
+        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -665,7 +699,9 @@ async def category_filter_back(
 ) -> None:
     """Возврат из выбора категории обратно в историю."""
     data = await state.get_data()
-    await _restore_history_from_category_picker(callback, state, data, kwargs["user_id"])
+    await _restore_history_from_category_picker(
+        callback, state, data, kwargs["user_id"]
+    )
 
 
 @router.callback_query(
@@ -677,21 +713,17 @@ async def apply_category_filter(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Применяет выбранную категорию как фильтр."""
-    try:
-        idx = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError):
+    category = (callback.data or "").split(":", 1)[1]
+    if not category:
         await callback.answer()
         return
     data = await state.get_data()
-    categories = data.get("hist_categories", [])
-    if idx >= len(categories):
-        await callback.answer("Категория не найдена.")
-        return
-    category = categories[idx]
     current_filter = data.get("history_filter", {})
     new_filter = {**current_filter, "category": category}
     if new_filter == current_filter:
-        await _restore_history_from_category_picker(callback, state, data, kwargs["user_id"])
+        await _restore_history_from_category_picker(
+            callback, state, data, kwargs["user_id"]
+        )
         return
     await _apply_filter_and_reload(callback, state, new_filter, kwargs["user_id"])
 
@@ -700,9 +732,7 @@ async def apply_category_filter(
     MenuStates.waiting_for_history_page, F.data == "hist_filter:reset"
 )
 @log_exceptions("Ошибка при сбросе фильтров")
-async def reset_filter(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def reset_filter(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Сбрасывает все фильтры."""
     await _apply_filter_and_reload(callback, state, {}, kwargs["user_id"])
 
@@ -742,9 +772,7 @@ async def apply_operation_filter(
     MenuStates.waiting_for_history_page, F.data == "hist_search:start"
 )
 @log_exceptions("Ошибка при запуске поиска")
-async def start_search(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def start_search(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Начало поиска — просим ввести запрос."""
     await get_message(callback).edit_text(
         "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>",
@@ -756,9 +784,7 @@ async def start_search(
 
 @router.message(MenuStates.waiting_for_search_query, ~F.func(is_main_menu_button))
 @log_exceptions("Ошибка при обработке поискового запроса")
-async def handle_search_input(
-    message: Message, state: FSMContext, **kwargs
-) -> None:
+async def handle_search_input(message: Message, state: FSMContext, **kwargs) -> None:
     """Обрабатывает введённый поисковый запрос."""
     query_str = (message.text or "").strip()
     if not query_str:
@@ -789,7 +815,9 @@ async def handle_search_input(
     )
     await state.set_state(MenuStates.waiting_for_search_page)
 
-    text = _build_search_page_text(records, 0, total_pages, total, query_str, income_sum, expense_sum)
+    text = _build_search_page_text(
+        records, 0, total_pages, total, query_str, income_sum, expense_sum
+    )
     kb = search_result_keyboard(0, total_pages)
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -798,9 +826,7 @@ async def handle_search_input(
     MenuStates.waiting_for_search_page, F.data.startswith("search_page:")
 )
 @log_exceptions("Ошибка при навигации по результатам поиска")
-async def search_page_nav(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def search_page_nav(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Навигация по страницам результатов поиска."""
     try:
         page_str = (callback.data or "").split(":")[1]
@@ -826,12 +852,17 @@ async def search_page_nav(
 
     async with async_session() as session:
         _, _, _, records = await search_records(
-            session, user_id, query_str,
-            limit=RECORDS_PER_PAGE, offset=new_page * RECORDS_PER_PAGE,
+            session,
+            user_id,
+            query_str,
+            limit=RECORDS_PER_PAGE,
+            offset=new_page * RECORDS_PER_PAGE,
         )
 
     await state.update_data(search_page=new_page)
-    text = _build_search_page_text(records, new_page, total_pages, total, query_str, income_sum, expense_sum)
+    text = _build_search_page_text(
+        records, new_page, total_pages, total, query_str, income_sum, expense_sum
+    )
     kb = search_result_keyboard(new_page, total_pages)
     await get_message(callback).edit_text(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
@@ -839,9 +870,7 @@ async def search_page_nav(
 
 @router.callback_query(MenuStates.waiting_for_search_page, F.data == "search_new")
 @log_exceptions("Ошибка при запуске нового поиска")
-async def new_search(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def new_search(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Начать новый поиск."""
     await state.update_data(search_query=None, search_page=0)
     await get_message(callback).edit_text(
@@ -872,7 +901,9 @@ async def search_back_to_history(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await get_message(callback).edit_text("Данные истории устарели. Откройте историю заново.")
+        await get_message(callback).edit_text(
+            "Данные истории устарели. Откройте историю заново."
+        )
         await state.clear()
         await callback.answer()
         return
@@ -880,16 +911,31 @@ async def search_back_to_history(
     user_id = kwargs["user_id"]
     async with async_session() as session:
         records = await get_records(
-            session, user_id, period, date_from, date_to,
-            limit=RECORDS_PER_PAGE, offset=page * RECORDS_PER_PAGE,
-            operation_filter=operation_filter, category_filter=category_filter,
+            session,
+            user_id,
+            period,
+            date_from,
+            date_to,
+            limit=RECORDS_PER_PAGE,
+            offset=page * RECORDS_PER_PAGE,
+            operation_filter=operation_filter,
+            category_filter=category_filter,
         )
 
     await state.set_state(MenuStates.waiting_for_history_page)
     text, kb = build_history_page(
-        records, page, total_pages, income_sum, expense_sum,
-        period=period, period_label=period_label, total_count=total_count,
-        operation_filter=operation_filter, category_filter=category_filter,
+        records,
+        page,
+        total_pages,
+        income_sum,
+        expense_sum,
+        period=period,
+        period_label=period_label,
+        total_count=total_count,
+        operation_filter=operation_filter,
+        category_filter=category_filter,
     )
-    await get_message(callback).edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await get_message(callback).edit_text(
+        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
     await callback.answer()
