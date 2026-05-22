@@ -21,10 +21,12 @@ from core.database.requests import (
     suggest_category,
 )
 from core.database.requests._common import now_moscow
+from core.database.requests.records import count_records
 from core.keyboards import (
     account_select_keyboard,
     category_suggest_keyboard,
     main_menu_keyboard,
+    notify_onboarding_keyboard,
 )
 from core.utils import clean_text, log_exceptions
 
@@ -41,6 +43,21 @@ from .common import (
 )
 
 router = Router()
+
+
+async def _maybe_send_onboarding(target: Message, user_id: int) -> None:
+    """Send notification onboarding after the user's first record."""
+    async with async_session() as session:
+        total = await count_records(session, user_id, within="all")
+    if total == 1:
+        await target.answer(
+            "🔔 Хотите получать автоматические сводки и напоминания?\n\n"
+            "• Ежедневные итоги (21:00)\n"
+            "• Ежемесячная сводка\n"
+            "• Еженедельная сводка\n"
+            "• Напоминание если забыли записать\n",
+            reply_markup=notify_onboarding_keyboard(),
+        )
 
 
 async def _send_budget_alerts(
@@ -357,6 +374,8 @@ async def handle_amount_and_category(
             response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
         )
         await _send_budget_alerts(message, user_id, added)
+        if added:
+            await _maybe_send_onboarding(message, user_id)
         await state.clear()
         return
 
@@ -368,6 +387,8 @@ async def handle_amount_and_category(
             response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
         )
         await _send_budget_alerts(message, user_id, added)
+        if added:
+            await _maybe_send_onboarding(message, user_id)
         await state.clear()
         return
 
@@ -424,6 +445,8 @@ async def handle_record_account_select(
         "Выберите действие:", reply_markup=main_menu_keyboard()
     )
     await _send_budget_alerts(get_message(callback), user_id, added)
+    if added:
+        await _maybe_send_onboarding(get_message(callback), user_id)
     await state.clear()
     await callback.answer()
 
@@ -496,6 +519,7 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
             response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
         )
         await _send_budget_alerts(message, user_id, added)
+        await _maybe_send_onboarding(message, user_id)
         return
 
     if len(accounts) == 1:
@@ -511,6 +535,7 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
             response, reply_markup=main_menu_keyboard(), parse_mode="HTML"
         )
         await _send_budget_alerts(message, user_id, added)
+        await _maybe_send_onboarding(message, user_id)
         return
 
     await state.update_data(

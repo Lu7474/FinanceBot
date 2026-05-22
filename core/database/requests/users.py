@@ -1,16 +1,43 @@
 """User CRUD: lookup and upsert."""
 
 import logging
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import Account, User
+from core.database.models import Account, Record, User, moscow_now
 from core.utils import clean_text
 
 from .categories import seed_default_categories
+
+
+async def get_notifiable_users(session: AsyncSession) -> list[User]:
+    """Return non-banned users who have at least one record."""
+    result = await session.execute(
+        select(User)
+        .where(User.is_banned == False)  # noqa: E712
+        .where(exists().where(Record.user_id == User.id))
+    )
+    return list(result.scalars().all())
+
+
+async def get_last_record_date(session: AsyncSession, user_id: int) -> Optional[date]:
+    """Return the date of the user's most recent record, or None."""
+    result = await session.scalar(
+        select(func.max(Record.created_at)).where(Record.user_id == user_id)
+    )
+    return result.date() if result else None
+
+
+async def update_last_reminded(session: AsyncSession, user_id: int) -> None:
+    """Set last_reminded_at to current Moscow time."""
+    user = await session.get(User, user_id)
+    if user:
+        user.last_reminded_at = moscow_now()
+        await session.commit()
 
 
 async def get_user_by_tg_id(session: AsyncSession, tg_id: int) -> Optional[User]:

@@ -12,9 +12,10 @@ from aiogram.client.telegram import TelegramAPIServer
 
 from config import BOT_API_BASE_URL, BOT_TOKEN, PROXY_URL
 from core.charts import shutdown_executor
-from core.database.models import async_main, engine
+from core.database.models import async_main, async_session, engine
 from core.handlers import router
 from core.middleware import RateLimitMiddleware, UserMiddleware
+from core.scheduler import setup_scheduler
 
 
 async def main():
@@ -44,12 +45,18 @@ async def main():
     # Подключаем обработчики
     dp.include_router(router)
 
+    # Запускаем планировщик уведомлений
+    scheduler = setup_scheduler(bot, async_session)
+
     try:
         # Запуск бота (skip_updates=True — игнорируем старые сообщения)
         await dp.start_polling(bot, skip_updates=True)
     finally:
         # Graceful shutdown: закрываем все ресурсы
         logging.info("Завершение работы бота...")
+
+        # Останавливаем планировщик (синхронный метод)
+        scheduler.shutdown()
 
         # Закрываем сессию бота
         if session:

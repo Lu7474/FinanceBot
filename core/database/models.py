@@ -76,6 +76,11 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+    last_reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    notify_weekly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    notify_monthly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    notify_daily: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    notify_reminder: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     records = relationship(
         "Record", back_populates="user", cascade="all, delete-orphan"
     )
@@ -379,6 +384,24 @@ async def _migrate(conn) -> None:
     if "is_banned" not in user_columns:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
+        )
+    if "last_reminded_at" not in user_columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN last_reminded_at DATETIME"))
+    if "notify_weekly" not in user_columns:
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN notify_weekly INTEGER NOT NULL DEFAULT 0")
+        )
+    if "notify_monthly" not in user_columns:
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN notify_monthly INTEGER NOT NULL DEFAULT 0")
+        )
+    if "notify_daily" not in user_columns:
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN notify_daily INTEGER NOT NULL DEFAULT 0")
+        )
+    if "notify_reminder" not in user_columns:
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN notify_reminder INTEGER NOT NULL DEFAULT 0")
         )
 
     result = await conn.execute(
