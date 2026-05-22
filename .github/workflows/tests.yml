@@ -25,6 +25,14 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py3.10-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py3.10-
+
       - name: Type check (mypy)
         run: mypy core/
 
