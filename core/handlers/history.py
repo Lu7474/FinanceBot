@@ -281,7 +281,7 @@ async def menu_history_period(
 ) -> None:
     """Выбран период — загружаем первую страницу записей."""
     try:
-        period = callback.data.split(":")[1]
+        period = (callback.data or "").split(":")[1]
     except (IndexError, AttributeError):
         await callback.answer("Некорректные данные.")
         await state.clear()
@@ -348,7 +348,7 @@ async def menu_history_page(
 ) -> None:
     """Навигация по страницам истории (кнопки Назад/Вперёд)."""
     try:
-        page_str = callback.data.split(":")[1]
+        page_str = (callback.data or "").split(":")[1]
         if page_str == "noop":
             await callback.answer()
             return
@@ -483,7 +483,7 @@ async def menu_history_custom_period(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
     """Обработка текстового ввода дат для своего периода."""
-    text = message.text.strip()
+    text = (message.text or "").strip()
 
     match = re.match(
         r"(\d{1,2}\.\d{1,2}\.\d{2,4})\s*[-–—]\s*(\d{1,2}\.\d{1,2}\.\d{2,4})", text
@@ -678,7 +678,7 @@ async def apply_category_filter(
 ) -> None:
     """Применяет выбранную категорию как фильтр."""
     try:
-        idx = int(callback.data.split(":")[1])
+        idx = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer()
         return
@@ -715,7 +715,7 @@ async def apply_operation_filter(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Применяет фильтр по типу операции (all/income/expense)."""
-    filter_type = callback.data.split(":")[1]
+    filter_type = (callback.data or "").split(":")[1]
     if filter_type in ("category", "reset"):
         await callback.answer()
         return
@@ -760,7 +760,7 @@ async def handle_search_input(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
     """Обрабатывает введённый поисковый запрос."""
-    query_str = message.text.strip()
+    query_str = (message.text or "").strip()
     if not query_str:
         await message.answer("Введите запрос для поиска.")
         return
@@ -803,7 +803,7 @@ async def search_page_nav(
 ) -> None:
     """Навигация по страницам результатов поиска."""
     try:
-        page_str = callback.data.split(":")[1]
+        page_str = (callback.data or "").split(":")[1]
         if page_str == "noop":
             await callback.answer()
             return

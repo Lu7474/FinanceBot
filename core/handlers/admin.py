@@ -199,7 +199,7 @@ async def cb_stats(query: CallbackQuery) -> None:
 
 @router.callback_query(AdminStates.in_admin, F.data.startswith("adm_users_"))
 async def cb_users(query: CallbackQuery, state: FSMContext) -> None:
-    page = int(query.data.split("_")[-1])
+    page = int((query.data or "").split("_")[-1])
     await state.update_data(users_page=page)
     await _render_users_page(query, state, page)
     await query.answer()
@@ -579,7 +579,7 @@ async def search_cancel(message: Message, state: FSMContext) -> None:
 
 @router.message(AdminStates.search_query, F.text)
 async def search_text(message: Message, state: FSMContext) -> None:
-    query_str = message.text.strip()
+    query_str = (message.text or "").strip()
     await state.set_state(AdminStates.in_admin)
 
     async with async_session() as session:

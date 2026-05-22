@@ -76,7 +76,7 @@ def is_income(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Доход'."""
     if not message.text:
         return False
-    text = message.text.strip().lower()
+    text = (message.text or "").strip().lower()
     return text in ("доход", "➕ доход", "+доход", "+ доход")
 
 
@@ -84,7 +84,7 @@ def is_expense(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Расход'."""
     if not message.text:
         return False
-    text = message.text.strip().lower()
+    text = (message.text or "").strip().lower()
     return text in ("расход", "➖ расход", "-расход", "- расход")
 
 
@@ -92,7 +92,7 @@ def is_history(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'История'."""
     if not message.text:
         return False
-    text = message.text.strip().lower()
+    text = (message.text or "").strip().lower()
     return text in ("история", "🕘 история")
 
 
@@ -100,7 +100,7 @@ def is_report(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Отчёт'."""
     if not message.text:
         return False
-    text = message.text.strip().lower()
+    text = (message.text or "").strip().lower()
     return text in ("отчёт", "отчет", "📊 отчёт", "📊 отчет")
 
 
@@ -108,7 +108,7 @@ def is_delete(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Удалить запись'."""
     if not message.text:
         return False
-    text = message.text.strip().lower()
+    text = (message.text or "").strip().lower()
     return text in ("удалить запись", "удалить", "🗑️ удалить запись", "🗑️ удалить")
 
 
@@ -116,49 +116,49 @@ def is_accounts(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Счета'."""
     if not message.text:
         return False
-    return message.text.strip().lower() in ("счета", "💳 счета")
+    return (message.text or "").strip().lower() in ("счета", "💳 счета")
 
 
 def is_savings(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Накопления'."""
     if not message.text:
         return False
-    return message.text.strip().lower() in ("накопления", "💰 накопления")
+    return (message.text or "").strip().lower() in ("накопления", "💰 накопления")
 
 
 def is_categories(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Категории'."""
     if not message.text:
         return False
-    return message.text.strip().lower() == "категории"
+    return (message.text or "").strip().lower() == "категории"
 
 
 def is_budgets(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Бюджеты'."""
     if not message.text:
         return False
-    return message.text.strip().lower() == "бюджеты"
+    return (message.text or "").strip().lower() == "бюджеты"
 
 
 def is_export(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Экспорт'."""
     if not message.text:
         return False
-    return message.text.strip().lower() == "экспорт"
+    return (message.text or "").strip().lower() == "экспорт"
 
 
 def is_import(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Импорт'."""
     if not message.text:
         return False
-    return message.text.strip().lower() == "импорт"
+    return (message.text or "").strip().lower() == "импорт"
 
 
 def is_goals(message: Message) -> bool:
     """Checks if message is the 'Цели' menu command."""
     if not message.text:
         return False
-    return message.text.strip().lower() == "цели"
+    return (message.text or "").strip().lower() == "цели"
 
 
 def is_main_menu_button(message: Message) -> bool:

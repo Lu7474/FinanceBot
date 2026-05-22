@@ -312,7 +312,7 @@ async def _create_goal_and_confirm(
 @router.callback_query(F.data.startswith("goal:detail:"))
 @log_exceptions("Ошибка при открытии карточки цели")
 async def goal_detail(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -342,7 +342,7 @@ async def goal_detail(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 async def goal_deposit_start(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -388,7 +388,7 @@ async def goal_deposit_start(
 async def goal_deposit_account_selected(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    parts = callback.data.split(":")
+    parts = (callback.data or "").split(":")
     goal_id = int(parts[2])
     account_id = int(parts[3])
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -529,7 +529,7 @@ async def _execute_deposit(
 async def goal_withdraw_start(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -575,7 +575,7 @@ async def goal_withdraw_start(
 async def goal_withdraw_account_selected(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    parts = callback.data.split(":")
+    parts = (callback.data or "").split(":")
     goal_id = int(parts[2])
     account_id = int(parts[3])
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -726,7 +726,7 @@ async def _execute_withdraw(
 @router.callback_query(F.data.startswith("goal:complete:"))
 @log_exceptions("Ошибка при запросе завершения цели")
 async def goal_complete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     await get_message(callback).edit_text(
         "Отметить цель как завершённую? Это действие нельзя отменить.",
         reply_markup=goal_confirm_complete_keyboard(goal_id),
@@ -739,7 +739,7 @@ async def goal_complete(callback: CallbackQuery, state: FSMContext, **kwargs) ->
 async def goal_complete_confirm(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -768,7 +768,7 @@ async def goal_complete_confirm(
 @router.callback_query(F.data.startswith("goal:delete:"))
 @log_exceptions("Ошибка при запросе удаления цели")
 async def goal_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     await get_message(callback).edit_text(
         "Удалить цель и все связанные операции? Это действие нельзя отменить.",
         reply_markup=goal_confirm_delete_keyboard(goal_id),
@@ -781,7 +781,7 @@ async def goal_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 async def goal_delete_confirm(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -823,7 +823,7 @@ async def goal_quick_deposit(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Quick deposit amount: jump straight to note step."""
-    parts = callback.data.split(":")
+    parts = (callback.data or "").split(":")
     goal_id = int(parts[2])
     amount = Decimal(parts[3])
     await state.update_data(deposit_goal_id=goal_id, deposit_amount=str(amount))
@@ -855,7 +855,7 @@ async def goal_quick_withdraw(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Quick withdraw amount: jump straight to note step."""
-    parts = callback.data.split(":")
+    parts = (callback.data or "").split(":")
     goal_id = int(parts[2])
     amount = Decimal(parts[3])
     await state.update_data(withdraw_goal_id=goal_id, withdraw_amount=str(amount))
@@ -928,7 +928,7 @@ async def goal_archive(callback: CallbackQuery, state: FSMContext, **kwargs) -> 
 @log_exceptions("Ошибка при переоткрытии цели")
 async def goal_reactivate(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Marks completed goal as active again."""
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -964,7 +964,7 @@ async def goal_reactivate(callback: CallbackQuery, state: FSMContext, **kwargs) 
 @log_exceptions("Ошибка при открытии меню редактирования")
 async def goal_edit_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Shows edit submenu (name/amount/deadline)."""
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -990,7 +990,7 @@ async def goal_edit_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -
 async def goal_edit_name_start(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -1050,7 +1050,7 @@ async def goal_edit_name_entered(message: Message, state: FSMContext, **kwargs) 
 async def goal_edit_amount_start(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -1132,7 +1132,7 @@ async def goal_edit_amount_entered(
 async def goal_edit_deadline_start(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -1208,7 +1208,7 @@ async def goal_clear_deadline(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Removes deadline from goal."""
-    goal_id = int(callback.data.split(":")[2])
+    goal_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")

@@ -178,7 +178,7 @@ async def budget_category_selected(
     user_id = data.get("user_id")
     categories = data.get("budget_categories", [])
     try:
-        idx = int(callback.data.split(":", 1)[1])
+        idx = int((callback.data or "").split(":", 1)[1])
         category = categories[idx]
     except (ValueError, IndexError):
         await callback.answer("Ошибка: категория не найдена.")
@@ -223,7 +223,7 @@ async def budget_amount_entered(message: Message, state: FSMContext, **kwargs) -
     category = data.get("chosen_category")
 
     try:
-        amount = Decimal(message.text.strip().replace(",", ".").replace(" ", ""))
+        amount = Decimal((message.text or "").strip().replace(",", ".").replace(" ", ""))
         if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
             raise ValueError
     except (InvalidOperation, ValueError):

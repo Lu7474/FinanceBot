@@ -113,7 +113,7 @@ async def handle_del_select_month(
 async def handle_del_year(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Показывает месяцы выбранного года."""
     try:
-        year = int(callback.data.split(":")[1])
+        year = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -142,7 +142,7 @@ async def handle_del_month(
 ) -> None:
     """Показывает записи за выбранный месяц."""
     try:
-        parts = callback.data.split(":")
+        parts = (callback.data or "").split(":")
         year = int(parts[1])
         month = int(parts[2])
     except (IndexError, ValueError):
@@ -236,7 +236,7 @@ async def handle_del_period(
 ) -> None:
     """Показывает записи за стандартный период (день, неделя и т.д.)."""
     try:
-        period = callback.data.split(":")[1]
+        period = (callback.data or "").split(":")[1]
     except (IndexError, AttributeError):
         await callback.answer("Некорректные данные.")
         await state.clear()
@@ -290,9 +290,9 @@ async def menu_delete_record(
         await state.clear()
         return
 
-    if callback.data.startswith("del_page:"):
+    if (callback.data or "").startswith("del_page:"):
         try:
-            page_str = callback.data.split(":")[1]
+            page_str = (callback.data or "").split(":")[1]
             if page_str == "noop":
                 await callback.answer()
                 return
@@ -330,9 +330,9 @@ async def menu_delete_record(
         await callback.answer()
         return
 
-    if callback.data.startswith("del_record:"):
+    if (callback.data or "").startswith("del_record:"):
         try:
-            record_id = int(callback.data.split(":")[1])
+            record_id = int((callback.data or "").split(":")[1])
         except (IndexError, ValueError, AttributeError):
             await callback.answer("Некорректные данные.")
             await state.clear()
@@ -400,9 +400,9 @@ async def menu_delete_confirm(
         await callback.answer("Удаление отменено")
         return
 
-    if callback.data.startswith("confirm_del:"):
+    if (callback.data or "").startswith("confirm_del:"):
         try:
-            record_id = int(callback.data.split(":")[1])
+            record_id = int((callback.data or "").split(":")[1])
         except (IndexError, ValueError, AttributeError):
             await callback.answer("Некорректные данные.")
             await state.clear()

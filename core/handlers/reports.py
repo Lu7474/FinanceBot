@@ -105,7 +105,7 @@ async def menu_report_year(
 ) -> None:
     """Выбран год — показываем доступные месяцы."""
     try:
-        year = int(callback.data.split(":")[1])
+        year = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError, AttributeError):
         await callback.answer("Некорректные данные.")
         await state.clear()
@@ -168,7 +168,7 @@ async def menu_report_month(
 ) -> None:
     """Выбран месяц — генерируем график и текстовый отчёт."""
     try:
-        parts = callback.data.split(":")
+        parts = (callback.data or "").split(":")
         year = int(parts[1])
         month = int(parts[2])
     except (IndexError, ValueError, AttributeError):
@@ -266,7 +266,7 @@ async def menu_report_month(
 async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
     """Сравнение текущего месяца с предыдущим."""
     try:
-        parts = callback.data.split(":")
+        parts = (callback.data or "").split(":")
         report_type = parts[1]
         year = int(parts[2])
         month = int(parts[3])

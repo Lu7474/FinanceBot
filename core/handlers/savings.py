@@ -153,7 +153,7 @@ async def cb_sav_date(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     if not user_id:
         await callback.answer("Ошибка.", show_alert=True)
         return
-    date_str = callback.data.split(":")[1]
+    date_str = (callback.data or "").split(":")[1]
     target_date = date_type.fromisoformat(date_str)
     text, keyboard = await _build_savings_view(user_id, target_date)
     await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -359,7 +359,7 @@ async def msg_savings_enter_amount(
     entered: list = data.get("entered", [])
 
     try:
-        amount = Decimal(message.text.strip().replace(" ", "").replace(",", "."))
+        amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
         if amount < 0:
             await message.answer("Сумма не может быть отрицательной.")
             return
@@ -433,7 +433,7 @@ async def msg_savings_field_amount(
     user_id = await get_user_id_from_event(message, kwargs)
 
     try:
-        amount = Decimal(message.text.strip().replace(" ", "").replace(",", "."))
+        amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
         if amount < 0:
             await message.answer("Сумма не может быть отрицательной.")
             return
@@ -532,7 +532,7 @@ async def cb_sav_add_field(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Начинает добавление нового поля к уже сохранённому снимку."""
-    snapshot_id_str = callback.data.split(":")[1]
+    snapshot_id_str = (callback.data or "").split(":")[1]
     if snapshot_id_str == "None":
         await callback.answer("Нет активного снимка.", show_alert=True)
         return
@@ -569,7 +569,7 @@ async def cb_sav_add_field(
 @log_exceptions("Ошибка при редактировании")
 async def cb_sav_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Показывает список полей снимка для редактирования."""
-    snapshot_id = int(callback.data.split(":")[1])
+    snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
     async with async_session() as session:
         snapshot = await get_snapshot_by_id(session, snapshot_id, user_id)
@@ -592,7 +592,7 @@ async def cb_sav_edit_item(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Запрашивает новую сумму для выбранного поля."""
-    item_id = int(callback.data.split(":")[1])
+    item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:
@@ -634,7 +634,7 @@ async def msg_savings_edit_amount(
     user_id = await get_user_id_from_event(message, kwargs)
 
     try:
-        amount = Decimal(message.text.strip().replace(" ", "").replace(",", "."))
+        amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
         if amount < 0:
             await message.answer("Сумма не может быть отрицательной.")
             return
@@ -667,7 +667,7 @@ async def msg_savings_edit_amount(
 @log_exceptions("Ошибка при удалении")
 async def cb_sav_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Показывает список полей и опцию удаления всего снимка."""
-    snapshot_id = int(callback.data.split(":")[1])
+    snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
     async with async_session() as session:
         snapshot = await get_snapshot_by_id(session, snapshot_id, user_id)
@@ -692,7 +692,7 @@ async def cb_sav_delete_item(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Удаляет конкретное поле из снимка."""
-    item_id = int(callback.data.split(":")[1])
+    item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:
@@ -715,7 +715,7 @@ async def cb_sav_delete_all(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Удаляет весь снимок."""
-    snapshot_id = int(callback.data.split(":")[1])
+    snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:
@@ -806,7 +806,7 @@ async def cb_wealth_add(callback: CallbackQuery, state: FSMContext, **kwargs) ->
 @router.callback_query(WealthStates.choosing_type, F.data.startswith("wealth_type:"))
 async def cb_wealth_type(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Запоминает тип и просит ввести название."""
-    type_ = callback.data.split(":")[1]
+    type_ = (callback.data or "").split(":")[1]
     await state.set_state(WealthStates.entering_name)
     await state.update_data(type_=type_)
     type_label = "💚 Актив" if type_ == "A" else "🔴 Пассив"
@@ -836,7 +836,7 @@ async def msg_wealth_name(message: Message, state: FSMContext, **kwargs) -> None
 @router.message(WealthStates.entering_amount, ~F.func(is_main_menu_button))
 async def msg_wealth_amount(message: Message, state: FSMContext, **kwargs) -> None:
     try:
-        amount = Decimal(message.text.strip().replace(" ", "").replace(",", "."))
+        amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
         if amount < 0 or amount > MAX_AMOUNT:
             await message.answer(f"Сумма от 0 до {format_money(MAX_AMOUNT)}.")
             return
@@ -939,7 +939,7 @@ async def cb_wealth_edit_item(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Запрашивает новую сумму для выбранного актива/пассива."""
-    item_id = int(callback.data.split(":")[1])
+    item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:
@@ -978,7 +978,7 @@ async def msg_wealth_edit_amount(message: Message, state: FSMContext, **kwargs) 
     user_id = await get_user_id_from_event(message, kwargs)
 
     try:
-        amount = Decimal(message.text.strip().replace(" ", "").replace(",", "."))
+        amount = Decimal((message.text or "").strip().replace(" ", "").replace(",", "."))
         if amount < 0 or amount > MAX_AMOUNT:
             await message.answer(f"Сумма от 0 до {format_money(MAX_AMOUNT)}.")
             return
@@ -1029,7 +1029,7 @@ async def cb_wealth_delete_item(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Удаляет выбранный актив/пассив."""
-    item_id = int(callback.data.split(":")[1])
+    item_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
 
     async with async_session() as session:

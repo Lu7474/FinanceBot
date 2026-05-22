@@ -144,7 +144,7 @@ async def handle_export(message: Message, state: FSMContext) -> None:
     F.data.startswith("export_period:"),
 )
 async def handle_export_period(callback: CallbackQuery, state: FSMContext) -> None:
-    period = callback.data.split(":")[1]
+    period = (callback.data or "").split(":")[1]
     await state.update_data(export_period=period)
     await state.set_state(ExportImportStates.waiting_for_export_type)
     await get_message(callback).edit_text(
@@ -174,7 +174,7 @@ async def handle_export_back_to_period(
 async def handle_export_type(
     callback: CallbackQuery, state: FSMContext, user_id: int
 ) -> None:
-    type_key = callback.data.split(":")[1]
+    type_key = (callback.data or "").split(":")[1]
     data = await state.get_data()
     period = data.get("export_period", "all")
     await state.clear()

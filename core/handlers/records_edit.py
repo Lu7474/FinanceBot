@@ -226,7 +226,7 @@ async def hist_back_from_select(
 async def record_view(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Show record detail card."""
     try:
-        record_id = int(callback.data.split(":")[2])
+        record_id = int((callback.data or "").split(":")[2])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -246,7 +246,7 @@ async def record_view(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 async def record_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Show field selection keyboard."""
     try:
-        record_id = int(callback.data.split(":")[2])
+        record_id = int((callback.data or "").split(":")[2])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -278,7 +278,7 @@ async def record_field_select(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Handle field selection: for account — show account list; for others — ask for text."""
-    parts = callback.data.split(":")
+    parts = (callback.data or "").split(":")
     try:
         record_id = int(parts[2])
         field = parts[3]
@@ -345,7 +345,7 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
 
     user_id = kwargs["user_id"]
 
-    text = message.text.strip() if message.text else ""
+    text = (message.text or "").strip() if message.text else ""
 
     if field == "amount":
         value = parse_edit_amount(text)
@@ -466,7 +466,7 @@ async def record_account_select(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Save new account_id for the record."""
-    parts = callback.data.split(":")
+    parts = (callback.data or "").split(":")
     try:
         record_id = int(parts[2])
         account_id = int(parts[3])
@@ -529,7 +529,7 @@ async def record_delete_ask(
 ) -> None:
     """Show delete confirmation dialog."""
     try:
-        record_id = int(callback.data.split(":")[2])
+        record_id = int((callback.data or "").split(":")[2])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -548,7 +548,7 @@ async def record_delete_confirm(
 ) -> None:
     """Delete the record and return to history."""
     try:
-        record_id = int(callback.data.split(":")[2])
+        record_id = int((callback.data or "").split(":")[2])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return

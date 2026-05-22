@@ -188,7 +188,7 @@ async def handle_cat_type_back(
 async def handle_cat_type_selected(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    cat_type = callback.data.split(":")[1]
+    cat_type = (callback.data or "").split(":")[1]
     await state.update_data(new_cat_type=cat_type)
     type_label = {"+": "дохода", "-": "расхода", "*": "для обоих типов"}[cat_type]
     await get_message(callback).edit_text(
@@ -281,7 +281,7 @@ async def handle_rename_back(
 async def handle_cat_rename_select(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    cat_id = int(callback.data.split(":")[1])
+    cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
 
@@ -391,7 +391,7 @@ async def handle_delete_back(
 async def handle_cat_delete_select(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    cat_id = int(callback.data.split(":")[1])
+    cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
 
@@ -453,7 +453,7 @@ async def handle_cat_delete_cancel(
 async def handle_cat_delete_confirm(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    cat_id = int(callback.data.split(":")[1])
+    cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id") or kwargs.get("user_id")
     cat_name = data.get("delete_cat_name", "")
@@ -484,7 +484,7 @@ async def handle_cat_delete_confirm(
 async def handle_cat_select_for_record(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    cat_id = int(callback.data.split(":")[1])
+    cat_id = int((callback.data or "").split(":")[1])
     data = await state.get_data()
     user_id = data.get("user_id")
     pending_records = data.get("pending_records", [])

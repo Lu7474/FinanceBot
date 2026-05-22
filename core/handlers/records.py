@@ -295,7 +295,7 @@ async def handle_amount_and_category(
     data = await state.get_data()
     default_operation = data.get("operation")
 
-    lines = message.text.strip().split("\n")
+    lines = (message.text or "").strip().split("\n")
     records_to_add = []
     errors = []
 
@@ -385,7 +385,7 @@ async def handle_record_account_select(
 ) -> None:
     """Сохраняет записи с выбранным счётом."""
     try:
-        account_id = int(callback.data.split(":")[1])
+        account_id = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -432,7 +432,7 @@ async def handle_record_account_select(
 @log_exceptions("Ошибка при добавлении записи")
 async def handle_direct_record(message: Message, state: FSMContext, **kwargs) -> None:
     """Прямой ввод записей без нажатия кнопки (если начинается с +/- или с даты)."""
-    lines = message.text.strip().split("\n")
+    lines = (message.text or "").strip().split("\n")
 
     records_to_add = []
     errors = []

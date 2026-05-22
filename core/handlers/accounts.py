@@ -203,7 +203,7 @@ async def handle_acc_rename_select(
 ) -> None:
     """Сохраняет выбранный счёт и запрашивает новое название."""
     try:
-        account_id = int(callback.data.split(":")[1])
+        account_id = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -309,7 +309,7 @@ async def handle_acc_delete_select(
 ) -> None:
     """Если есть записи — предлагает выбрать счёт для переноса. Иначе — простое подтверждение."""
     try:
-        account_id = int(callback.data.split(":")[1])
+        account_id = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -350,7 +350,7 @@ async def handle_acc_delete_move(
 ) -> None:
     """Переносит записи на выбранный счёт и удаляет исходный."""
     try:
-        parts = callback.data.split(":")
+        parts = (callback.data or "").split(":")
         from_id = int(parts[1])
         to_id = int(parts[2])
     except (IndexError, ValueError):
@@ -385,7 +385,7 @@ async def handle_acc_delete_confirm(
 ) -> None:
     """Удаляет счёт и обновляет список."""
     try:
-        account_id = int(callback.data.split(":")[1])
+        account_id = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -481,7 +481,7 @@ async def handle_acc_transfer_from(
 ) -> None:
     """Показывает список счетов-назначения (исключая источник)."""
     try:
-        from_id = int(callback.data.split(":")[1])
+        from_id = int((callback.data or "").split(":")[1])
     except (IndexError, ValueError):
         await callback.answer("Некорректные данные.")
         return
@@ -514,7 +514,7 @@ async def handle_acc_transfer_to(
 ) -> None:
     """Сохраняет счёта перевода и запрашивает сумму."""
     try:
-        parts = callback.data.split(":")
+        parts = (callback.data or "").split(":")
         from_id = int(parts[1])
         to_id = int(parts[2])
     except (IndexError, ValueError):
@@ -550,7 +550,7 @@ async def handle_acc_transfer_to(
 async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) -> None:
     """Выполняет перевод между счетами."""
     try:
-        amount = Decimal(message.text.strip().replace(",", "."))
+        amount = Decimal((message.text or "").strip().replace(",", "."))
         if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
             raise ValueError
     except (InvalidOperation, ValueError):
@@ -631,7 +631,7 @@ async def handle_acc_history_select(
 ) -> None:
     """Сохраняет выбранный счёт и показывает выбор периода."""
     try:
-        account_id = int(callback.data.split(":")[1])
+        account_id = int((callback.data or "").split(":")[1])
     except (ValueError, IndexError):
         await callback.answer("Некорректные данные.")
         return
@@ -669,7 +669,7 @@ async def handle_acc_hist_period(
 ) -> None:
     """Загружает первую страницу истории выбранного счёта."""
     try:
-        period = callback.data.split(":")[1]
+        period = (callback.data or "").split(":")[1]
     except (IndexError, AttributeError):
         await callback.answer("Некорректные данные.")
         return
@@ -741,7 +741,7 @@ async def handle_acc_hist_page(
 ) -> None:
     """Навигация по страницам истории счёта."""
     try:
-        page_str = callback.data.split(":")[1]
+        page_str = (callback.data or "").split(":")[1]
         if page_str == "noop":
             await callback.answer()
             return
@@ -825,7 +825,7 @@ async def handle_acc_set_balance_select(
 ) -> None:
     """Запрашивает желаемый баланс для выбранного счёта."""
     try:
-        account_id = int(callback.data.split(":")[1])
+        account_id = int((callback.data or "").split(":")[1])
     except (ValueError, IndexError):
         await callback.answer("Некорректные данные.")
         return
@@ -860,7 +860,7 @@ async def handle_set_balance_amount(
 ) -> None:
     """Сохраняет желаемый баланс через balance_offset."""
     try:
-        desired = Decimal(message.text.strip().replace(",", "."))
+        desired = Decimal((message.text or "").strip().replace(",", "."))
         if desired < 0 or desired > Decimal(str(MAX_AMOUNT)):
             raise ValueError
     except (InvalidOperation, ValueError):
