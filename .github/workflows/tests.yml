@@ -1,4 +1,4 @@
-name: Tests
+name: CI/CD
 
 "on":
   push:
@@ -32,3 +32,29 @@ jobs:
         env:
           BOT_TOKEN: "0000000000:test_token_for_ci"
         run: python -m pytest tests/ -v
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ADMIN_ID: ${{ secrets.ADMIN_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BOT_API_BASE_URL: ${{ secrets.BOT_API_BASE_URL }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          envs: BOT_TOKEN,ADMIN_ID,DATABASE_URL,BOT_API_BASE_URL
+          script: |
+            cd /var/www/financebot
+            git pull origin main
+            printf "BOT_TOKEN=%s\nADMIN_ID=%s\nDATABASE_URL=%s\nBOT_API_BASE_URL=%s\n" \
+              "$BOT_TOKEN" "$ADMIN_ID" "$DATABASE_URL" "$BOT_API_BASE_URL" > .env
+            venv/bin/pip install -r requirements.txt -q
+            systemctl restart financebot
+            systemctl is-active financebot

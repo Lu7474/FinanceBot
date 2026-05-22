@@ -10,11 +10,18 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from core.database.models import Base, setup_sqlite_engine
 
-# Подключение к тестовой БД (отдельная от основной)
-test_engine = create_async_engine(url="sqlite+aiosqlite:///test_db.sqlite3")
+# In-memory БД через shared-cache: все соединения процесса видят одну БД, даже на
+# разных event-loop'ах (тесты без фикстуры `session` иначе ловят пустое :memory:).
+# StaticPool держит одно соединение живым, чтобы shared-cache БД не обнулялась.
+test_engine = create_async_engine(
+    url="sqlite+aiosqlite:///file::memory:?cache=shared&uri=true",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 setup_sqlite_engine(test_engine)  # Unicode lower() + FK, как на проде
 test_session = async_sessionmaker(test_engine)
 
