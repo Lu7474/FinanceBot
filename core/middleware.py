@@ -70,6 +70,10 @@ class RateLimiter:
 
 rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
 
+# tg_id -> (internal_user_id, is_banned, expires_at)
+_USER_CACHE: Dict[int, tuple[int, bool, float]] = {}
+_USER_CACHE_TTL = 300  # 5 минут; бан вступает в силу не позднее чем через TTL
+
 
 class RateLimitMiddleware(BaseMiddleware):
     async def __call__(
@@ -126,32 +130,53 @@ class UserMiddleware(BaseMiddleware):
         if tg_id:
             from config import ADMIN_ID
 
-            async with async_session() as session:
-                user = await get_user_by_tg_id(session, tg_id)
-                if user:
-                    if user.is_banned and tg_id != ADMIN_ID:
-                        if isinstance(event, Message):
-                            await event.answer("⛔ Ваш аккаунт заблокирован.")
-                        elif isinstance(event, CallbackQuery):
-                            await event.answer(
-                                "⛔ Ваш аккаунт заблокирован.", show_alert=True
-                            )
-                        return None
-                    data["user_id"] = user.id
-                    data["user_tg_id"] = tg_id
-                else:
-                    is_start_cmd = (
-                        isinstance(event, Message)
-                        and event.text
-                        and event.text.startswith("/start")
-                    )
-                    if not is_start_cmd:
-                        if isinstance(event, Message):
-                            await event.answer("Для начала работы отправьте /start")
-                        elif isinstance(event, CallbackQuery):
-                            await event.answer(
-                                "Отправьте /start для регистрации", show_alert=True
-                            )
-                        return None
+            now = time.time()
+            cached = _USER_CACHE.get(tg_id)
+
+            if cached and now < cached[2]:
+                user_id, is_banned = cached[0], cached[1]
+                if is_banned and tg_id != ADMIN_ID:
+                    if isinstance(event, Message):
+                        await event.answer("⛔ Ваш аккаунт заблокирован.")
+                    elif isinstance(event, CallbackQuery):
+                        await event.answer(
+                            "⛔ Ваш аккаунт заблокирован.", show_alert=True
+                        )
+                    return None
+                data["user_id"] = user_id
+                data["user_tg_id"] = tg_id
+            else:
+                async with async_session() as session:
+                    user = await get_user_by_tg_id(session, tg_id)
+                    if user:
+                        _USER_CACHE[tg_id] = (
+                            user.id,
+                            user.is_banned,
+                            now + _USER_CACHE_TTL,
+                        )
+                        if user.is_banned and tg_id != ADMIN_ID:
+                            if isinstance(event, Message):
+                                await event.answer("⛔ Ваш аккаунт заблокирован.")
+                            elif isinstance(event, CallbackQuery):
+                                await event.answer(
+                                    "⛔ Ваш аккаунт заблокирован.", show_alert=True
+                                )
+                            return None
+                        data["user_id"] = user.id
+                        data["user_tg_id"] = tg_id
+                    else:
+                        is_start_cmd = (
+                            isinstance(event, Message)
+                            and event.text
+                            and event.text.startswith("/start")
+                        )
+                        if not is_start_cmd:
+                            if isinstance(event, Message):
+                                await event.answer("Для начала работы отправьте /start")
+                            elif isinstance(event, CallbackQuery):
+                                await event.answer(
+                                    "Отправьте /start для регистрации", show_alert=True
+                                )
+                            return None
 
         return await handler(event, data)
