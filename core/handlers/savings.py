@@ -55,6 +55,7 @@ from core.utils import (
 from .common import (
     SavingsStates,
     WealthStates,
+    get_message,
     get_user_id_from_event,
     is_main_menu_button,
     is_savings,
@@ -155,7 +156,7 @@ async def cb_sav_date(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     date_str = callback.data.split(":")[1]
     target_date = date_type.fromisoformat(date_str)
     text, keyboard = await _build_savings_view(user_id, target_date)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
@@ -163,7 +164,7 @@ async def cb_sav_date(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 async def cb_sav_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Возврат в главное меню."""
     await state.clear()
-    await callback.message.delete()
+    await get_message(callback).delete()
     await callback.answer()
 
 
@@ -184,7 +185,7 @@ async def cb_sav_cancel_action(
     if entered and mode == "create":
         await state.set_state(SavingsStates.confirming_snapshot)
         await state.update_data(pending_name=None)
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             _build_confirm_text(entered),
             reply_markup=savings_confirm_keyboard(),
             parse_mode="HTML",
@@ -198,7 +199,7 @@ async def cb_sav_cancel_action(
         await callback.answer("Ошибка.", show_alert=True)
         return
     text, keyboard = await _build_savings_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
@@ -269,7 +270,7 @@ async def cb_sav_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
         ]
     )
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "➕ <b>Новый снимок</b>\n\nКак заполнить?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
         parse_mode="HTML",
@@ -296,7 +297,7 @@ async def cb_sav_use_last(callback: CallbackQuery, state: FSMContext, **kwargs) 
         if first.get("prev_amount")
         else ""
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"<b>{html.escape(first['name'])}</b>: введите сумму{prev_str}",
         reply_markup=_CANCEL_KB,
         parse_mode="HTML",
@@ -323,7 +324,7 @@ async def cb_sav_from_accounts(
 
     await state.set_state(SavingsStates.confirming_snapshot)
     await state.update_data(entered=entered)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         _build_confirm_text(entered),
         reply_markup=savings_confirm_keyboard(),
         parse_mode="HTML",
@@ -338,7 +339,7 @@ async def cb_sav_new_names(
     """Переход к ручному вводу новых названий."""
     await state.set_state(SavingsStates.entering_new_field_name)
     await state.update_data(mode="create", items=[], pending_name=None)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✍️ <b>Введите название первого счёта/кошелька:</b>",
         reply_markup=_CANCEL_KB,
         parse_mode="HTML",
@@ -501,7 +502,7 @@ async def cb_sav_confirm_save(
         return
 
     text, keyboard = await _build_savings_view(user_id, target_date)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer("Снимок сохранён ✅")
 
 
@@ -514,7 +515,7 @@ async def cb_sav_confirm_add_field(
     """Добавляет ещё одно поле к снимку перед сохранением."""
     await state.set_state(SavingsStates.entering_new_field_name)
     await state.update_data(mode="create", pending_name=None)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✍️ <b>Введите название нового поля:</b>",
         reply_markup=_CANCEL_KB,
         parse_mode="HTML",
@@ -553,7 +554,7 @@ async def cb_sav_add_field(
         snapshot_date=snap.date.isoformat(),
         pending_name=None,
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "➕ <b>Введите название нового поля:</b>",
         reply_markup=_CANCEL_KB,
         parse_mode="HTML",
@@ -577,7 +578,7 @@ async def cb_sav_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         await callback.answer("Снимок не найден или пуст.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✏️ <b>Выберите строку для редактирования:</b>",
         reply_markup=savings_items_keyboard(snapshot.items, "edit"),
         parse_mode="HTML",
@@ -611,7 +612,7 @@ async def cb_sav_edit_item(
     await state.set_state(SavingsStates.editing_item_amount)
     await state.update_data(item_id=item_id, snapshot_date=snap_date.isoformat())
     cur_raw = f"{float(item.amount):.0f}"
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"✏️ <b>{html.escape(item.name)}</b>\n"
         f"Текущая сумма: <code>{cur_raw}</code>\n\n"
         f"Введите новую сумму:",
@@ -675,7 +676,7 @@ async def cb_sav_delete(callback: CallbackQuery, state: FSMContext, **kwargs) ->
         await callback.answer("Снимок не найден.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "🗑 <b>Что удалить?</b>\n\nВыберите строку или удалите весь снимок:",
         reply_markup=savings_items_keyboard(
             snapshot.items, "delete", snapshot_id=snapshot.id
@@ -704,7 +705,7 @@ async def cb_sav_delete_item(
         return
 
     text, keyboard = await _build_savings_view(user_id, snap_date)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer("Поле удалено.")
 
 
@@ -727,7 +728,7 @@ async def cb_sav_delete_all(
         return
 
     text, keyboard = await _build_savings_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer("Снимок удалён.")
 
 
@@ -752,7 +753,7 @@ async def cb_sav_wealth(callback: CallbackQuery, state: FSMContext, **kwargs) ->
         await callback.answer("Ошибка.", show_alert=True)
         return
     text, keyboard = await _build_wealth_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
@@ -766,7 +767,7 @@ async def cb_wealth_back(callback: CallbackQuery, state: FSMContext, **kwargs) -
         await callback.answer("Ошибка.", show_alert=True)
         return
     text, keyboard = await _build_savings_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
@@ -782,7 +783,7 @@ async def cb_wealth_back_to_view(
         await callback.answer("Ошибка.", show_alert=True)
         return
     text, keyboard = await _build_wealth_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
@@ -794,7 +795,7 @@ async def cb_wealth_add(callback: CallbackQuery, state: FSMContext, **kwargs) ->
     """Начинает добавление нового актива/пассива."""
     await state.clear()
     await state.set_state(WealthStates.choosing_type)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "➕ <b>Добавить запись</b>\n\nВыберите тип:",
         reply_markup=wealth_type_keyboard(),
         parse_mode="HTML",
@@ -809,7 +810,7 @@ async def cb_wealth_type(callback: CallbackQuery, state: FSMContext, **kwargs) -
     await state.set_state(WealthStates.entering_name)
     await state.update_data(type_=type_)
     type_label = "💚 Актив" if type_ == "A" else "🔴 Пассив"
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"{type_label}\n\nВведите название:",
         reply_markup=wealth_back_keyboard(),
         parse_mode="HTML",
@@ -907,7 +908,7 @@ async def _save_wealth_item(
         await callback.answer("Ошибка при сохранении.", show_alert=True)
         return
     text, keyboard = await _build_wealth_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer("Сохранено ✅")
 
 
@@ -924,7 +925,7 @@ async def cb_wealth_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -
     if not items:
         await callback.answer("Список пуст.", show_alert=True)
         return
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✏️ <b>Выберите запись для редактирования суммы:</b>",
         reply_markup=wealth_items_keyboard(items, "edit"),
         parse_mode="HTML",
@@ -958,7 +959,7 @@ async def cb_wealth_edit_item(
     await state.update_data(item_id=item_id)
     type_label = "💚 Актив" if item.type == "A" else "🔴 Пассив"
     cur_raw = f"{float(item.amount):.0f}"
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"{type_label} <b>{html.escape(item.name)}</b>\n"
         f"Текущая сумма: <code>{cur_raw}</code>\n\n"
         f"Введите новую сумму:",
@@ -1014,7 +1015,7 @@ async def cb_wealth_delete(
     if not items:
         await callback.answer("Список пуст.", show_alert=True)
         return
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "🗑 <b>Выберите запись для удаления:</b>",
         reply_markup=wealth_items_keyboard(items, "delete"),
         parse_mode="HTML",
@@ -1041,5 +1042,5 @@ async def cb_wealth_delete_item(
         return
 
     text, keyboard = await _build_wealth_view(user_id)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer("Удалено.")

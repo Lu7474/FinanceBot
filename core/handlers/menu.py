@@ -12,6 +12,8 @@ from core.database.requests import set_user
 from core.keyboards import main_menu_keyboard
 from core.utils import log_exceptions
 
+from .common import get_message
+
 router = Router()
 
 
@@ -81,8 +83,8 @@ async def handle_cancel_callback(
 ) -> None:
     """Обработка нажатия кнопки Отмена в inline-клавиатурах."""
     await state.clear()
-    await callback.message.edit_text("Операция отменена.")
-    await callback.message.answer(
+    await get_message(callback).edit_text("Операция отменена.")
+    await get_message(callback).answer(
         "Выберите действие:", reply_markup=main_menu_keyboard()
     )
     await callback.answer()

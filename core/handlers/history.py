@@ -27,7 +27,7 @@ from core.keyboards import (
 )
 from core.utils import RU_WEEKDAYS, format_money, log_exceptions
 
-from .common import MenuStates, is_history, is_main_menu_button
+from .common import MenuStates, get_message, is_history, is_main_menu_button
 
 router = Router()
 
@@ -255,7 +255,7 @@ async def _apply_filter_and_reload(
         operation_filter=operation_filter,
         category_filter=category_filter,
     )
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -288,7 +288,7 @@ async def menu_history_period(
         return
 
     if period == "custom":
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "Введите период в формате:\n"
             "<code>01.01.25 - 31.01.25</code>\n\n"
             "Или отправьте /cancel для отмены.",
@@ -305,7 +305,7 @@ async def menu_history_period(
         )
 
         if total_count == 0:
-            await callback.message.edit_text("Записей не найдено за указанный период.")
+            await get_message(callback).edit_text("Записей не найдено за указанный период.")
             await state.clear()
             await callback.answer()
             return
@@ -332,7 +332,7 @@ async def menu_history_period(
         total_count=total_count,
     )
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
     )
     await state.set_state(MenuStates.waiting_for_history_page)
@@ -373,7 +373,7 @@ async def menu_history_page(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await callback.message.edit_text("Данные истории устарели. Попробуйте снова.")
+        await get_message(callback).edit_text("Данные истории устарели. Попробуйте снова.")
         await state.clear()
         await callback.answer()
         return
@@ -412,7 +412,7 @@ async def menu_history_page(
     if len(text) > MAX_MESSAGE_LENGTH - 100:
         text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
@@ -437,7 +437,7 @@ async def menu_history_show_all(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await callback.message.edit_text("Данные истории устарели. Попробуйте снова.")
+        await get_message(callback).edit_text("Данные истории устарели. Попробуйте снова.")
         await state.clear()
         await callback.answer()
         return
@@ -472,7 +472,7 @@ async def menu_history_show_all(
     if len(text) > MAX_MESSAGE_LENGTH - 100:
         text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
 
-    await callback.message.edit_text(text, parse_mode="HTML")
+    await get_message(callback).edit_text(text, parse_mode="HTML")
     await state.clear()
     await callback.answer()
 
@@ -609,7 +609,7 @@ async def show_category_filter(
         return
 
     await state.update_data(hist_categories=categories)
-    await callback.message.edit_reply_markup(
+    await get_message(callback).edit_reply_markup(
         reply_markup=history_category_filter_keyboard(categories)
     )
     await state.set_state(MenuStates.waiting_for_history_category_filter)
@@ -633,7 +633,7 @@ async def _restore_history_from_category_picker(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await callback.message.edit_text("Данные истории устарели.")
+        await get_message(callback).edit_text("Данные истории устарели.")
         await state.clear()
         await callback.answer()
         return
@@ -651,7 +651,7 @@ async def _restore_history_from_category_picker(
         period=period, period_label=period_label, total_count=total_count,
         operation_filter=operation_filter, category_filter=category_filter,
     )
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -746,7 +746,7 @@ async def start_search(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Начало поиска — просим ввести запрос."""
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>",
         parse_mode="HTML",
     )
@@ -833,7 +833,7 @@ async def search_page_nav(
     await state.update_data(search_page=new_page)
     text = _build_search_page_text(records, new_page, total_pages, total, query_str, income_sum, expense_sum)
     kb = search_result_keyboard(new_page, total_pages)
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 
@@ -844,7 +844,7 @@ async def new_search(
 ) -> None:
     """Начать новый поиск."""
     await state.update_data(search_query=None, search_page=0)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>",
         parse_mode="HTML",
     )
@@ -872,7 +872,7 @@ async def search_back_to_history(
     date_from, date_to = _extract_date_range(data)
 
     if not period:
-        await callback.message.edit_text("Данные истории устарели. Откройте историю заново.")
+        await get_message(callback).edit_text("Данные истории устарели. Откройте историю заново.")
         await state.clear()
         await callback.answer()
         return
@@ -891,5 +891,5 @@ async def search_back_to_history(
         period=period, period_label=period_label, total_count=total_count,
         operation_filter=operation_filter, category_filter=category_filter,
     )
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await get_message(callback).edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
     await callback.answer()

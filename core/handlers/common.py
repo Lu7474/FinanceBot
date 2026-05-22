@@ -7,6 +7,12 @@ from core.database.models import async_session
 from core.database.requests import add_record, get_user_by_tg_id, set_user
 
 
+def get_message(cb: CallbackQuery) -> Message:
+    """Extract Message from callback; raises AssertionError if inaccessible."""
+    assert isinstance(cb.message, Message)
+    return cb.message
+
+
 async def get_user_id_from_event(
     event: Message | CallbackQuery,
     kwargs: dict,

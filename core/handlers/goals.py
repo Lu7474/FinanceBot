@@ -53,7 +53,7 @@ from core.utils import (
     today_msk,
 )
 
-from .common import GoalStates, get_user_id_from_event, is_goals
+from .common import GoalStates, get_message, get_user_id_from_event, is_goals
 
 router = Router()
 
@@ -93,7 +93,7 @@ async def _handle_goal_op_error(
         else goals_list_keyboard(goals, archive_count)
     )
     if callback:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"⚠️ {user_text}", parse_mode="HTML", reply_markup=kb
         )
         await callback.answer()
@@ -144,11 +144,11 @@ async def goal_list_callback(
     goals, archive_count = await _load_goals_view(user_id)
 
     if not goals and archive_count == 0:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard()
         )
     else:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             format_goals_list(goals)
             if goals
             else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
@@ -165,7 +165,7 @@ async def goal_list_callback(
 @router.callback_query(F.data == "goal:new")
 @log_exceptions("Ошибка при создании цели")
 async def goal_new_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
-    await callback.message.edit_text("Введите название цели (до 100 символов):")
+    await get_message(callback).edit_text("Введите название цели (до 100 символов):")
     await state.set_state(GoalStates.entering_name)
     await callback.answer()
 
@@ -237,7 +237,7 @@ async def goal_no_deadline(
 ) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     await _create_goal_and_confirm(
-        callback.message, state, None, user_id, callback=callback
+        get_message(callback), state, None, user_id, callback=callback
     )
 
 
@@ -251,11 +251,11 @@ async def goal_cancel(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         return
     goals, archive_count = await _load_goals_view(user_id)
     if not goals and archive_count == 0:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "🎯 У вас пока нет целей.", reply_markup=goal_empty_keyboard()
         )
     else:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             format_goals_list(goals)
             if goals
             else "🎯 <b>Мои цели</b>\n\nНет активных целей.",
@@ -298,7 +298,7 @@ async def _create_goal_and_confirm(
     kb = goals_list_keyboard(goals, archive_count)
 
     if callback:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        await get_message(callback).edit_text(text, parse_mode="HTML", reply_markup=kb)
         await callback.answer()
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -325,7 +325,7 @@ async def goal_detail(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
             return
         deposits = await get_goal_deposits(session, goal_id)
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         format_goal_detail(goal, deposits),
         reply_markup=goal_detail_keyboard(goal_id, goal.is_completed),
         parse_mode="HTML",
@@ -361,7 +361,7 @@ async def goal_deposit_start(
     await state.update_data(deposit_goal_id=goal_id)
 
     if accounts:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Пополнение цели <b>{html.escape(goal.name)}</b>\n\nВыберите счёт списания:",
             reply_markup=goal_account_keyboard(accounts, "deposit_acc", goal_id),
             parse_mode="HTML",
@@ -374,7 +374,7 @@ async def goal_deposit_start(
         progress = f"Прогресс: {goal.current_amount:,.0f} / {goal.target_amount:,.0f}₽".replace(
             ",", " "
         )
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Пополнение цели <b>{html.escape(goal.name)}</b>\n{progress}\n\nСколько откладываем (₽)? Введите вручную или выберите быструю сумму:",
             reply_markup=goal_quick_amounts_keyboard(goal_id, "qd", remaining, monthly),
             parse_mode="HTML",
@@ -410,7 +410,7 @@ async def goal_deposit_account_selected(
             ",", " "
         )
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Пополнение цели <b>{html.escape(goal_name)}</b>\n{progress}\n\nСколько откладываем (₽)? Введите вручную или выберите быструю сумму:",
         reply_markup=goal_quick_amounts_keyboard(goal_id, "qd", remaining, monthly),
         parse_mode="HTML",
@@ -475,7 +475,7 @@ async def goal_deposit_skip_note(
     if not user_id:
         await callback.answer("Ошибка.")
         return
-    await _execute_deposit(callback.message, state, None, user_id, callback=callback)
+    await _execute_deposit(get_message(callback), state, None, user_id, callback=callback)
 
 
 async def _execute_deposit(
@@ -513,7 +513,7 @@ async def _execute_deposit(
         next_state = GoalStates.viewing_list
 
     if callback:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        await get_message(callback).edit_text(text, parse_mode="HTML", reply_markup=kb)
         await callback.answer()
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -548,7 +548,7 @@ async def goal_withdraw_start(
     await state.update_data(withdraw_goal_id=goal_id)
 
     if accounts:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Снятие с цели <b>{html.escape(goal.name)}</b>\nДоступно: {goal.current_amount:,.0f}₽\n\nВыберите счёт зачисления:".replace(
                 ",", " "
             ),
@@ -559,7 +559,7 @@ async def goal_withdraw_start(
     else:
         await state.update_data(withdraw_account_id=None)
         available = float(goal.current_amount)
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Снятие с цели <b>{html.escape(goal.name)}</b>\nДоступно: {goal.current_amount:,.0f}₽\n\nСколько снять (₽)? Введите вручную или выберите быструю сумму:".replace(
                 ",", " "
             ),
@@ -594,7 +594,7 @@ async def goal_withdraw_account_selected(
         goal_name = goal.name
         current_amount = goal.current_amount
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Снятие с цели <b>{html.escape(goal_name)}</b>\nДоступно: {current_amount:,.0f}₽\n\nСколько снять (₽)? Введите вручную или выберите быструю сумму:".replace(
             ",", " "
         ),
@@ -683,7 +683,7 @@ async def goal_withdraw_skip_note(
     if not user_id:
         await callback.answer("Ошибка.")
         return
-    await _execute_withdraw(callback.message, state, None, user_id, callback=callback)
+    await _execute_withdraw(get_message(callback), state, None, user_id, callback=callback)
 
 
 async def _execute_withdraw(
@@ -712,7 +712,7 @@ async def _execute_withdraw(
     kb = goals_list_keyboard(goals, archive_count)
 
     if callback:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        await get_message(callback).edit_text(text, parse_mode="HTML", reply_markup=kb)
         await callback.answer()
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -727,7 +727,7 @@ async def _execute_withdraw(
 @log_exceptions("Ошибка при запросе завершения цели")
 async def goal_complete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     goal_id = int(callback.data.split(":")[2])
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Отметить цель как завершённую? Это действие нельзя отменить.",
         reply_markup=goal_confirm_complete_keyboard(goal_id),
     )
@@ -756,7 +756,7 @@ async def goal_complete_confirm(
     else:
         kb = goals_list_keyboard(goals, archive_count)
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✅ Цель завершена!",
         reply_markup=kb,
         parse_mode="HTML",
@@ -769,7 +769,7 @@ async def goal_complete_confirm(
 @log_exceptions("Ошибка при запросе удаления цели")
 async def goal_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     goal_id = int(callback.data.split(":")[2])
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Удалить цель и все связанные операции? Это действие нельзя отменить.",
         reply_markup=goal_confirm_delete_keyboard(goal_id),
     )
@@ -794,7 +794,7 @@ async def goal_delete_confirm(
     goals, archive_count = await _load_goals_view(user_id)
 
     if not goals and archive_count == 0:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "🗑 Цель удалена.\n\n🎯 У вас пока нет целей.",
             reply_markup=goal_empty_keyboard(),
         )
@@ -804,7 +804,7 @@ async def goal_delete_confirm(
             if goals
             else "🎯 <b>Мои цели</b>\n\nНет активных целей."
         )
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "🗑 Цель удалена.\n\n" + body,
             reply_markup=goals_list_keyboard(goals, archive_count),
             parse_mode="HTML",
@@ -838,7 +838,7 @@ async def goal_quick_deposit(
             ]
         ]
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Сумма: <b>{amount:,.0f}₽</b>\n\nДобавить заметку к операции?".replace(
             ",", " "
         ),
@@ -870,7 +870,7 @@ async def goal_quick_withdraw(
             ]
         ]
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Сумма: <b>{amount:,.0f}₽</b>\n\nДобавить заметку к операции?".replace(
             ",", " "
         ),
@@ -915,7 +915,7 @@ async def goal_archive(callback: CallbackQuery, state: FSMContext, **kwargs) -> 
                 f"   📅 {closed_str} • за {format_duration_short(duration_days)}"
             )
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "\n".join(lines),
         reply_markup=goal_archive_list_keyboard(completed),
         parse_mode="HTML",
@@ -947,7 +947,7 @@ async def goal_reactivate(callback: CallbackQuery, state: FSMContext, **kwargs) 
         await session.commit()
 
     goals, archive_count = await _load_goals_view(user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "↩️ Цель переоткрыта.\n\n"
         + (format_goals_list(goals) if goals else "🎯 <b>Мои цели</b>"),
         reply_markup=goals_list_keyboard(goals, archive_count),
@@ -977,7 +977,7 @@ async def goal_edit_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -
             return
         goal_name = goal.name
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"✏️ Редактирование цели <b>{html.escape(goal_name)}</b>\n\nЧто меняем?",
         reply_markup=goal_edit_menu_keyboard(goal_id),
         parse_mode="HTML",
@@ -1004,7 +1004,7 @@ async def goal_edit_name_start(
         current_name = goal.name
 
     await state.update_data(edit_goal_id=goal_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Текущее имя: <code>{html.escape(current_name)}</code>\n\n"
         f"Введите новое название (до {MAX_GOAL_NAME_LENGTH} символов):",
         parse_mode="HTML",
@@ -1066,7 +1066,7 @@ async def goal_edit_amount_start(
     await state.update_data(edit_goal_id=goal_id)
     current_str = f"{current_amount:,.0f}".replace(",", " ")
     max_str = f"{MAX_GOAL_AMOUNT:,}".replace(",", " ")
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Текущая сумма: <code>{current_str}</code>\n\n"
         f"Введите новую целевую сумму (от 1 до {max_str}₽):",
         parse_mode="HTML",
@@ -1154,7 +1154,7 @@ async def goal_edit_deadline_start(
         )
     else:
         prompt = "Сейчас без дедлайна.\n\nВведите дедлайн в формате ДД.ММ.ГГГГ:"
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         prompt,
         reply_markup=goal_edit_deadline_keyboard(goal_id),
         parse_mode="HTML",
@@ -1222,7 +1222,7 @@ async def goal_clear_deadline(
         is_completed = goal.is_completed if goal else False
         detail_text = format_goal_detail(goal, deposits) if goal else "Цель не найдена."
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         detail_text,
         reply_markup=goal_detail_keyboard(goal_id, is_completed),
         parse_mode="HTML",
@@ -1238,6 +1238,6 @@ async def goal_clear_deadline(
 @log_exceptions("Ошибка при возврате из целей")
 async def goal_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
-    await callback.message.answer("Главное меню:", reply_markup=main_menu_keyboard())
-    await callback.message.delete()
+    await get_message(callback).answer("Главное меню:", reply_markup=main_menu_keyboard())
+    await get_message(callback).delete()
     await callback.answer()

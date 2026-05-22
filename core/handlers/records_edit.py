@@ -33,7 +33,7 @@ from core.utils import (
     parse_edit_date,
 )
 
-from .common import RecordEditStates, is_main_menu_button
+from .common import RecordEditStates, get_message, is_main_menu_button
 from .history import build_history_page
 
 router = Router()
@@ -49,9 +49,9 @@ async def _show_record_card(
     async with async_session() as session:
         record = await get_record_by_id(session, record_id, user_id)
     if not record:
-        await callback.message.edit_text("Запись не найдена или уже удалена.")
+        await get_message(callback).edit_text("Запись не найдена или уже удалена.")
         return False
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         format_record_card(record),
         reply_markup=record_detail_keyboard(record_id),
         parse_mode="HTML",
@@ -69,7 +69,7 @@ async def _return_to_history(
     period = data.get("history_period")
     if not period:
         await state.clear()
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "За какой период показать историю?",
             reply_markup=history_period_keyboard(),
         )
@@ -105,7 +105,7 @@ async def _return_to_history(
 
     if total_count == 0:
         await state.clear()
-        await callback.message.edit_text("Записей не найдено за указанный период.")
+        await get_message(callback).edit_text("Записей не найдено за указанный период.")
         return
 
     total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
@@ -149,7 +149,7 @@ async def _return_to_history(
         category_filter=category_filter,
     )
     await state.set_state(MenuStates.waiting_for_history_page)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
     )
 
@@ -201,7 +201,7 @@ async def hist_open_record(
         await callback.answer("Записей не найдено.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите запись:",
         reply_markup=history_record_select_keyboard(records),
     )
@@ -256,13 +256,13 @@ async def record_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     async with async_session() as session:
         record = await get_record_by_id(session, record_id, user_id)
         if not record:
-            await callback.message.edit_text("Запись не найдена или уже удалена.")
+            await get_message(callback).edit_text("Запись не найдена или уже удалена.")
             await callback.answer()
             return
         accounts = await get_accounts(session, user_id)
 
     has_accounts = len(accounts) > 0
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Что изменить?",
         reply_markup=record_edit_field_keyboard(record_id, has_accounts),
     )
@@ -291,7 +291,7 @@ async def record_field_select(
     async with async_session() as session:
         record = await get_record_by_id(session, record_id, user_id)
         if not record:
-            await callback.message.edit_text("Запись не найдена или уже удалена.")
+            await get_message(callback).edit_text("Запись не найдена или уже удалена.")
             await callback.answer()
             return
 
@@ -300,7 +300,7 @@ async def record_field_select(
             if not accounts:
                 await callback.answer("У вас нет счетов.", show_alert=True)
                 return
-            await callback.message.edit_text(
+            await get_message(callback).edit_text(
                 "Выберите новый счёт:",
                 reply_markup=record_account_select_keyboard(record_id, accounts),
             )
@@ -324,7 +324,7 @@ async def record_field_select(
 
     await state.update_data(edit_record_id=record_id, edit_field=field)
     await state.set_state(RecordEditStates.waiting_for_record_edit_value)
-    await callback.message.edit_text(prompt, parse_mode="HTML")
+    await get_message(callback).edit_text(prompt, parse_mode="HTML")
     await callback.answer()
 
 
@@ -479,14 +479,14 @@ async def record_account_select(
     async with async_session() as session:
         old_record = await get_record_by_id(session, record_id, user_id)
         if not old_record:
-            await callback.message.edit_text("Запись не найдена или уже удалена.")
+            await get_message(callback).edit_text("Запись не найдена или уже удалена.")
             await callback.answer()
             return
 
         old_acc_name = old_record.account.name if old_record.account else "—"
 
         if old_record.account_id == account_id:
-            await callback.message.edit_text(
+            await get_message(callback).edit_text(
                 "Значение не изменилось.\n\n" + format_record_card(old_record),
                 reply_markup=record_detail_keyboard(record_id),
                 parse_mode="HTML",
@@ -501,7 +501,7 @@ async def record_account_select(
             await session.commit()
 
     if not updated:
-        await callback.message.edit_text("Не удалось сохранить изменение.")
+        await get_message(callback).edit_text("Не удалось сохранить изменение.")
         await callback.answer()
         return
 
@@ -509,7 +509,7 @@ async def record_account_select(
     confirm = (
         f"✅ Сохранено\nСчёт: {html.escape(old_acc_name)} → {html.escape(new_acc_name)}"
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         confirm + "\n\n" + format_record_card(updated),
         reply_markup=record_detail_keyboard(record_id),
         parse_mode="HTML",
@@ -534,7 +534,7 @@ async def record_delete_ask(
         await callback.answer("Некорректные данные.")
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Удалить запись #{record_id}?",
         reply_markup=record_delete_confirm_keyboard(record_id),
     )
@@ -560,7 +560,7 @@ async def record_delete_confirm(
         await session.commit()
 
     if not deleted:
-        await callback.message.edit_text("Запись не найдена или уже удалена.")
+        await get_message(callback).edit_text("Запись не найдена или уже удалена.")
         await callback.answer()
         return
 

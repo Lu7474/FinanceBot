@@ -27,7 +27,7 @@ from core.keyboards import (
 from core.reports import get_available_years_and_months, make_comparison_text
 from core.utils import RU_MONTHS, log_exceptions
 
-from .common import MenuStates, is_expense, is_income, is_report
+from .common import MenuStates, get_message, is_expense, is_income, is_report
 
 router = Router()
 
@@ -135,7 +135,7 @@ async def menu_report_year(
         return
 
     keyboard = get_months_keyboard(year, available_months)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Выберите месяц {year} года:", reply_markup=keyboard
     )
     await state.update_data(report_year=year)
@@ -156,7 +156,7 @@ async def report_back_to_years(
         await state.clear()
         return
     keyboard = get_years_keyboard(list(years_months.keys()))
-    await callback.message.edit_text("Выберите год:", reply_markup=keyboard)
+    await get_message(callback).edit_text("Выберите год:", reply_markup=keyboard)
     await state.set_state(MenuStates.waiting_for_report_year)
     await callback.answer()
 
@@ -187,14 +187,14 @@ async def menu_report_month(
         report_type = "expense"
         operation_sign = "-"
     else:
-        await callback.message.edit_text("Ошибка: не выбран тип отчёта.")
+        await get_message(callback).edit_text("Ошибка: не выбран тип отчёта.")
         await state.clear()
         await callback.answer()
         return
 
     now = datetime.now(ZoneInfo(TIMEZONE))
     if year > now.year or (year == now.year and month > now.month):
-        await callback.message.edit_text("Нельзя получить отчет за будущий месяц.")
+        await get_message(callback).edit_text("Нельзя получить отчет за будущий месяц.")
         await state.clear()
         await callback.answer()
         return
@@ -209,12 +209,12 @@ async def menu_report_month(
             seconds=1
         )
 
-    await callback.message.edit_text("⏳ Генерация отчёта...")
+    await get_message(callback).edit_text("⏳ Генерация отчёта...")
     await callback.answer()
 
     user_id = kwargs.get("user_id")
     if not user_id:
-        await callback.message.edit_text("Пользователь не найден.")
+        await get_message(callback).edit_text("Пользователь не найден.")
         await state.clear()
         return
 
@@ -238,23 +238,23 @@ async def menu_report_month(
             )
 
             if buf:
-                await callback.message.answer_photo(
+                await get_message(callback).answer_photo(
                     photo=BufferedInputFile(buf.read(), filename="report.png"),
                     caption=caption,
                     parse_mode="HTML",
                     reply_markup=compare_kb.as_markup(),
                 )
             else:
-                await callback.message.answer(
+                await get_message(callback).answer(
                     caption,
                     parse_mode="HTML",
                     reply_markup=compare_kb.as_markup(),
                 )
         else:
-            await callback.message.answer("Нет данных за выбранный период.")
+            await get_message(callback).answer("Нет данных за выбранный период.")
 
     try:
-        await callback.message.delete()
+        await get_message(callback).delete()
     except Exception:
         pass
 
@@ -305,7 +305,7 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
 
     user_id = kwargs.get("user_id")
     if not user_id:
-        await callback.message.answer("Пользователь не найден.")
+        await get_message(callback).answer("Пользователь не найден.")
         return
 
     async with async_session() as session:
@@ -322,7 +322,7 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
         monthly_data = await get_monthly_totals(session, user_id, operation_sign)
 
     if not prev_categories:
-        await callback.message.answer(
+        await get_message(callback).answer(
             f"Нет данных за {RU_MONTHS[prev_month]} {prev_year} для сравнения."
         )
         return
@@ -351,12 +351,12 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
         )
 
         if chart_buf:
-            await callback.message.answer_photo(
+            await get_message(callback).answer_photo(
                 photo=BufferedInputFile(chart_buf.read(), filename="trend.png"),
                 caption=comparison_text,
                 parse_mode="HTML",
             )
         else:
-            await callback.message.answer(comparison_text, parse_mode="HTML")
+            await get_message(callback).answer(comparison_text, parse_mode="HTML")
     else:
-        await callback.message.answer(comparison_text, parse_mode="HTML")
+        await get_message(callback).answer(comparison_text, parse_mode="HTML")

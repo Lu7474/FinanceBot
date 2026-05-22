@@ -27,7 +27,7 @@ from core.keyboards import (
 from core.reports import get_available_years_and_months
 from core.utils import RU_MONTHS, log_exceptions
 
-from .common import MenuStates, is_delete
+from .common import MenuStates, get_message, is_delete
 
 router = Router()
 
@@ -93,13 +93,13 @@ async def handle_del_select_month(
         years_months = await get_available_years_and_months(session, user_id)
 
     if not years_months:
-        await callback.message.edit_text("У вас пока нет записей.")
+        await get_message(callback).edit_text("У вас пока нет записей.")
         await state.clear()
         await callback.answer()
         return
 
     await state.update_data(delete_years_months=years_months)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите год:",
         reply_markup=get_delete_years_keyboard(list(years_months.keys())),
     )
@@ -125,7 +125,7 @@ async def handle_del_year(callback: CallbackQuery, state: FSMContext, **kwargs) 
         return
 
     await state.update_data(delete_selected_year=year)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"<b>{year}</b> — выберите месяц:",
         reply_markup=get_delete_months_keyboard(year, months),
         parse_mode="HTML",
@@ -187,7 +187,7 @@ async def handle_del_month(
     kb = build_delete_keyboard(
         [r.to_dict(include_id=True) for r in records], 0, total_pages
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Записи за {RU_MONTHS[month]} {year} (всего: {total_count}):",
         reply_markup=kb.as_markup(),
     )
@@ -203,7 +203,7 @@ async def handle_del_back_to_period(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     """Возврат к выбору периода."""
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "За какой период показать записи для удаления?",
         reply_markup=delete_period_keyboard(),
     )
@@ -220,7 +220,7 @@ async def handle_del_back_to_years(
     """Возврат к выбору года."""
     data = await state.get_data()
     years = list(data.get("delete_years_months", {}).keys())
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите год:",
         reply_markup=get_delete_years_keyboard(years),
     )
@@ -246,7 +246,7 @@ async def handle_del_period(
     async with async_session() as session:
         total_count = await count_records(session, user_id, period)
         if total_count == 0:
-            await callback.message.edit_text("Записей за выбранный период нет.")
+            await get_message(callback).edit_text("Записей за выбранный период нет.")
             await state.clear()
             await callback.answer()
             return
@@ -265,7 +265,7 @@ async def handle_del_period(
     kb = build_delete_keyboard(
         [r.to_dict(include_id=True) for r in records], 0, total_pages
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Выберите запись для удаления (всего: {total_count}):",
         reply_markup=kb.as_markup(),
     )
@@ -323,7 +323,7 @@ async def menu_delete_record(
 
         await state.update_data(delete_page=new_page)
         kb = build_delete_keyboard(records_data, new_page, total_pages)
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Выберите запись для удаления (всего: {total_count}):",
             reply_markup=kb.as_markup(),
         )
@@ -339,7 +339,7 @@ async def menu_delete_record(
             return
 
         await state.update_data(delete_record_id=record_id)
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "⚠️ Вы уверены, что хотите удалить эту запись?",
             reply_markup=confirm_delete_keyboard(record_id),
         )
@@ -370,7 +370,7 @@ async def menu_delete_confirm(
                 session, user_id, period, date_from, date_to
             )
             if total_count == 0:
-                await callback.message.edit_text("Записей нет.")
+                await get_message(callback).edit_text("Записей нет.")
                 await state.clear()
                 await callback.answer()
                 return
@@ -392,7 +392,7 @@ async def menu_delete_confirm(
 
         records_data = [r.to_dict(include_id=True) for r in records]
         kb = build_delete_keyboard(records_data, current_page, total_pages)
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Выберите запись для удаления (всего: {total_count}):",
             reply_markup=kb.as_markup(),
         )
@@ -421,7 +421,7 @@ async def menu_delete_confirm(
                 )
 
                 if new_total == 0:
-                    await callback.message.edit_text("Все записи удалены.")
+                    await get_message(callback).edit_text("Все записи удалены.")
                     await state.clear()
                     return
 
@@ -449,7 +449,7 @@ async def menu_delete_confirm(
                 )
 
                 kb = build_delete_keyboard(records_data, current_page, total_pages)
-                await callback.message.edit_text(
+                await get_message(callback).edit_text(
                     f"Выберите запись для удаления (всего: {new_total}):",
                     reply_markup=kb.as_markup(),
                 )

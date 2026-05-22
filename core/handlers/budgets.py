@@ -26,7 +26,7 @@ from core.keyboards import (
 from core.reports import format_budget_status
 from core.utils import RU_MONTHS, log_exceptions
 
-from .common import BudgetStates, get_user_id_from_event, is_budgets
+from .common import BudgetStates, get_message, get_user_id_from_event, is_budgets
 
 router = Router()
 
@@ -45,7 +45,7 @@ async def _show_budget_status(target, user_id: int, state: FSMContext) -> None:
     if isinstance(target, Message):
         await target.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
-        await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await get_message(target).edit_text(text, reply_markup=kb, parse_mode="HTML")
 
     await state.set_state(BudgetStates.choosing_action)
 
@@ -86,7 +86,7 @@ async def budget_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
         categories = [c for c in all_categories if c not in existing]
 
     if not categories:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "Все категории расходов уже имеют бюджет. Используйте «Изменить» для редактирования.",
             reply_markup=budget_menu_keyboard(),
         )
@@ -96,7 +96,7 @@ async def budget_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
     await state.update_data(
         user_id=user_id, budget_action="set", budget_categories=categories
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите категорию для нового лимита:",
         reply_markup=budget_category_keyboard(categories),
     )
@@ -117,7 +117,7 @@ async def budget_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         categories = [b.category for b in budgets]
 
     if not categories:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "Нет активных бюджетов для изменения. Сначала добавьте бюджет.",
             reply_markup=budget_menu_keyboard(),
         )
@@ -127,7 +127,7 @@ async def budget_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     await state.update_data(
         user_id=user_id, budget_action="set", budget_categories=categories
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите бюджет для изменения лимита:",
         reply_markup=budget_category_keyboard(categories),
     )
@@ -149,7 +149,7 @@ async def budget_delete_start(
         budgets = await get_budgets(session, user_id)
 
     if not budgets:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             "Нет активных бюджетов для удаления.",
             reply_markup=budget_menu_keyboard(),
         )
@@ -160,7 +160,7 @@ async def budget_delete_start(
     await state.update_data(
         user_id=user_id, budget_action="delete", budget_categories=categories
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите бюджет для удаления:",
         reply_markup=budget_category_keyboard(categories),
     )
@@ -207,7 +207,7 @@ async def budget_category_selected(
                     current_hint = (
                         f"Текущий лимит: <code>{cur_raw}</code>\n\n"
                     )
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"{current_hint}Введите лимит для <b>{html.escape(category)}</b> на месяц (₽):",
             parse_mode="HTML",
         )

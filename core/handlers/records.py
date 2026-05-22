@@ -32,6 +32,7 @@ from .common import (
     AddRecord,
     CategoryStates,
     MenuStates,
+    get_message,
     get_user_id_from_event,
     is_expense,
     is_income,
@@ -257,7 +258,7 @@ async def _maybe_ask_category(
     if is_msg:
         await message_or_callback.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
-        await message_or_callback.message.edit_text(
+        await get_message(message_or_callback).edit_text(
             text, reply_markup=kb, parse_mode="HTML"
         )
     await state.set_state(CategoryStates.confirming_suggested_category)
@@ -399,7 +400,7 @@ async def handle_record_account_select(
     except ValueError:
         logging.exception("FSM deserialization error")
         await state.clear()
-        await callback.message.answer(
+        await get_message(callback).answer(
             "⚠️ Данные сессии повреждены. Попробуйте ввести записи заново.",
             reply_markup=main_menu_keyboard(),
         )
@@ -416,11 +417,11 @@ async def handle_record_account_select(
                 break
 
     response = format_added_records_response(added, errors, account_name=account_name)
-    await callback.message.edit_text(response, parse_mode="HTML")
-    await callback.message.answer(
+    await get_message(callback).edit_text(response, parse_mode="HTML")
+    await get_message(callback).answer(
         "Выберите действие:", reply_markup=main_menu_keyboard()
     )
-    await _send_budget_alerts(callback.message, user_id, added)
+    await _send_budget_alerts(get_message(callback), user_id, added)
     await state.clear()
     await callback.answer()
 

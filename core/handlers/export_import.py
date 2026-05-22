@@ -29,7 +29,7 @@ from core.export import (
     _build_template_sync,
     parse_import_file,
 )
-from core.handlers.common import ExportImportStates, is_export, is_import
+from core.handlers.common import ExportImportStates, get_message, is_export, is_import
 from core.keyboards import (
     export_period_keyboard,
     export_type_keyboard,
@@ -147,7 +147,7 @@ async def handle_export_period(callback: CallbackQuery, state: FSMContext) -> No
     period = callback.data.split(":")[1]
     await state.update_data(export_period=period)
     await state.set_state(ExportImportStates.waiting_for_export_type)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Период: {_PERIOD_LABELS.get(period, period)}\nВыберите тип записей:",
         reply_markup=export_type_keyboard(),
     )
@@ -160,7 +160,7 @@ async def handle_export_back_to_period(
 ) -> None:
     """Шаг назад: с выбора типа обратно к выбору периода."""
     await state.set_state(ExportImportStates.waiting_for_export_period)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите период для экспорта:",
         reply_markup=export_period_keyboard(),
     )
@@ -182,7 +182,7 @@ async def handle_export_type(
     op_filter = None if type_key == "all" else ("+" if type_key == "income" else "-")
     date_from, date_to = _resolve_date_range(period)
 
-    await callback.message.edit_text("⏳ Генерирую файл...")
+    await get_message(callback).edit_text("⏳ Генерирую файл...")
 
     try:
         async with async_session() as session:
@@ -222,13 +222,13 @@ async def handle_export_type(
             f"📊 Экспорт за {_PERIOD_LABELS.get(period, period)}: {len(records)} записей\n"
             f"📈 Доходы: {inc:.0f} ₽  |  📉 Расходы: {exp:.0f} ₽  |  💰 Баланс: {bal:+.0f} ₽"
         )
-        await callback.message.answer_document(
+        await get_message(callback).answer_document(
             BufferedInputFile(buf.read(), filename=filename),
             caption=caption,
         )
     except Exception:
         logging.exception("Ошибка при создании экспорта")
-        await callback.message.answer("❌ Ошибка при создании файла. Попробуйте позже.")
+        await get_message(callback).answer("❌ Ошибка при создании файла. Попробуйте позже.")
 
 
 # ==================== Бэкап ====================
@@ -424,10 +424,10 @@ async def handle_import_confirm(
             inserted = await bulk_insert_records(session, user_id, rows_with_acc)
             await session.commit()
 
-        await callback.message.edit_text(f"✅ Импортировано {inserted} записей.")
+        await get_message(callback).edit_text(f"✅ Импортировано {inserted} записей.")
     except Exception:
         logging.exception("Ошибка при импорте записей")
-        await callback.message.edit_text("❌ Ошибка при импорте. Попробуйте позже.")
+        await get_message(callback).edit_text("❌ Ошибка при импорте. Попробуйте позже.")
 
 
 @router.callback_query(
@@ -436,7 +436,7 @@ async def handle_import_confirm(
 )
 async def handle_import_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text("Импорт отменён.")
+    await get_message(callback).edit_text("Импорт отменён.")
 
 
 @router.callback_query(
@@ -448,4 +448,4 @@ async def handle_import_cancel(callback: CallbackQuery, state: FSMContext) -> No
 )
 async def handle_export_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text("Отменено.")
+    await get_message(callback).edit_text("Отменено.")

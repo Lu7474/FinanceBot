@@ -22,7 +22,7 @@ from aiogram.types import (
 from config import ADMIN_ID
 from core.database import requests as db
 from core.database.models import async_session
-from core.handlers.common import AdminStates
+from core.handlers.common import AdminStates, get_message
 from core.utils import format_money
 
 USERS_PER_PAGE = 8
@@ -141,7 +141,7 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
 @router.callback_query(AdminStates.in_admin, F.data == "adm_menu")
 async def cb_main_menu(query: CallbackQuery) -> None:
     await _safe_edit(
-        query.message,
+        get_message(query),
         "🔐 <b>Режим администратора</b>\n\nВыбери действие:",
         parse_mode="HTML",
         reply_markup=_main_menu_kb(),
@@ -152,7 +152,7 @@ async def cb_main_menu(query: CallbackQuery) -> None:
 @router.callback_query(AdminStates.in_admin, F.data == "adm_exit")
 async def cb_exit(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await _safe_edit(query.message, "Вышел из режима администратора.")
+    await _safe_edit(get_message(query), "Вышел из режима администратора.")
     await query.answer()
 
 
@@ -190,7 +190,7 @@ async def cb_stats(query: CallbackQuery) -> None:
             ]
         ]
     )
-    await _safe_edit(query.message, text, parse_mode="HTML", reply_markup=kb)
+    await _safe_edit(get_message(query), text, parse_mode="HTML", reply_markup=kb)
     await query.answer("Обновлено ✓" if query.data == "adm_stats_refresh" else "")
 
 
@@ -242,7 +242,7 @@ async def _render_users_page(
 
     if not users:
         await _safe_edit(
-            query.message,
+            get_message(query),
             f"👥 Нет пользователей ({FILTER_LABELS.get(flt, flt)}).",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=_list_controls(0, 1, flt, srt)
@@ -270,7 +270,7 @@ async def _render_users_page(
     rows.extend(_list_controls(page, total_pages, flt, srt))
 
     await _safe_edit(
-        query.message,
+        get_message(query),
         text,
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
@@ -345,7 +345,7 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
         ]
     )
     await _safe_edit(
-        query.message, "\n".join(lines), parse_mode="HTML", reply_markup=kb
+        get_message(query), "\n".join(lines), parse_mode="HTML", reply_markup=kb
     )
     await query.answer()
 
@@ -365,7 +365,7 @@ async def cb_csv(query: CallbackQuery) -> None:
             return
         csv_bytes = await db.get_user_records_csv(session, user.id)
 
-    await query.message.answer_document(
+    await get_message(query).answer_document(
         BufferedInputFile(csv_bytes, filename=f"records_{tg_id}.csv"),
         caption=f"📥 Записи пользователя <code>{tg_id}</code>",
         parse_mode="HTML",
@@ -391,7 +391,7 @@ async def cb_ban_ask(query: CallbackQuery) -> None:
         ]
     )
     await _safe_edit(
-        query.message,
+        get_message(query),
         f"Забанить <code>{tg_id}</code>?\nПользователь не сможет пользоваться ботом.",
         parse_mode="HTML",
         reply_markup=kb,
@@ -419,7 +419,7 @@ async def cb_ban_do(query: CallbackQuery, state: FSMContext) -> None:
         ]
     )
     await _safe_edit(
-        query.message,
+        get_message(query),
         f"⛔ Пользователь <code>{tg_id}</code> забанен.",
         parse_mode="HTML",
         reply_markup=kb,
@@ -447,7 +447,7 @@ async def cb_unban_do(query: CallbackQuery, state: FSMContext) -> None:
         ]
     )
     await _safe_edit(
-        query.message,
+        get_message(query),
         f"✅ Пользователь <code>{tg_id}</code> разбанен.",
         parse_mode="HTML",
         reply_markup=kb,
@@ -480,7 +480,7 @@ async def cb_del1(query: CallbackQuery) -> None:
         ]
     )
     await _safe_edit(
-        query.message,
+        get_message(query),
         f"⚠️ Удалить <code>{tg_id}</code>?\n"
         f"Записей: {stats['total_records']}, все счета — будут удалены.\n\n"
         f"<b>Необратимо!</b>",
@@ -506,7 +506,7 @@ async def cb_del2(query: CallbackQuery) -> None:
         ]
     )
     await _safe_edit(
-        query.message,
+        get_message(query),
         f"🗑️ <b>Последнее предупреждение!</b>\n\n"
         f"Удалить <code>{tg_id}</code> без восстановления?",
         parse_mode="HTML",
@@ -524,7 +524,7 @@ async def cb_deldo(query: CallbackQuery) -> None:
     text = (
         f"🗑️ Пользователь <code>{tg_id}</code> удалён." if ok else "Ошибка при удалении."
     )
-    await _safe_edit(query.message, text, parse_mode="HTML", reply_markup=_back_kb())
+    await _safe_edit(get_message(query), text, parse_mode="HTML", reply_markup=_back_kb())
     await query.answer()
 
 
@@ -537,7 +537,7 @@ async def cb_top(query: CallbackQuery) -> None:
         top = await db.get_top_users(session, limit=5)
 
     if not top:
-        await _safe_edit(query.message, "Нет данных.", reply_markup=_back_kb())
+        await _safe_edit(get_message(query), "Нет данных.", reply_markup=_back_kb())
         await query.answer()
         return
 
@@ -548,7 +548,7 @@ async def cb_top(query: CallbackQuery) -> None:
             f"{medals[i]} {html.escape(user.name or '—')} | <code>{user.tg_id}</code> | {count} зап."
         )
     await _safe_edit(
-        query.message, "\n".join(lines), parse_mode="HTML", reply_markup=_back_kb()
+        get_message(query), "\n".join(lines), parse_mode="HTML", reply_markup=_back_kb()
     )
     await query.answer()
 
@@ -560,7 +560,7 @@ async def cb_top(query: CallbackQuery) -> None:
 async def cb_search_start(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.search_query)
     await _safe_edit(
-        query.message,
+        get_message(query),
         "🔍 <b>Поиск пользователя</b>\n\nВведи имя или часть имени.\n/cancel — отмена.",
         parse_mode="HTML",
     )
@@ -633,7 +633,7 @@ async def cb_bc_start(query: CallbackQuery) -> None:
         ]
     )
     await _safe_edit(
-        query.message,
+        get_message(query),
         "📢 <b>Рассылка</b>\n\nКому отправить?",
         parse_mode="HTML",
         reply_markup=kb,
@@ -653,7 +653,7 @@ async def cb_bc_target(query: CallbackQuery, state: FSMContext) -> None:
         "power": "с 10+ записями",
     }
     await _safe_edit(
-        query.message,
+        get_message(query),
         f"📢 Рассылка {labels.get(target, '')}.\n\nВведи текст сообщения.\n/cancel — отмена.",
         parse_mode="HTML",
     )
@@ -714,7 +714,7 @@ async def cb_bc_confirm(query: CallbackQuery, state: FSMContext) -> None:
         await query.answer("Данные не найдены.", show_alert=True)
         return
 
-    await _safe_edit(query.message, f"📢 Рассылка запущена... (0/{len(tg_ids)})")
+    await _safe_edit(get_message(query), f"📢 Рассылка запущена... (0/{len(tg_ids)})")
     await query.answer()
 
     sent, blocked, failed = 0, 0, 0
@@ -745,4 +745,4 @@ async def cb_bc_confirm(query: CallbackQuery, state: FSMContext) -> None:
     if failed:
         result += f"\nНе доставлено: {failed}"
     await state.update_data(broadcast_text=None, broadcast_tg_ids=None)
-    await query.message.answer(result, reply_markup=_back_kb())
+    await get_message(query).answer(result, reply_markup=_back_kb())

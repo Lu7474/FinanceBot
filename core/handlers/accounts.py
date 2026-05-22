@@ -38,6 +38,7 @@ from core.utils import clean_text, log_exceptions
 
 from .common import (
     AccountStates,
+    get_message,
     get_user_id_from_event,
     is_accounts,
     is_main_menu_button,
@@ -111,7 +112,7 @@ async def handle_acc_create(
         return
 
     await state.update_data(acc_user_id=user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Введите название нового счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):",
         reply_markup=acc_back_keyboard(),
     )
@@ -187,7 +188,7 @@ async def handle_acc_rename(
         await callback.answer("Нет счетов для переименования.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите счёт для переименования:",
         reply_markup=account_manage_keyboard(accounts, "rename_select"),
     )
@@ -219,7 +220,7 @@ async def handle_acc_rename_select(
         current_name = acc.name
 
     await state.update_data(rename_account_id=account_id, acc_user_id=user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Текущее название: <code>{html.escape(current_name)}</code>\n\n"
         f"Введите новое название счёта (до {MAX_ACCOUNT_NAME_LENGTH} символов):",
         parse_mode="HTML",
@@ -293,7 +294,7 @@ async def handle_acc_delete(
         await callback.answer("Нельзя удалить последний счёт.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите счёт для удаления:",
         reply_markup=account_manage_keyboard(accounts, "delete_select"),
     )
@@ -327,14 +328,14 @@ async def handle_acc_delete_select(
     targets = [a for a in accounts if a.id != account_id]
 
     if record_count > 0:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"⚠️ Счёт <b>«{html.escape(account.name)}»</b> содержит {record_count} записей.\n"
             f"Куда перенести записи?",
             reply_markup=account_delete_move_keyboard(account_id, targets),
             parse_mode="HTML",
         )
     else:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"Удалить счёт <b>«{html.escape(account.name)}»</b>?",
             reply_markup=confirm_account_delete_keyboard(account_id),
             parse_mode="HTML",
@@ -368,7 +369,7 @@ async def handle_acc_delete_move(
         balances = await get_account_balances(session, user_id)
         await session.commit()
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✅ Записи перенесены, счёт удалён.\n\n" + _build_accounts_text(balances),
         reply_markup=accounts_menu_keyboard(),
         parse_mode="HTML",
@@ -401,7 +402,7 @@ async def handle_acc_delete_confirm(
         balances = await get_account_balances(session, user_id)
         await session.commit()
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "✅ Счёт удалён.\n\n" + _build_accounts_text(balances),
         reply_markup=accounts_menu_keyboard(),
         parse_mode="HTML",
@@ -433,7 +434,7 @@ async def _back_to_accounts(
     if user_id:
         async with async_session() as session:
             balances = await get_account_balances(session, user_id)
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             _build_accounts_text(balances),
             reply_markup=accounts_menu_keyboard(),
             parse_mode="HTML",
@@ -464,7 +465,7 @@ async def handle_acc_transfer(
         await callback.answer("Нужно минимум 2 счёта для перевода.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "↔️ <b>Перевод</b>\n\nВыберите счёт-источник:",
         reply_markup=account_manage_keyboard(accounts, "transfer_from"),
         parse_mode="HTML",
@@ -498,7 +499,7 @@ async def handle_acc_transfer_from(
 
     destinations = [a for a in accounts if a.id != from_id]
     await state.update_data(transfer_from_id=from_id, acc_user_id=user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"↔️ <b>Перевод с «{html.escape(from_acc.name)}»</b>\n\nВыберите счёт-назначение:",
         reply_markup=account_manage_keyboard(destinations, f"transfer_to:{from_id}"),
         parse_mode="HTML",
@@ -535,7 +536,7 @@ async def handle_acc_transfer_to(
     await state.update_data(
         transfer_from_id=from_id, transfer_to_id=to_id, acc_user_id=user_id
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"↔️ <b>{html.escape(from_acc.name)} → {html.escape(to_acc.name)}</b>\n\nВведите сумму перевода:",
         parse_mode="HTML",
         reply_markup=acc_back_keyboard(),
@@ -614,7 +615,7 @@ async def handle_acc_history(
         return
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "📋 <b>История по счёту</b>\n\nВыберите счёт:",
         reply_markup=account_manage_keyboard(accounts, "history_select"),
         parse_mode="HTML",
@@ -652,7 +653,7 @@ async def handle_acc_history_select(
         acc_hist_balance=balance_str,
         acc_user_id=user_id,
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"📋 <b>{html.escape(acc.name)}</b> — {balance_str}\n\nЗа какой период показать историю?",
         reply_markup=history_period_keyboard(),
         parse_mode="HTML",
@@ -691,7 +692,7 @@ async def handle_acc_hist_period(
         )
 
     if total_count == 0:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"📋 <b>{acc_name}</b>\nЗаписей за указанный период нет.",
             parse_mode="HTML",
         )
@@ -721,12 +722,12 @@ async def handle_acc_hist_period(
         header=header,
     )
     if total_pages > 1:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             text, reply_markup=kb.as_markup(), parse_mode="HTML"
         )
         await state.set_state(AccountStates.waiting_for_acc_hist_page)
     else:
-        await callback.message.edit_text(text, parse_mode="HTML")
+        await get_message(callback).edit_text(text, parse_mode="HTML")
         await state.clear()
     await callback.answer()
 
@@ -787,7 +788,7 @@ async def handle_acc_hist_page(
         total_count=total_count,
         header=header,
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
@@ -808,7 +809,7 @@ async def handle_acc_set_balance(
         return
     async with async_session() as session:
         accounts = await get_accounts(session, user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "💰 <b>Установить баланс</b>\n\nВыберите счёт:",
         reply_markup=account_manage_keyboard(accounts, "set_balance_select"),
         parse_mode="HTML",
@@ -841,7 +842,7 @@ async def handle_acc_set_balance_select(
 
     cur_str = f"{current:,.0f}".replace(",", " ")
     await state.update_data(set_balance_account_id=account_id, acc_user_id=user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"💰 <b>{html.escape(acc.name)}</b>\n"
         f"Текущий баланс: <code>{cur_str}</code>\n\n"
         "Введите новый баланс:",

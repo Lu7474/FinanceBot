@@ -35,6 +35,7 @@ from core.utils import clean_text, log_exceptions
 from .common import (
     AddRecord,
     CategoryStates,
+    get_message,
     get_user_id_from_event,
     is_categories,
     save_parsed_records,
@@ -74,7 +75,7 @@ async def _show_categories_menu(target, user_id: int, state: FSMContext) -> None
     if isinstance(target, Message):
         await target.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
-        await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await get_message(target).edit_text(text, reply_markup=kb, parse_mode="HTML")
 
     await state.set_state(CategoryStates.choosing_action)
 
@@ -100,11 +101,11 @@ async def _continue_to_account_or_save(
             )
             await _send_budget_alerts(target, user_id, added)
         else:
-            await target.message.edit_text(response, parse_mode="HTML")
-            await target.message.answer(
+            await get_message(target).edit_text(response, parse_mode="HTML")
+            await get_message(target).answer(
                 "Выберите действие:", reply_markup=main_menu_keyboard()
             )
-            await _send_budget_alerts(target.message, user_id, added)
+            await _send_budget_alerts(get_message(target), user_id, added)
         await state.clear()
     else:
         from core.keyboards import account_select_keyboard
@@ -115,7 +116,7 @@ async def _continue_to_account_or_save(
                 "💳 <b>Выберите счёт:</b>", reply_markup=kb, parse_mode="HTML"
             )
         else:
-            await target.message.edit_text(
+            await get_message(target).edit_text(
                 "💳 <b>Выберите счёт:</b>", reply_markup=kb, parse_mode="HTML"
             )
         await state.update_data(
@@ -159,7 +160,7 @@ async def handle_cat_add_start(
             [InlineKeyboardButton(text="← Назад", callback_data="cat_type_back")],
         ]
     )
-    await callback.message.edit_text("Выберите тип новой категории:", reply_markup=kb)
+    await get_message(callback).edit_text("Выберите тип новой категории:", reply_markup=kb)
     await state.set_state(CategoryStates.choosing_type_for_add)
     await callback.answer()
 
@@ -172,8 +173,8 @@ async def handle_cat_type_back(
     if user_id:
         await _show_categories_menu(callback, user_id, state)
     else:
-        await callback.message.edit_text("Выберите действие:")
-        await callback.message.answer(
+        await get_message(callback).edit_text("Выберите действие:")
+        await get_message(callback).answer(
             "Выберите действие:", reply_markup=main_menu_keyboard()
         )
         await state.clear()
@@ -190,7 +191,7 @@ async def handle_cat_type_selected(
     cat_type = callback.data.split(":")[1]
     await state.update_data(new_cat_type=cat_type)
     type_label = {"+": "дохода", "-": "расхода", "*": "для обоих типов"}[cat_type]
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Введите название новой категории {type_label}\n"
         f"<i>(макс. {MAX_CATEGORY_LENGTH} символов)</i>",
         parse_mode="HTML",
@@ -252,7 +253,7 @@ async def handle_cat_rename_start(
         return
 
     await state.update_data(user_id=user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите категорию для переименования:",
         reply_markup=category_manage_keyboard(cats, "rename"),
     )
@@ -295,7 +296,7 @@ async def handle_cat_rename_select(
         return
 
     await state.update_data(rename_cat_id=cat_id, rename_cat_old=cat.name)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Текущее название: <code>{html.escape(cat.name)}</code>\n\n"
         f"Введите новое название (макс. {MAX_CATEGORY_LENGTH} символов):",
         parse_mode="HTML",
@@ -362,7 +363,7 @@ async def handle_cat_delete_start(
         return
 
     await state.update_data(user_id=user_id)
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "Выберите категорию для удаления:",
         reply_markup=category_manage_keyboard(cats, "delete"),
     )
@@ -425,7 +426,7 @@ async def handle_cat_delete_select(
             ]
         ]
     )
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         f"Удалить категорию <b>{html.escape(cat.name)}</b>?{records_warning}",
         reply_markup=kb,
         parse_mode="HTML",
@@ -463,11 +464,11 @@ async def handle_cat_delete_confirm(
             await session.commit()
 
     if ok:
-        await callback.message.edit_text(
+        await get_message(callback).edit_text(
             f"🗑 Категория <b>{html.escape(cat_name)}</b> удалена.", parse_mode="HTML"
         )
     else:
-        await callback.message.edit_text("Не удалось удалить категорию.")
+        await get_message(callback).edit_text("Не удалось удалить категорию.")
 
     await _show_categories_menu(callback, user_id, state)
     await callback.answer()
@@ -514,7 +515,7 @@ async def handle_cat_select_for_record(
 async def handle_cat_select_other(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    await callback.message.edit_text("✏️ Введите название категории:")
+    await get_message(callback).edit_text("✏️ Введите название категории:")
     await state.set_state(CategoryStates.entering_category_for_record)
     await callback.answer()
 
@@ -594,7 +595,7 @@ async def handle_suggest_other(
     async with async_session() as session:
         cats = await get_user_categories(session, user_id, pending_op or None)
 
-    await callback.message.edit_text(
+    await get_message(callback).edit_text(
         "📁 Выберите категорию:",
         reply_markup=category_select_keyboard(cats),
     )
@@ -608,6 +609,6 @@ async def handle_suggest_other(
 async def handle_suggest_manual(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    await callback.message.edit_text("✏️ Введите название категории:")
+    await get_message(callback).edit_text("✏️ Введите название категории:")
     await state.set_state(CategoryStates.entering_category_for_record)
     await callback.answer()
