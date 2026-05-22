@@ -22,7 +22,7 @@ from aiogram.types import (
 from config import ADMIN_ID
 from core.database import requests as db
 from core.database.models import async_session
-from core.handlers.common import AdminStates, get_message
+from core.handlers.common import AdminStates, get_message, is_main_menu_button
 from core.utils import format_money
 
 USERS_PER_PAGE = 8
@@ -524,7 +524,9 @@ async def cb_deldo(query: CallbackQuery) -> None:
     text = (
         f"🗑️ Пользователь <code>{tg_id}</code> удалён." if ok else "Ошибка при удалении."
     )
-    await _safe_edit(get_message(query), text, parse_mode="HTML", reply_markup=_back_kb())
+    await _safe_edit(
+        get_message(query), text, parse_mode="HTML", reply_markup=_back_kb()
+    )
     await query.answer()
 
 
@@ -672,6 +674,11 @@ async def bc_cancel(message: Message, state: FSMContext) -> None:
 
 @router.message(AdminStates.broadcast_text, F.text)
 async def bc_text_received(message: Message, state: FSMContext) -> None:
+    if is_main_menu_button(message):
+        await message.answer(
+            "⚠️ Вы в режиме ввода текста рассылки. Отправьте текст сообщения или /cancel для отмены."
+        )
+        return
     text = message.text
     fsm = await state.get_data()
     target = fsm.get("broadcast_target", "all")
