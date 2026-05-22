@@ -9,10 +9,10 @@ from .categories import router as categories_router
 from .delete import router as delete_router
 from .export_import import router as export_import_router
 from .fallback import router as fallback_router
-from .notifications import router as notifications_router
 from .goals import router as goals_router
 from .history import router as history_router
 from .menu import router as menu_router
+from .notifications import router as notifications_router
 from .records import parse_record_line as parse_record_line
 from .records import router as records_router
 from .records_edit import router as records_edit_router

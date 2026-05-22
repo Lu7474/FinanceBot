@@ -17,15 +17,14 @@ from core.database.requests.notifications import (
 from core.database.requests.users import (
     get_last_record_date,
     get_notifiable_users,
-    update_last_reminded,
     set_user,
+    update_last_reminded,
 )
 from core.scheduler import (
     format_daily_summary,
     format_monthly_summary,
     format_weekly_summary,
 )
-
 
 # ==================== Helpers ====================
 
