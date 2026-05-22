@@ -102,6 +102,7 @@ async def handle_help(message: Message, state: FSMContext, **kwargs) -> None:
 /help — показать эту справку
 /cancel — отменить текущую операцию
 /backup — скачать резервную копию данных
+/notifications — настройка уведомлений
 
 <b>Основные функции:</b>
 <b>Доход / Расход</b> — добавить запись

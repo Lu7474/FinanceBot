@@ -16,6 +16,7 @@ FinanceBot/
 │   ├── keyboards.py            # ReplyKeyboard и InlineKeyboard
 │   ├── export.py               # Excel export/import/backup: build и validate функции
 │   ├── exceptions.py           # Доменные исключения (GoalError и наследники)
+│   ├── scheduler.py            # APScheduler: рассылки сводок и напоминаний + форматтеры
 │   ├── handlers/
 │   │   ├── __init__.py         # Сборка всех роутеров в один Router
 │   │   ├── common.py           # FSM states, фильтры кнопок, get_user_id_from_event
@@ -31,13 +32,14 @@ FinanceBot/
 │   │   ├── budgets.py          # Месячные бюджеты по категориям
 │   │   ├── export_import.py    # Экспорт/импорт/бэкап в Excel
 │   │   ├── goals.py            # Финансовые цели: CRUD, пополнение, снятие
+│   │   ├── notifications.py    # /notifications, тоггл флагов, онбординг
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
 │   └── database/
 │       ├── models.py           # SQLAlchemy модели + миграции (_migrate)
 │       └── requests/           # CRUD по доменам (re-export через __init__.py)
 │           ├── _common.py      # apply_period_filter, SYSTEM_CATEGORIES, лимиты
-│           ├── users.py        # get_user_by_tg_id, set_user
+│           ├── users.py        # get_user_by_tg_id, set_user, notifiable-users, last-reminded
 │           ├── records.py      # add/get/update/delete_record, totals, duplicate-check
 │           ├── reports.py      # categories_summary, history_data, monthly/weekday/search
 │           ├── accounts.py     # CRUD счетов, балансы, переводы
@@ -45,9 +47,10 @@ FinanceBot/
 │           ├── savings.py      # snapshots, items, wealth-items
 │           ├── budgets.py      # CRUD бюджетов, alert-логика, сброс флагов
 │           ├── goals.py        # CRUD целей, deposit/withdraw, complete
+│           ├── notifications.py # weekly/monthly/daily summary-выборки
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 454 pytest-теста
+├── tests/                      # 485 pytest-тестов
 └── requirements.txt
 ```
 
@@ -56,8 +59,9 @@ FinanceBot/
 | Компонент | Технология |
 |---|---|
 | Фреймворк бота | aiogram 3 |
-| База данных | SQLite + SQLAlchemy 2.0 (async) |
+| База данных | SQLite + SQLAlchemy 2.0 (async); опц. PostgreSQL через asyncpg (`DATABASE_URL`) |
 | Графики | matplotlib |
+| Планировщик | APScheduler (AsyncIOScheduler) |
 | Тесты | pytest + pytest-asyncio |
 
 ## Модели данных
@@ -70,6 +74,11 @@ name: str
 phone: str (nullable)
 is_banned: bool (default False)
 created_at: datetime (Moscow TZ)
+last_reminded_at: datetime (nullable)  — когда отправлено последнее напоминание
+notify_weekly: bool (default False)   — еженедельная сводка
+notify_monthly: bool (default False)  — ежемесячная сводка
+notify_daily: bool (default False)    — ежедневные итоги
+notify_reminder: bool (default False) — напоминание при простое
 ```
 
 ### Account
@@ -468,6 +477,23 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
     → отправка файла
 ```
 
+### Уведомления (`core/scheduler.py`)
+```
+APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.py → setup_scheduler()
+    ├─ weekly_report   — вс 20:00  → send_weekly_report   → format_weekly_summary
+    ├─ monthly_report  — last 20:00 → send_monthly_report → format_monthly_summary (сравнение с пред. месяцем)
+    ├─ daily_summary   — ежедн. 21:00 → send_daily_summary → format_daily_summary
+    └─ reminders       — ежедн. 20:00 → send_reminders (простой 2+ дня, антиспам через last_reminded_at)
+
+Аудитория: get_notifiable_users() — не забаненные, с ≥1 записью; каждый тип фильтруется флагом notify_*.
+Выборки сумм/топ-категорий — core/database/requests/notifications.py (исключает SYSTEM_CATEGORIES).
+
+Настройки (core/handlers/notifications.py)
+    /notifications → notification_settings_keyboard(user): тоггл каждого флага (notify_toggle:<key>)
+    Онбординг: после первой записи (_maybe_send_onboarding) → [Включить всё] / [Пропустить]
+        notify_enable_all — включает все 4 флага; notify_skip — закрывает без изменений
+```
+
 ## Оптимизации
 
 - **CASE WHEN** — доходы и расходы считаются одним запросом
@@ -494,7 +520,7 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (454)
+## Тесты (485)
 
 ```bash
 pytest tests/ -v
@@ -521,6 +547,7 @@ pytest tests/ -v
 | test_export_import_tz.py | Экспорт/импорт: корректность временной зоны |
 | test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
 | test_goals_errors.py | Цели: обработка ошибок и граничные случаи |
+| test_notifications.py | Уведомления: форматтеры сводок (weekly/monthly/daily), DB-выборки |
 | test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка |
 | test_charts.py | Генерация графиков (matplotlib) |
 | test_middleware.py | RateLimitMiddleware и UserMiddleware |
