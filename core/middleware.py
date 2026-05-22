@@ -70,8 +70,6 @@ class RateLimiter:
 
 rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
 
-# tg_id -> (internal_user_id, is_banned, expires_at)
-_USER_CACHE: Dict[int, tuple[int, bool, float]] = {}
 _USER_CACHE_TTL = 300  # 5 минут; бан вступает в силу не позднее чем через TTL
 
 
@@ -112,6 +110,11 @@ class RateLimitMiddleware(BaseMiddleware):
 class UserMiddleware(BaseMiddleware):
     """Получает внутренний user_id из БД один раз и передаёт в хендлеры."""
 
+    def __init__(self) -> None:
+        super().__init__()
+        # tg_id -> (internal_user_id, is_banned, expires_at)
+        self._cache: Dict[int, tuple[int, bool, float]] = {}
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
@@ -131,7 +134,7 @@ class UserMiddleware(BaseMiddleware):
             from config import ADMIN_ID
 
             now = time.time()
-            cached = _USER_CACHE.get(tg_id)
+            cached = self._cache.get(tg_id)
 
             if cached and now < cached[2]:
                 user_id, is_banned = cached[0], cached[1]
@@ -149,7 +152,7 @@ class UserMiddleware(BaseMiddleware):
                 async with async_session() as session:
                     user = await get_user_by_tg_id(session, tg_id)
                     if user:
-                        _USER_CACHE[tg_id] = (
+                        self._cache[tg_id] = (
                             user.id,
                             user.is_banned,
                             now + _USER_CACHE_TTL,
