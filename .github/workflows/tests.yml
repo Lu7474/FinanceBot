@@ -52,17 +52,16 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ADMIN_ID: ${{ secrets.ADMIN_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          BOT_API_BASE_URL: ${{ secrets.BOT_API_BASE_URL }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
-          envs: BOT_TOKEN,ADMIN_ID,DATABASE_URL,BOT_API_BASE_URL
+          envs: BOT_TOKEN,ADMIN_ID,DATABASE_URL
           script: |
             cd /var/www/financebot
             git pull origin main
-            printf "BOT_TOKEN=%s\nADMIN_ID=%s\nDATABASE_URL=%s\nBOT_API_BASE_URL=%s\n" \
-              "$BOT_TOKEN" "$ADMIN_ID" "$DATABASE_URL" "$BOT_API_BASE_URL" > .env
+            printf "BOT_TOKEN=%s\nADMIN_ID=%s\nDATABASE_URL=%s\n" \
+              "$BOT_TOKEN" "$ADMIN_ID" "$DATABASE_URL" > .env
             venv/bin/pip install -r requirements.txt -q
             systemctl restart financebot
             systemctl is-active financebot
