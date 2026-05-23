@@ -26,34 +26,34 @@ async def get_categories_summary(
     date_to: Optional[datetime] = None,
 ) -> dict[str, Decimal]:
     """Sum-by-category via SQL GROUP BY. Returns {category: total}."""
-    try:
-        query = (
-            select(
-                Record.category,
-                func.sum(Record.amount).label("total"),
-            )
-            .where(
-                Record.user_id == user_id,
-                Record.operation == operation,
-                Record.category.not_in(SYSTEM_CATEGORIES),
-            )
-            .group_by(Record.category)
+    query = (
+        select(
+            Record.category,
+            func.sum(Record.amount).label("total"),
         )
-
-        if date_from and date_to:
-            query = query.where(Record.created_at.between(date_from, date_to))
-
-        result = await session.execute(query)
-        rows = result.fetchall()
-
-        return {
-            (row.category or "Без категории"): Decimal(str(row.total)) for row in rows
-        }
-    except Exception as e:
-        logging.exception(
-            f"Ошибка при получении сумм по категориям для user_id {user_id}: {e}"
+        .where(
+            Record.user_id == user_id,
+            Record.operation == operation,
+            Record.category.not_in(SYSTEM_CATEGORIES),
         )
-        return {}
+        .group_by(Record.category)
+    )
+
+    if date_from and date_to:
+        # Record.created_at is TIMESTAMP WITHOUT TIME ZONE — asyncpg rejects
+        # tz-aware datetimes here. Strip tzinfo (callers pass Moscow wall-clock).
+        if date_from.tzinfo is not None:
+            date_from = date_from.replace(tzinfo=None)
+        if date_to.tzinfo is not None:
+            date_to = date_to.replace(tzinfo=None)
+        query = query.where(Record.created_at.between(date_from, date_to))
+
+    result = await session.execute(query)
+    rows = result.fetchall()
+
+    return {
+        (row.category or "Без категории"): Decimal(str(row.total)) for row in rows
+    }
 
 
 async def get_history_data(
