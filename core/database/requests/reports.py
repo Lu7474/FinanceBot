@@ -1,6 +1,5 @@
 """Aggregated read queries used by reports & history views."""
 
-import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
@@ -70,56 +69,50 @@ async def get_history_data(
     category_filter: Optional[str] = None,
 ) -> tuple[int, Decimal, Decimal, List[Record]]:
     """Single call returning (total_count, income_sum, expense_sum, records)."""
-    try:
-        now = datetime.now(ZoneInfo(TIMEZONE))
+    now = datetime.now(ZoneInfo(TIMEZONE))
 
-        base_conditions = [Record.user_id == user_id]
-        if not include_transfers:
-            base_conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
-        if account_id is not None:
-            base_conditions.append(Record.account_id == account_id)
-        if operation_filter is not None:
-            base_conditions.append(Record.operation == operation_filter)
-        if category_filter is not None:
-            base_conditions.append(Record.category == category_filter)
+    base_conditions = [Record.user_id == user_id]
+    if not include_transfers:
+        base_conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
+    if account_id is not None:
+        base_conditions.append(Record.account_id == account_id)
+    if operation_filter is not None:
+        base_conditions.append(Record.operation == operation_filter)
+    if category_filter is not None:
+        base_conditions.append(Record.category == category_filter)
 
-        count_totals_query = select(
-            func.count(Record.id).label("cnt"),
-            func.coalesce(
-                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
-            ).label("income"),
-            func.coalesce(
-                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
-            ).label("expense"),
-        ).where(*base_conditions)
-        count_totals_query = apply_period_filter(
-            count_totals_query, within, date_from, date_to, now=now
-        )
+    count_totals_query = select(
+        func.count(Record.id).label("cnt"),
+        func.coalesce(
+            func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+        ).label("income"),
+        func.coalesce(
+            func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+        ).label("expense"),
+    ).where(*base_conditions)
+    count_totals_query = apply_period_filter(
+        count_totals_query, within, date_from, date_to, now=now
+    )
 
-        result = await session.execute(count_totals_query)
-        row = result.one()
-        total_count = row.cnt
-        income_sum = Decimal(str(row.income))
-        expense_sum = Decimal(str(row.expense))
+    result = await session.execute(count_totals_query)
+    row = result.one()
+    total_count = row.cnt
+    income_sum = Decimal(str(row.income))
+    expense_sum = Decimal(str(row.expense))
 
-        records_query = select(Record).where(*base_conditions)
-        records_query = apply_period_filter(
-            records_query, within, date_from, date_to, now=now
-        )
-        records_query = records_query.order_by(Record.created_at.asc())
+    records_query = select(Record).where(*base_conditions)
+    records_query = apply_period_filter(
+        records_query, within, date_from, date_to, now=now
+    )
+    records_query = records_query.order_by(Record.created_at.asc())
 
-        if limit is not None:
-            records_query = records_query.limit(limit).offset(offset)
+    if limit is not None:
+        records_query = records_query.limit(limit).offset(offset)
 
-        records_result = await session.execute(records_query)
-        records = records_result.scalars().all()
+    records_result = await session.execute(records_query)
+    records = records_result.scalars().all()
 
-        return total_count, income_sum, expense_sum, records
-    except Exception as e:
-        logging.exception(
-            f"Ошибка при получении данных истории для user_id {user_id}: {e}"
-        )
-        return 0, Decimal("0"), Decimal("0"), []
+    return total_count, income_sum, expense_sum, records
 
 
 async def search_records(
