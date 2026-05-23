@@ -41,16 +41,12 @@ async def create_account(
 
 async def get_accounts(session: AsyncSession, user_id: int) -> List[Account]:
     """Returns all accounts for the user ordered by creation date."""
-    try:
-        result = await session.execute(
-            select(Account)
-            .where(Account.user_id == user_id)
-            .order_by(Account.created_at)
-        )
-        return list(result.scalars().all())
-    except Exception as e:
-        logging.exception(f"Ошибка при получении счетов для user_id {user_id}: {e}")
-        return []
+    result = await session.execute(
+        select(Account)
+        .where(Account.user_id == user_id)
+        .order_by(Account.created_at)
+    )
+    return list(result.scalars().all())
 
 
 async def rename_account(
@@ -132,43 +128,39 @@ async def move_and_delete_account(
 
 async def get_account_balances(session: AsyncSession, user_id: int) -> List[tuple]:
     """Returns [(Account, balance), ...] with a single aggregation query."""
-    try:
-        accounts = await get_accounts(session, user_id)
-        if not accounts:
-            return []
-
-        account_ids = [a.id for a in accounts]
-        result = await session.execute(
-            select(
-                Record.account_id,
-                func.coalesce(
-                    func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
-                ).label("income"),
-                func.coalesce(
-                    func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
-                ).label("expense"),
-            )
-            .where(
-                Record.account_id.in_(account_ids),
-                Record.category != BALANCE_SET_CATEGORY,
-            )
-            .group_by(Record.account_id)
-        )
-        balance_map: dict[int, Decimal] = {
-            row.account_id: Decimal(str(row.income)) - Decimal(str(row.expense))
-            for row in result.fetchall()
-        }
-        return [
-            (
-                acc,
-                balance_map.get(acc.id, Decimal("0"))
-                + Decimal(str(acc.balance_offset)),
-            )
-            for acc in accounts
-        ]
-    except Exception as e:
-        logging.exception(f"Ошибка при получении балансов для user_id {user_id}: {e}")
+    accounts = await get_accounts(session, user_id)
+    if not accounts:
         return []
+
+    account_ids = [a.id for a in accounts]
+    result = await session.execute(
+        select(
+            Record.account_id,
+            func.coalesce(
+                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+            ).label("income"),
+            func.coalesce(
+                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+            ).label("expense"),
+        )
+        .where(
+            Record.account_id.in_(account_ids),
+            Record.category != BALANCE_SET_CATEGORY,
+        )
+        .group_by(Record.account_id)
+    )
+    balance_map: dict[int, Decimal] = {
+        row.account_id: Decimal(str(row.income)) - Decimal(str(row.expense))
+        for row in result.fetchall()
+    }
+    return [
+        (
+            acc,
+            balance_map.get(acc.id, Decimal("0"))
+            + Decimal(str(acc.balance_offset)),
+        )
+        for acc in accounts
+    ]
 
 
 async def get_account_balance(
@@ -255,16 +247,12 @@ async def set_account_balance(
 
 async def get_account_record_count(session: AsyncSession, account_id: int) -> int:
     """Returns the number of records linked to the given account."""
-    try:
-        return (
-            await session.scalar(
-                select(func.count(Record.id)).where(Record.account_id == account_id)
-            )
-            or 0
+    return (
+        await session.scalar(
+            select(func.count(Record.id)).where(Record.account_id == account_id)
         )
-    except Exception as e:
-        logging.exception(f"Ошибка при подсчёте записей счёта {account_id}: {e}")
-        return 0
+        or 0
+    )
 
 
 async def get_or_create_account(

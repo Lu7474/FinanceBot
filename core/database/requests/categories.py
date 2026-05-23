@@ -184,20 +184,14 @@ async def count_records_with_category(
     category_name: str,
 ) -> int:
     """Returns count of records using this category name."""
-    try:
-        return (
-            await session.scalar(
-                select(func.count(Record.id)).where(
-                    Record.user_id == user_id, Record.category == category_name
-                )
+    return (
+        await session.scalar(
+            select(func.count(Record.id)).where(
+                Record.user_id == user_id, Record.category == category_name
             )
-            or 0
         )
-    except Exception as e:
-        logging.exception(
-            f"Ошибка при подсчёте записей категории '{category_name}': {e}"
-        )
-        return 0
+        or 0
+    )
 
 
 async def seed_default_categories(

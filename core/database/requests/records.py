@@ -27,18 +27,14 @@ async def count_records(
     date_to: Optional[datetime] = None,
 ) -> int:
     """Count user's records filtered by period (paging)."""
-    try:
-        now = datetime.now(ZoneInfo(TIMEZONE))
-        query = select(func.count(Record.id)).where(
-            Record.user_id == user_id,
-            Record.category.not_in(SYSTEM_CATEGORIES),
-        )
-        query = apply_period_filter(query, within, date_from, date_to, now=now)
-        result = await session.execute(query)
-        return result.scalar() or 0
-    except Exception as e:
-        logging.exception(f"Ошибка при подсчёте записей пользователя {user_id}: {e}")
-        return 0
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    query = select(func.count(Record.id)).where(
+        Record.user_id == user_id,
+        Record.category.not_in(SYSTEM_CATEGORIES),
+    )
+    query = apply_period_filter(query, within, date_from, date_to, now=now)
+    result = await session.execute(query)
+    return result.scalar() or 0
 
 
 async def get_records(
@@ -55,29 +51,25 @@ async def get_records(
     category_filter: Optional[str] = None,
 ) -> List[Record]:
     """Fetch user records filtered by period with optional pagination/filters."""
-    try:
-        now = datetime.now(ZoneInfo(TIMEZONE))
-        conditions = [Record.user_id == user_id]
-        if not include_transfers:
-            conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
-        if account_id is not None:
-            conditions.append(Record.account_id == account_id)
-        if operation_filter is not None:
-            conditions.append(Record.operation == operation_filter)
-        if category_filter is not None:
-            conditions.append(Record.category == category_filter)
-        query = select(Record).where(*conditions)
-        query = apply_period_filter(query, within, date_from, date_to, now=now)
-        query = query.order_by(Record.created_at.asc())
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    conditions = [Record.user_id == user_id]
+    if not include_transfers:
+        conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
+    if account_id is not None:
+        conditions.append(Record.account_id == account_id)
+    if operation_filter is not None:
+        conditions.append(Record.operation == operation_filter)
+    if category_filter is not None:
+        conditions.append(Record.category == category_filter)
+    query = select(Record).where(*conditions)
+    query = apply_period_filter(query, within, date_from, date_to, now=now)
+    query = query.order_by(Record.created_at.asc())
 
-        if limit is not None:
-            query = query.limit(limit).offset(offset)
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
 
-        result = await session.execute(query)
-        return result.scalars().all()
-    except Exception as e:
-        logging.exception(f"Ошибка при получении записей пользователя {user_id}: {e}")
-        return []
+    result = await session.execute(query)
+    return result.scalars().all()
 
 
 async def get_totals(
@@ -88,25 +80,21 @@ async def get_totals(
     date_to: Optional[datetime] = None,
 ) -> tuple[Decimal, Decimal]:
     """Return (income_sum, expense_sum) for the period as a single query."""
-    try:
-        now = datetime.now(ZoneInfo(TIMEZONE))
-        query = select(
-            func.coalesce(
-                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
-            ).label("income"),
-            func.coalesce(
-                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
-            ).label("expense"),
-        ).where(Record.user_id == user_id, Record.category.not_in(SYSTEM_CATEGORIES))
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    query = select(
+        func.coalesce(
+            func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+        ).label("income"),
+        func.coalesce(
+            func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+        ).label("expense"),
+    ).where(Record.user_id == user_id, Record.category.not_in(SYSTEM_CATEGORIES))
 
-        query = apply_period_filter(query, within, date_from, date_to, now=now)
-        result = await session.execute(query)
-        row = result.one()
+    query = apply_period_filter(query, within, date_from, date_to, now=now)
+    result = await session.execute(query)
+    row = result.one()
 
-        return Decimal(str(row.income)), Decimal(str(row.expense))
-    except Exception as e:
-        logging.exception(f"Ошибка при получении сумм пользователя {user_id}: {e}")
-        return Decimal("0"), Decimal("0")
+    return Decimal(str(row.income)), Decimal(str(row.expense))
 
 
 async def add_record(
