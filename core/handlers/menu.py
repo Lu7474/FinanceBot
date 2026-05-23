@@ -119,8 +119,8 @@ async def handle_help(message: Message, state: FSMContext, **kwargs) -> None:
 
 <b>Поиск в истории:</b>
 <code>кофе</code> — по тексту категории
-<code>>1000</code> — сумма больше 1000
-<code><500</code> — сумма меньше 500
+<code>&gt;1000</code> — сумма больше 1000
+<code>&lt;500</code> — сумма меньше 500
 <code>=350</code> — точная сумма
 
 <b>Формат ввода:</b>
