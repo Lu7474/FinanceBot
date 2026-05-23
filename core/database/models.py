@@ -333,10 +333,40 @@ class GoalDeposit(Base):
 # ==================== Инициализация ====================
 
 
+async def _migrate_postgres(conn) -> None:
+    """Adds missing additive columns on PostgreSQL.
+
+    create_all() never alters existing tables, so every additive column added
+    to a model after first deploy must be listed here. IF NOT EXISTS makes it
+    idempotent (requires PG 9.6+).
+    """
+    stmts = [
+        "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_offset DECIMAL(14,2) NOT NULL DEFAULT 0",
+        "ALTER TABLE records ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_weekly BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_monthly BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_daily BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_reminder BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+    ]
+    for stmt in stmts:
+        await conn.execute(text(stmt))
+
+
 async def _migrate(conn) -> None:
-    """Applies additive schema migrations safe for existing SQLite DBs.
-    Skipped on PostgreSQL — create_all builds schema from scratch there."""
-    if conn.dialect.name != "sqlite":
+    """Applies additive schema migrations for existing DBs (SQLite & PostgreSQL).
+
+    create_all() builds only missing tables — it never adds columns to tables
+    that already exist. Every additive column change has to be handled here for
+    each dialect we deploy to.
+    """
+    dialect = conn.dialect.name
+    if dialect == "postgresql":
+        await _migrate_postgres(conn)
+        return
+    if dialect != "sqlite":
         return
     result = await conn.execute(
         text("SELECT name FROM sqlite_master WHERE type='table' AND name='budgets'")
