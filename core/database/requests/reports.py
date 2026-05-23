@@ -130,47 +130,43 @@ async def search_records(
     offset: int = 0,
 ) -> tuple[int, Decimal, Decimal, List[Record]]:
     """Parses query_str, builds WHERE, returns (total_count, income_sum, expense_sum, records)."""
-    try:
-        parsed = parse_search_query(query_str)
-        conditions = [
-            Record.user_id == user_id,
-            Record.category.not_in(SYSTEM_CATEGORIES),
-        ]
-        if parsed.get("operation") in {"+", "-"}:
-            conditions.append(Record.operation == parsed["operation"])
-        if parsed["type"] == "gt":
-            conditions.append(Record.amount > parsed["value"])
-        elif parsed["type"] == "lt":
-            conditions.append(Record.amount < parsed["value"])
-        elif parsed["type"] == "eq":
-            conditions.append(Record.amount == parsed["value"])
-        elif parsed["type"] == "text" and parsed["value"]:
-            needle = parsed["value"].lower()
-            conditions.append(func.lower(Record.category).contains(needle))
+    parsed = parse_search_query(query_str)
+    conditions = [
+        Record.user_id == user_id,
+        Record.category.not_in(SYSTEM_CATEGORIES),
+    ]
+    if parsed.get("operation") in {"+", "-"}:
+        conditions.append(Record.operation == parsed["operation"])
+    if parsed["type"] == "gt":
+        conditions.append(Record.amount > parsed["value"])
+    elif parsed["type"] == "lt":
+        conditions.append(Record.amount < parsed["value"])
+    elif parsed["type"] == "eq":
+        conditions.append(Record.amount == parsed["value"])
+    elif parsed["type"] == "text" and parsed["value"]:
+        needle = parsed["value"].lower()
+        conditions.append(func.lower(Record.category).contains(needle))
 
-        count_sum_q = select(
-            func.count(Record.id).label("cnt"),
-            func.coalesce(
-                func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
-            ).label("income"),
-            func.coalesce(
-                func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
-            ).label("expense"),
-        ).where(*conditions)
-        row = (await session.execute(count_sum_q)).one()
-        total = row.cnt or 0
-        income_sum = Decimal(str(row.income))
-        expense_sum = Decimal(str(row.expense))
+    count_sum_q = select(
+        func.count(Record.id).label("cnt"),
+        func.coalesce(
+            func.sum(case((Record.operation == "+", Record.amount), else_=0)), 0
+        ).label("income"),
+        func.coalesce(
+            func.sum(case((Record.operation == "-", Record.amount), else_=0)), 0
+        ).label("expense"),
+    ).where(*conditions)
+    row = (await session.execute(count_sum_q)).one()
+    total = row.cnt or 0
+    income_sum = Decimal(str(row.income))
+    expense_sum = Decimal(str(row.expense))
 
-        records_q = select(Record).where(*conditions).order_by(Record.created_at.desc())
-        if limit is not None:
-            records_q = records_q.limit(limit).offset(offset)
+    records_q = select(Record).where(*conditions).order_by(Record.created_at.desc())
+    if limit is not None:
+        records_q = records_q.limit(limit).offset(offset)
 
-        result = await session.execute(records_q)
-        return total, income_sum, expense_sum, list(result.scalars().all())
-    except Exception as e:
-        logging.exception(f"Ошибка при поиске записей для user_id {user_id}: {e}")
-        return 0, Decimal("0"), Decimal("0"), []
+    result = await session.execute(records_q)
+    return total, income_sum, expense_sum, list(result.scalars().all())
 
 
 async def get_top_categories_for_period(
@@ -183,29 +179,23 @@ async def get_top_categories_for_period(
     operation_filter: Optional[str] = None,
 ) -> list[str]:
     """Returns top N categories by frequency for given period."""
-    try:
-        now = datetime.now(ZoneInfo(TIMEZONE))
-        conditions = [
-            Record.user_id == user_id,
-            Record.category.not_in(SYSTEM_CATEGORIES),
-        ]
-        if operation_filter is not None:
-            conditions.append(Record.operation == operation_filter)
-        query = (
-            select(Record.category, func.count(Record.id).label("cnt"))
-            .where(*conditions)
-            .group_by(Record.category)
-            .order_by(func.count(Record.id).desc())
-            .limit(limit)
-        )
-        query = apply_period_filter(query, within, date_from, date_to, now=now)
-        result = await session.execute(query)
-        return [row.category for row in result.fetchall()]
-    except Exception as e:
-        logging.exception(
-            f"Ошибка при получении топ категорий для user_id {user_id}: {e}"
-        )
-        return []
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    conditions = [
+        Record.user_id == user_id,
+        Record.category.not_in(SYSTEM_CATEGORIES),
+    ]
+    if operation_filter is not None:
+        conditions.append(Record.operation == operation_filter)
+    query = (
+        select(Record.category, func.count(Record.id).label("cnt"))
+        .where(*conditions)
+        .group_by(Record.category)
+        .order_by(func.count(Record.id).desc())
+        .limit(limit)
+    )
+    query = apply_period_filter(query, within, date_from, date_to, now=now)
+    result = await session.execute(query)
+    return [row.category for row in result.fetchall()]
 
 
 async def get_monthly_totals(
@@ -215,45 +205,39 @@ async def get_monthly_totals(
     months_back: int = 12,
 ) -> list[tuple[int, int, Decimal]]:
     """Sums grouped by (year, month) for the last N months. For trend charts."""
-    try:
-        now = now_moscow()
-        start_date = (now - relativedelta(months=months_back - 1)).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+    now = now_moscow()
+    start_date = (now - relativedelta(months=months_back - 1)).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
 
-        query = (
-            select(
-                func.extract("year", Record.created_at).label("year"),
-                func.extract("month", Record.created_at).label("month"),
-                func.sum(Record.amount).label("total"),
-            )
-            .where(
-                Record.user_id == user_id,
-                Record.operation == operation,
-                Record.category.not_in(SYSTEM_CATEGORIES),
-                Record.created_at >= start_date,
-            )
-            .group_by(
-                func.extract("year", Record.created_at),
-                func.extract("month", Record.created_at),
-            )
-            .order_by(
-                func.extract("year", Record.created_at),
-                func.extract("month", Record.created_at),
-            )
+    query = (
+        select(
+            func.extract("year", Record.created_at).label("year"),
+            func.extract("month", Record.created_at).label("month"),
+            func.sum(Record.amount).label("total"),
         )
-
-        result = await session.execute(query)
-        rows = result.fetchall()
-
-        return [
-            (int(row.year), int(row.month), Decimal(str(row.total))) for row in rows
-        ]
-    except Exception as e:
-        logging.exception(
-            f"Ошибка при получении месячных сумм для user_id {user_id}: {e}"
+        .where(
+            Record.user_id == user_id,
+            Record.operation == operation,
+            Record.category.not_in(SYSTEM_CATEGORIES),
+            Record.created_at >= start_date,
         )
-        return []
+        .group_by(
+            func.extract("year", Record.created_at),
+            func.extract("month", Record.created_at),
+        )
+        .order_by(
+            func.extract("year", Record.created_at),
+            func.extract("month", Record.created_at),
+        )
+    )
+
+    result = await session.execute(query)
+    rows = result.fetchall()
+
+    return [
+        (int(row.year), int(row.month), Decimal(str(row.total))) for row in rows
+    ]
 
 
 async def get_weekday_report(
