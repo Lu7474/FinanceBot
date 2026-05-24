@@ -1,0 +1,14 @@
+# Нормализуем line endings до LF для всех текстовых файлов.
+# Защита от случайного CRLF при загрузке файлов через SFTP/Windows-тулзы.
+* text=auto eol=lf
+
+# Бинарные файлы явно — git их не трогает.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.sqlite3 binary
+*.db binary
+*.zip binary
