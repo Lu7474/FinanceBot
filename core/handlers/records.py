@@ -33,7 +33,6 @@ from core.utils import clean_text, log_exceptions
 from .common import (
     AddRecord,
     CategoryStates,
-    MenuStates,
     get_message,
     get_user_id_from_event,
     is_expense,
