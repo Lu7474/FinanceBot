@@ -16,6 +16,7 @@ from core.database.models import async_session
 from core.database.requests import (
     count_records,
     delete_record,
+    delete_records_bulk,
     get_records,
 )
 from core.keyboards import (
@@ -36,9 +37,18 @@ def build_delete_keyboard(
     page_records: list[dict[str, Any]],
     page: int,
     total_pages: int,
+    total_count: int = 0,
 ) -> InlineKeyboardBuilder:
     """Формирует клавиатуру со списком записей для удаления."""
     kb = InlineKeyboardBuilder()
+    total_buttons = 0
+
+    if total_count > 1:
+        kb.button(
+            text=f"🗑 Удалить все {total_count} записей",
+            callback_data="del_all:confirm",
+        )
+        total_buttons += 1
 
     for r in page_records:
         icon = "🛒" if r["operation"] == "-" else "💵"
@@ -46,10 +56,10 @@ def build_delete_keyboard(
         cat = r["category"][:12] + "…" if len(r["category"]) > 12 else r["category"]
         text = f"{icon} {r['amount']:.0f}₽ {cat} {short_date}"
         kb.button(text=text, callback_data=f"del_record:{r['id']}")
+        total_buttons += 1
 
-    num_records = len(page_records)
-    if num_records > 0:
-        kb.adjust(*([1] * num_records))
+    if total_buttons > 0:
+        kb.adjust(*([1] * total_buttons))
 
     if total_pages > 1:
         nav_kb = InlineKeyboardBuilder()
@@ -185,7 +195,7 @@ async def handle_del_month(
         delete_selected_month=month,
     )
     kb = build_delete_keyboard(
-        [r.to_dict(include_id=True) for r in records], 0, total_pages
+        [r.to_dict(include_id=True) for r in records], 0, total_pages, total_count
     )
     await get_message(callback).edit_text(
         f"Записи за {RU_MONTHS[month]} {year} (всего: {total_count}):",
@@ -263,7 +273,7 @@ async def handle_del_period(
         delete_total_pages=total_pages,
     )
     kb = build_delete_keyboard(
-        [r.to_dict(include_id=True) for r in records], 0, total_pages
+        [r.to_dict(include_id=True) for r in records], 0, total_pages, total_count
     )
     await get_message(callback).edit_text(
         f"Выберите запись для удаления (всего: {total_count}):",
@@ -273,7 +283,10 @@ async def handle_del_period(
     await callback.answer()
 
 
-@router.callback_query(MenuStates.waiting_for_delete_record)
+@router.callback_query(
+    MenuStates.waiting_for_delete_record,
+    F.data.startswith("del_page:") | F.data.startswith("del_record:"),
+)
 @log_exceptions("Ошибка при удалении записи")
 async def menu_delete_record(
     callback: CallbackQuery, state: FSMContext, **kwargs
@@ -323,7 +336,7 @@ async def menu_delete_record(
         records_data = [r.to_dict(include_id=True) for r in records]
 
         await state.update_data(delete_page=new_page)
-        kb = build_delete_keyboard(records_data, new_page, total_pages)
+        kb = build_delete_keyboard(records_data, new_page, total_pages, total_count)
         await get_message(callback).edit_text(
             f"Выберите запись для удаления (всего: {total_count}):",
             reply_markup=kb.as_markup(),
@@ -393,7 +406,7 @@ async def menu_delete_confirm(
             )
 
         records_data = [r.to_dict(include_id=True) for r in records]
-        kb = build_delete_keyboard(records_data, current_page, total_pages)
+        kb = build_delete_keyboard(records_data, current_page, total_pages, total_count)
         await get_message(callback).edit_text(
             f"Выберите запись для удаления (всего: {total_count}):",
             reply_markup=kb.as_markup(),
@@ -450,7 +463,7 @@ async def menu_delete_confirm(
                     delete_total_pages=total_pages,
                 )
 
-                kb = build_delete_keyboard(records_data, current_page, total_pages)
+                kb = build_delete_keyboard(records_data, current_page, total_pages, new_total)
                 await get_message(callback).edit_text(
                     f"Выберите запись для удаления (всего: {new_total}):",
                     reply_markup=kb.as_markup(),
@@ -463,3 +476,146 @@ async def menu_delete_confirm(
 
     await callback.answer("Некорректные данные.")
     await state.clear()
+
+
+_PERIOD_LABELS = {
+    "day": "за сегодня",
+    "yesterday": "за вчера",
+    "week": "за последние 7 дней",
+    "month30": "за последние 30 дней",
+    "month": "за этот месяц",
+    "prev_month": "за прошлый месяц",
+    "year": "за этот год",
+}
+
+
+def _period_label(data: dict[str, Any]) -> str:
+    """Человекочитаемая метка периода для bulk-подтверждения."""
+    year = data.get("delete_selected_year")
+    month = data.get("delete_selected_month")
+    if isinstance(year, int) and isinstance(month, int) and 1 <= month <= 12:
+        return f"за {RU_MONTHS[month]} {year}"
+    period = data.get("delete_period")
+    if isinstance(period, str) and period in _PERIOD_LABELS:
+        return _PERIOD_LABELS[period]
+    return "за выбранный период"
+
+
+@router.callback_query(
+    MenuStates.waiting_for_delete_record, F.data == "del_all:confirm"
+)
+@log_exceptions("Ошибка при подтверждении массового удаления")
+async def handle_del_all_confirm(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Шаг 1: показываем предупреждение перед массовым удалением."""
+    data = await state.get_data()
+    total_count = data.get("delete_total_count", 0)
+    if not isinstance(total_count, int) or total_count <= 0:
+        await callback.answer("Сессия истекла.")
+        await state.clear()
+        return
+
+    label = _period_label(data)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Да, удалить всё", callback_data="del_all:execute")
+    kb.button(text="Отмена", callback_data="del_all:cancel")
+    kb.adjust(1, 1)
+
+    await get_message(callback).edit_text(
+        f"⚠️ Точно удалить <b>все {total_count} записей</b> {label}?\n"
+        f"Это нельзя отменить.",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML",
+    )
+    await state.set_state(MenuStates.waiting_for_delete_bulk_confirm)
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_delete_bulk_confirm, F.data == "del_all:execute"
+)
+@log_exceptions("Ошибка при массовом удалении")
+async def handle_del_all_execute(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Шаг 2: выполняем массовое удаление."""
+    data = await state.get_data()
+    period = data.get("delete_period")
+    date_from = data.get("delete_date_from")
+    date_to = data.get("delete_date_to")
+
+    if not isinstance(period, str):
+        await callback.answer("Сессия истекла.")
+        await state.clear()
+        return
+
+    user_id = kwargs["user_id"]
+    async with async_session() as session:
+        deleted = await delete_records_bulk(
+            session, user_id, period, date_from, date_to
+        )
+        await session.commit()
+
+    if deleted > 0:
+        await get_message(callback).edit_text(
+            f"✅ Удалено записей: <b>{deleted}</b>.",
+            parse_mode="HTML",
+        )
+        await callback.answer()
+    else:
+        await get_message(callback).edit_text("Нечего было удалять.")
+        await callback.answer()
+    await state.clear()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_delete_bulk_confirm, F.data == "del_all:cancel"
+)
+@log_exceptions("Ошибка при отмене массового удаления")
+async def handle_del_all_cancel(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Отмена шага 2 — возврат к списку записей."""
+    data = await state.get_data()
+    period = data.get("delete_period")
+    date_from = data.get("delete_date_from")
+    date_to = data.get("delete_date_to")
+    current_page = data.get("delete_page", 0)
+
+    if not isinstance(period, str):
+        await callback.answer("Сессия истекла.")
+        await state.clear()
+        return
+
+    user_id = kwargs["user_id"]
+    async with async_session() as session:
+        total_count = await count_records(session, user_id, period, date_from, date_to)
+        if total_count == 0:
+            await get_message(callback).edit_text("Записей нет.")
+            await state.clear()
+            await callback.answer()
+            return
+
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+        if current_page >= total_pages:
+            current_page = total_pages - 1
+        offset = current_page * RECORDS_PER_PAGE
+        records = await get_records(
+            session,
+            user_id,
+            period,
+            date_from,
+            date_to,
+            limit=RECORDS_PER_PAGE,
+            offset=offset,
+        )
+
+    records_data = [r.to_dict(include_id=True) for r in records]
+    kb = build_delete_keyboard(records_data, current_page, total_pages, total_count)
+    await get_message(callback).edit_text(
+        f"Выберите запись для удаления (всего: {total_count}):",
+        reply_markup=kb.as_markup(),
+    )
+    await state.set_state(MenuStates.waiting_for_delete_record)
+    await callback.answer("Удаление отменено")

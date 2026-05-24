@@ -40,7 +40,7 @@ FinanceBot/
 │       └── requests/           # CRUD по доменам (re-export через __init__.py)
 │           ├── _common.py      # apply_period_filter, SYSTEM_CATEGORIES, лимиты
 │           ├── users.py        # get_user_by_tg_id, set_user, notifiable-users, last-reminded
-│           ├── records.py      # add/get/update/delete_record, totals, duplicate-check
+│           ├── records.py      # add/get/update/delete_record, delete_records_bulk, totals, duplicate-check
 │           ├── reports.py      # categories_summary, history_data, monthly/weekday/search
 │           ├── accounts.py     # CRUD счетов, балансы, переводы
 │           ├── categories.py   # UserCategory + suggest/learn keywords + seed_defaults
@@ -215,6 +215,7 @@ waiting_for_report_month
 waiting_for_delete_period
 waiting_for_delete_record
 waiting_for_delete_confirm
+waiting_for_delete_bulk_confirm  — подтверждение массового удаления «все за период»
 waiting_for_search_query
 waiting_for_search_page
 waiting_for_history_category_filter

@@ -144,6 +144,28 @@ async def delete_record(session: AsyncSession, user_id: int, record_id: int) -> 
         return False
 
 
+async def delete_records_bulk(
+    session: AsyncSession,
+    user_id: int,
+    within: str = "all",
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+) -> int:
+    """Bulk-delete user's records within a period.
+
+    Excludes SYSTEM_CATEGORIES (transfers, balance-set) to keep account
+    balances consistent. Returns the number of deleted rows.
+    """
+    stmt = delete(Record).where(
+        Record.user_id == user_id,
+        Record.category.not_in(SYSTEM_CATEGORIES),
+    )
+    stmt = apply_period_filter(stmt, within, date_from, date_to)
+    result = await session.execute(stmt)
+    # asyncpg may return -1 when the driver can't report rowcount — treat as 0.
+    return result.rowcount if (result.rowcount or 0) > 0 else 0
+
+
 async def get_record_by_id(
     session: AsyncSession, record_id: int, user_id: int
 ) -> Record | None:
