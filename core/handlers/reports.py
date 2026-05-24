@@ -21,13 +21,12 @@ from core.database.requests import (
 from core.keyboards import (
     get_months_keyboard,
     get_years_keyboard,
-    main_menu_keyboard,
     report_type_keyboard,
 )
 from core.reports import get_available_years_and_months, make_comparison_text
 from core.utils import RU_MONTHS, log_exceptions
 
-from .common import MenuStates, get_message, is_expense, is_income, is_report
+from .common import MenuStates, get_message, is_report
 
 router = Router()
 
@@ -50,52 +49,56 @@ async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
 
     await state.update_data(report_years_months=years_months)
     await message.answer("Выберите тип отчёта:", reply_markup=report_type_keyboard())
-    await state.set_state(MenuStates.waiting_for_report_type)
 
 
-@router.message(MenuStates.waiting_for_report_type)
+@router.callback_query(StateFilter(None), F.data.startswith("report_type:"))
 @log_exceptions("Ошибка при выборе типа отчёта")
-async def report_type_handler(message: Message, state: FSMContext, **kwargs) -> None:
+async def report_type_handler(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
     """Выбор типа отчёта (Доход/Расход) — показываем выбор года."""
-    if is_income(message):
+    try:
+        raw = (callback.data or "").split(":", 1)[1]
+    except IndexError:
+        await callback.answer("Некорректные данные.")
+        return
+    if raw == "income":
         report_type = "Доход"
         operation = "+"
-    elif is_expense(message):
+    elif raw == "expense":
         report_type = "Расход"
         operation = "-"
     else:
-        await message.answer(
-            "Пожалуйста, выберите тип отчёта:",
-            reply_markup=report_type_keyboard(),
-        )
+        await callback.answer("Некорректный тип отчёта.")
         return
 
     await state.update_data(report_type=report_type)
 
     user_id = kwargs.get("user_id")
     if not user_id:
-        await message.answer("Пользователь не найден.")
+        await get_message(callback).edit_text("Пользователь не найден.")
         await state.clear()
+        await callback.answer()
         return
+
     async with async_session() as session:
         years_months = await get_available_years_and_months(session, user_id, operation)
 
     if not years_months:
-        await message.answer(
-            f"Нет записей по категории «{report_type}» для отображения отчёта.",
-            reply_markup=main_menu_keyboard(),
+        await get_message(callback).edit_text(
+            f"Нет записей по категории «{report_type}» для отображения отчёта."
         )
         await state.clear()
+        await callback.answer()
         return
 
     await state.update_data(report_years_months=years_months)
-
-    await message.answer(
-        "Тип отчёта: " + report_type, reply_markup=main_menu_keyboard()
-    )
     keyboard = get_years_keyboard(list(years_months.keys()))
-    await message.answer("Выберите год:", reply_markup=keyboard)
+    await get_message(callback).edit_text(
+        f"Тип отчёта: {report_type}\n\nВыберите год:", reply_markup=keyboard
+    )
     await state.set_state(MenuStates.waiting_for_report_year)
+    await callback.answer()
 
 
 @router.callback_query(MenuStates.waiting_for_report_year)

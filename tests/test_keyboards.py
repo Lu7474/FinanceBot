@@ -370,8 +370,10 @@ def test_history_period_keyboard():
 
 def test_report_type_keyboard():
     kb = report_type_keyboard()
-    texts = [btn.text for row in kb.keyboard for btn in row]
+    texts = [btn.text for row in kb.inline_keyboard for btn in row]
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "Доход" in texts and "Расход" in texts
+    assert "report_type:income" in callbacks and "report_type:expense" in callbacks
 
 
 def test_accounts_menu_keyboard():

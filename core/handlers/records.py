@@ -283,10 +283,7 @@ async def _maybe_ask_category(
     return True
 
 
-@router.message(
-    ~StateFilter(MenuStates.waiting_for_report_type),
-    F.func(lambda m: is_income(m) or is_expense(m)),
-)
+@router.message(F.func(lambda m: is_income(m) or is_expense(m)))
 @log_exceptions("Ошибка при обработке операции")
 async def handle_income_expense(message: Message, state: FSMContext, **kwargs) -> None:
     """Начало добавления записи: сохраняем тип операции, просим ввести сумму."""

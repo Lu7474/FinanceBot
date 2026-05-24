@@ -205,7 +205,6 @@ class MenuStates(StatesGroup):
     waiting_for_history_period = State()
     waiting_for_history_page = State()
     waiting_for_custom_period = State()
-    waiting_for_report_type = State()
     waiting_for_report_year = State()
     waiting_for_report_month = State()
     waiting_for_delete_period = State()

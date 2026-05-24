@@ -154,11 +154,17 @@ def get_delete_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMa
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# Reply-клавиатура для выбора типа отчёта (доход/расход)
+# Inline-клавиатура для выбора типа отчёта (доход/расход)
 @lru_cache(maxsize=1)
-def report_type_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton(text="Доход"), KeyboardButton(text="Расход")]]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+def report_type_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Доход", callback_data="report_type:income"),
+                InlineKeyboardButton(text="Расход", callback_data="report_type:expense"),
+            ]
+        ]
+    )
 
 
 # Inline-клавиатура подтверждения удаления

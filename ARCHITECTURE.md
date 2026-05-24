@@ -210,7 +210,6 @@ waiting_for_account  — выбор счёта (если их несколько
 waiting_for_history_period
 waiting_for_history_page
 waiting_for_custom_period
-waiting_for_report_type
 waiting_for_report_year
 waiting_for_report_month
 waiting_for_delete_period
