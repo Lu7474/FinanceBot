@@ -114,9 +114,9 @@ def test_main_menu_keyboard():
 def test_delete_period_keyboard():
     keyboard = delete_period_keyboard()
 
-    # Проверяем структуру: 4 ряда
+    # Проверяем структуру: 5 рядов
     assert keyboard.inline_keyboard is not None
-    assert len(keyboard.inline_keyboard) == 4
+    assert len(keyboard.inline_keyboard) == 5
 
     buttons = keyboard.inline_keyboard
 
@@ -134,13 +134,17 @@ def test_delete_period_keyboard():
     assert buttons[1][1].text == "Этот год"
     assert buttons[1][1].callback_data == "del_period:year"
 
-    # Третий ряд: Выбрать месяц
-    assert buttons[2][0].text == "Выбрать месяц →"
-    assert buttons[2][0].callback_data == "del_select_month"
+    # Третий ряд: За всё время
+    assert buttons[2][0].text == "🗂 За всё время"
+    assert buttons[2][0].callback_data == "del_period:all"
 
-    # Четвёртый ряд: Отмена
-    assert buttons[3][0].text == "Отмена"
-    assert buttons[3][0].callback_data == "cancel"
+    # Четвёртый ряд: Выбрать месяц
+    assert buttons[3][0].text == "Выбрать месяц →"
+    assert buttons[3][0].callback_data == "del_select_month"
+
+    # Пятый ряд: Отмена
+    assert buttons[4][0].text == "Отмена"
+    assert buttons[4][0].callback_data == "cancel"
 
 
 # Проверяет сортировку годов и формат callback_data
@@ -270,14 +274,14 @@ def test_wealth_back_keyboard_cached():
 
 # Проверяет префиксы callback_data (del_period, report_year, report_month)
 def test_keyboard_callback_data_format():
-    # Тест delete_period_keyboard: первые два ряда — del_period:, третий — del_select_month
+    # Тест delete_period_keyboard: первые три ряда — del_period:, четвёртый — del_select_month
     delete_kb = delete_period_keyboard()
-    # Ряды 0 и 1 содержат кнопки с del_period:
-    for row in delete_kb.inline_keyboard[:2]:
+    # Ряды 0, 1, 2 содержат кнопки с del_period:
+    for row in delete_kb.inline_keyboard[:3]:
         for btn in row:
             assert btn.callback_data.startswith("del_period:")
-    # Ряд 2 — кнопка выбора месяца
-    assert delete_kb.inline_keyboard[2][0].callback_data == "del_select_month"
+    # Ряд 3 — кнопка выбора месяца
+    assert delete_kb.inline_keyboard[3][0].callback_data == "del_select_month"
 
     # Тест get_years_keyboard (исключая кнопку отмены)
     years_kb = get_years_keyboard([2024])

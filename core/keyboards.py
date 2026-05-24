@@ -54,6 +54,11 @@ def delete_period_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text="🗂 За всё время", callback_data="del_period:all"
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="Выбрать месяц →", callback_data="del_select_month"
                 )
             ],
