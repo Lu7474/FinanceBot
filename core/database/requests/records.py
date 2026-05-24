@@ -236,7 +236,7 @@ async def check_duplicate_record(
             Record.operation == operation,
             Record.amount == amount,
             Record.category == category,
-            func.date(Record.created_at) == record_date.isoformat(),
+            func.date(Record.created_at) == record_date,
         )
     )
     return existing is not None
@@ -266,7 +266,7 @@ async def check_duplicates_batch(
             Record.category,
         ).where(
             Record.user_id == user_id,
-            func.date(Record.created_at).between(min_d.isoformat(), max_d.isoformat()),
+            func.date(Record.created_at).between(min_d, max_d),
         )
     )
     existing = {
