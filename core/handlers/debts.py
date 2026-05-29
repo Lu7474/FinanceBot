@@ -1,7 +1,6 @@
 """Handlers for debts & loans: create, partial payment, delete, archive."""
 
 import html
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
@@ -44,6 +43,7 @@ from core.utils import (
     format_debts_list,
     format_money,
     log_exceptions,
+    parse_flex_date,
     today_msk,
 )
 
@@ -154,9 +154,7 @@ async def debts_noop(callback: CallbackQuery, **kwargs) -> None:
 
 @router.callback_query(F.data == "debt:add")
 @log_exceptions("Ошибка при начале создания долга")
-async def debt_add_start(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def debt_add_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await get_message(callback).edit_text(
         "Кто кому должен?",
         reply_markup=debt_direction_keyboard(),
@@ -185,9 +183,7 @@ async def debt_direction_chosen(
 
 @router.message(DebtStates.waiting_person)
 @log_exceptions("Ошибка при вводе имени")
-async def debt_person_entered(
-    message: Message, state: FSMContext, **kwargs
-) -> None:
+async def debt_person_entered(message: Message, state: FSMContext, **kwargs) -> None:
     name = clean_text(message.text or "")
     if not name or len(name) > MAX_DEBT_PERSON_NAME:
         await message.answer(
@@ -201,9 +197,7 @@ async def debt_person_entered(
 
 @router.message(DebtStates.waiting_amount)
 @log_exceptions("Ошибка при вводе суммы")
-async def debt_amount_entered(
-    message: Message, state: FSMContext, **kwargs
-) -> None:
+async def debt_amount_entered(message: Message, state: FSMContext, **kwargs) -> None:
     text = (message.text or "").strip()
     try:
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
@@ -250,7 +244,7 @@ async def debt_description_skip(
 
 
 async def _ask_due_date(target: Message, edit: bool = False) -> None:
-    text = "Укажи срок возврата (ДД.ММ.ГГГГ) или нажми «Без срока»:"
+    text = "Укажи срок возврата (ДД.ММ.ГГ) или нажми «Без срока»:"
     kb = debt_due_date_keyboard()
     if edit:
         await target.edit_text(text, reply_markup=kb)
@@ -260,15 +254,12 @@ async def _ask_due_date(target: Message, edit: bool = False) -> None:
 
 @router.message(DebtStates.waiting_due_date)
 @log_exceptions("Ошибка при вводе срока")
-async def debt_due_date_entered(
-    message: Message, state: FSMContext, **kwargs
-) -> None:
+async def debt_due_date_entered(message: Message, state: FSMContext, **kwargs) -> None:
     text = (message.text or "").strip()
-    try:
-        due_date = datetime.strptime(text, "%d.%m.%Y").date()
-    except ValueError:
+    due_date = parse_flex_date(text)
+    if due_date is None:
         await message.answer(
-            "Неверный формат. Введи дату как ДД.ММ.ГГГГ или нажми «Без срока»:"
+            "Неверный формат. Введи дату как ДД.ММ.ГГ или нажми «Без срока»:"
         )
         return
     user_id = await get_user_id_from_event(message, kwargs)
@@ -308,7 +299,10 @@ async def _finalize_create(
     if direction not in ("I", "O") or not person:
         # FSM lost — bail to list view.
         await _reply_with_list(
-            message, state, user_id, callback,
+            message,
+            state,
+            user_id,
+            callback,
             prefix="⚠️ Сессия создания утеряна, начни заново.",
         )
         return
@@ -368,9 +362,7 @@ async def _show_select(
 
 @router.callback_query(F.data == "debt:view_list")
 @log_exceptions("Ошибка при показе списка для карточки")
-async def debt_view_list(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def debt_view_list(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -380,9 +372,7 @@ async def debt_view_list(
 
 @router.callback_query(F.data == "debt:pay_list")
 @log_exceptions("Ошибка при показе списка для погашения")
-async def debt_pay_list(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def debt_pay_list(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -392,9 +382,7 @@ async def debt_pay_list(
 
 @router.callback_query(F.data.startswith("debt:view:"))
 @log_exceptions("Ошибка при открытии карточки долга")
-async def debt_view_card(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def debt_view_card(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     debt_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -449,9 +437,7 @@ async def debt_archive_card(
 
 @router.callback_query(F.data.startswith("debt:pay:"))
 @log_exceptions("Ошибка при начале погашения")
-async def debt_pay_start(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def debt_pay_start(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     debt_id = int((callback.data or "").split(":")[2])
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
@@ -527,7 +513,9 @@ async def debt_payment_note_skip(
     if not user_id:
         await callback.answer("Ошибка.")
         return
-    await _execute_payment(get_message(callback), state, None, user_id, callback=callback)
+    await _execute_payment(
+        get_message(callback), state, None, user_id, callback=callback
+    )
 
 
 async def _execute_payment(
@@ -568,9 +556,7 @@ async def _execute_payment(
     if just_closed:
         head = f"🎉 Долг перед '{html.escape(person)}' полностью погашен!"
     else:
-        head = (
-            f"✅ Записано. Остаток долга: <b>{format_money(float(remaining))}</b>"
-        )
+        head = f"✅ Записано. Остаток долга: <b>{format_money(float(remaining))}</b>"
     await _reply_with_list(message, state, user_id, callback, prefix=head)
 
 
@@ -655,9 +641,7 @@ async def debt_delete_confirm(
 # ==================== Архив ====================
 
 
-async def _render_archive(
-    callback: CallbackQuery, user_id: int, page: int
-) -> bool:
+async def _render_archive(callback: CallbackQuery, user_id: int, page: int) -> bool:
     """Render the archive page. Returns False if archive is empty (caller bails)."""
     async with async_session() as session:
         total = await count_closed_debts(session, user_id)

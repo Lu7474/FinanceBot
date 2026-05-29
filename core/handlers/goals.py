@@ -1,7 +1,6 @@
 """Handlers for financial goals."""
 
 import html
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
@@ -50,6 +49,7 @@ from core.utils import (
     format_goals_list,
     log_exceptions,
     monthly_deposit_amount,
+    parse_flex_date,
     today_msk,
 )
 
@@ -204,7 +204,7 @@ async def goal_amount_entered(message: Message, state: FSMContext, **kwargs) -> 
         return
     await state.update_data(goal_target=str(amount))
     await message.answer(
-        "Введите дедлайн в формате ДД.ММ.ГГГГ или пропустите:",
+        "Введите дедлайн в формате ДД.ММ.ГГ или пропустите:",
         reply_markup=goal_deadline_keyboard(),
     )
     await state.set_state(GoalStates.entering_deadline)
@@ -214,17 +214,14 @@ async def goal_amount_entered(message: Message, state: FSMContext, **kwargs) -> 
 @log_exceptions("Ошибка при вводе дедлайна цели")
 async def goal_deadline_entered(message: Message, state: FSMContext, **kwargs) -> None:
     text = (message.text or "").strip()
-    try:
-        deadline = datetime.strptime(text, "%d.%m.%Y").date()
-        if deadline <= today_msk():
-            await message.answer(
-                "Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:"
-            )
-            return
-    except ValueError:
+    deadline = parse_flex_date(text)
+    if deadline is None:
         await message.answer(
-            "Неверный формат. Введите дату как ДД.ММ.ГГГГ или нажмите «Без дедлайна»:"
+            "Неверный формат. Введите дату как ДД.ММ.ГГ или нажмите «Без дедлайна»:"
         )
+        return
+    if deadline <= today_msk():
+        await message.answer("Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГ:")
         return
     user_id = await get_user_id_from_event(message, kwargs)
     await _create_goal_and_confirm(message, state, deadline, user_id)
@@ -475,7 +472,9 @@ async def goal_deposit_skip_note(
     if not user_id:
         await callback.answer("Ошибка.")
         return
-    await _execute_deposit(get_message(callback), state, None, user_id, callback=callback)
+    await _execute_deposit(
+        get_message(callback), state, None, user_id, callback=callback
+    )
 
 
 async def _execute_deposit(
@@ -685,7 +684,9 @@ async def goal_withdraw_skip_note(
     if not user_id:
         await callback.answer("Ошибка.")
         return
-    await _execute_withdraw(get_message(callback), state, None, user_id, callback=callback)
+    await _execute_withdraw(
+        get_message(callback), state, None, user_id, callback=callback
+    )
 
 
 async def _execute_withdraw(
@@ -1155,10 +1156,10 @@ async def goal_edit_deadline_start(
         current_str = current_deadline.strftime("%d.%m.%Y")
         prompt = (
             f"Текущий дедлайн: <code>{current_str}</code>\n\n"
-            "Введите новый в формате ДД.ММ.ГГГГ или уберите:"
+            "Введите новый в формате ДД.ММ.ГГ или уберите:"
         )
     else:
-        prompt = "Сейчас без дедлайна.\n\nВведите дедлайн в формате ДД.ММ.ГГГГ:"
+        prompt = "Сейчас без дедлайна.\n\nВведите дедлайн в формате ДД.ММ.ГГ:"
     await get_message(callback).edit_text(
         prompt,
         reply_markup=goal_edit_deadline_keyboard(goal_id),
@@ -1174,15 +1175,12 @@ async def goal_edit_deadline_entered(
     message: Message, state: FSMContext, **kwargs
 ) -> None:
     text = (message.text or "").strip()
-    try:
-        deadline = datetime.strptime(text, "%d.%m.%Y").date()
-        if deadline <= today_msk():
-            await message.answer(
-                "Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГГГ:"
-            )
-            return
-    except ValueError:
-        await message.answer("Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
+    deadline = parse_flex_date(text)
+    if deadline is None:
+        await message.answer("Неверный формат. Введите дату как ДД.ММ.ГГ:")
+        return
+    if deadline <= today_msk():
+        await message.answer("Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГ:")
         return
     user_id = await get_user_id_from_event(message, kwargs)
     if not user_id:
@@ -1244,6 +1242,8 @@ async def goal_clear_deadline(
 @log_exceptions("Ошибка при возврате из целей")
 async def goal_back(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
-    await get_message(callback).answer("Главное меню:", reply_markup=main_menu_keyboard())
+    await get_message(callback).answer(
+        "Главное меню:", reply_markup=main_menu_keyboard()
+    )
     await get_message(callback).delete()
     await callback.answer()

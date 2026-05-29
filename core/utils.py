@@ -422,6 +422,28 @@ def parse_edit_date(text: str, tz: str):
     return aware
 
 
+def parse_flex_date(text: str) -> date_type | None:
+    """Parse 'DD.MM.YY' or 'DD.MM.YYYY' into a date. No past/future check.
+
+    Used for forward-looking dates (debt due date, goal deadline) where the
+    caller validates the past/future constraint itself.
+    """
+    text = text.strip()
+    parts = text.split(".")
+    if len(parts) != 3:
+        return None
+    if len(parts[2]) == 2:
+        fmt = "%d.%m.%y"
+    elif len(parts[2]) == 4:
+        fmt = "%d.%m.%Y"
+    else:
+        return None
+    try:
+        return datetime.strptime(text, fmt).date()
+    except ValueError:
+        return None
+
+
 def format_record_card(record) -> str:
     """Render a record detail card for Telegram HTML mode."""
     op_label = "Доход" if record.operation == "+" else "Расход"
@@ -685,9 +707,7 @@ def format_debt_detail(debt, payments: list, today: date_type) -> str:
         for p in payments:
             d_str = format_debt_date_short(p.paid_at.date(), today)
             note = f" ({html.escape(p.note)})" if p.note else ""
-            lines.append(
-                f"  {d_str} — {format_money(float(p.amount))}{note}"
-            )
+            lines.append(f"  {d_str} — {format_money(float(p.amount))}{note}")
             total_paid += p.amount
         lines.append(f"  <i>Итого выплачено: {format_money(float(total_paid))}</i>")
 
