@@ -33,6 +33,7 @@ from core.utils import (
     goal_eta,
     is_goal_overdue,
     monthly_deposit_amount,
+    today_msk,
 )
 
 # ==================== Helpers ====================
@@ -451,7 +452,7 @@ def _make_mock_goal(
     g.deadline = deadline
     g.is_completed = is_completed
     g.created_at = datetime.combine(
-        date.today() - timedelta(days=created_days_ago), datetime.min.time()
+        today_msk() - timedelta(days=created_days_ago), datetime.min.time()
     )
     return g
 
@@ -625,7 +626,7 @@ def test_goal_eta_basic_forecast():
     g = _make_mock_goal("X", 100000, 10000, created_days_ago=30)
     eta = goal_eta(g)
     assert eta is not None
-    days = (eta - date.today()).days
+    days = (eta - today_msk()).days
     assert 260 <= days <= 280  # 90000 remaining / (10000/30) = 270 days
 
 

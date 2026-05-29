@@ -66,7 +66,9 @@ async def _make_debt(
 @pytest.mark.asyncio
 async def test_create_debt_incoming(session):
     user_id = await _make_user(1001)
-    debt_id = await _make_debt(user_id, direction="I", person="Петя", amount=Decimal("5000"))
+    debt_id = await _make_debt(
+        user_id, direction="I", person="Петя", amount=Decimal("5000")
+    )
 
     async with test_session() as s:
         d = await get_debt(s, debt_id, user_id)
@@ -286,7 +288,7 @@ async def test_active_and_archive_separation(session):
 @pytest.mark.asyncio
 async def test_reminder_picks_tomorrow_and_today(session):
     user_id = await _make_user(2001)
-    today = date.today()
+    today = moscow_now().date()
 
     await _make_debt(user_id, person="Tomorrow", due_date=today + timedelta(days=1))
     await _make_debt(user_id, person="Today", due_date=today)
@@ -302,7 +304,7 @@ async def test_reminder_picks_tomorrow_and_today(session):
 @pytest.mark.asyncio
 async def test_reminder_overdue_after_7_days(session):
     user_id = await _make_user(2002)
-    today = date.today()
+    today = moscow_now().date()
 
     fresh_id = await _make_debt(
         user_id, person="FreshOverdue", due_date=today - timedelta(days=2)
@@ -333,7 +335,7 @@ async def test_reminder_overdue_after_7_days(session):
 async def test_reminder_overdue_exactly_7_days_eligible(session):
     """Boundary: last_reminded_at exactly 7 days ago → eligible for new reminder."""
     user_id = await _make_user(2006)
-    today = date.today()
+    today = moscow_now().date()
     debt_id = await _make_debt(
         user_id, person="SevenDaysAgo", due_date=today - timedelta(days=20)
     )
@@ -352,7 +354,7 @@ async def test_reminder_overdue_exactly_7_days_eligible(session):
 @pytest.mark.asyncio
 async def test_reminder_skips_if_reminded_today(session):
     user_id = await _make_user(2003)
-    today = date.today()
+    today = moscow_now().date()
     debt_id = await _make_debt(user_id, person="Already", due_date=today)
 
     async with test_session() as s:
@@ -368,7 +370,7 @@ async def test_reminder_skips_if_reminded_today(session):
 @pytest.mark.asyncio
 async def test_reminder_skips_when_notify_off(session):
     user_id = await _make_user(2004, notify_debts=False)
-    today = date.today()
+    today = moscow_now().date()
     await _make_debt(user_id, person="Off", due_date=today)
 
     async with test_session() as s:
@@ -379,7 +381,7 @@ async def test_reminder_skips_when_notify_off(session):
 @pytest.mark.asyncio
 async def test_reminder_skips_closed_debts(session):
     user_id = await _make_user(2005)
-    today = date.today()
+    today = moscow_now().date()
     debt_id = await _make_debt(
         user_id, person="Closed", amount=Decimal("100"), due_date=today
     )
