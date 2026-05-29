@@ -13,7 +13,7 @@ FinanceBot/
 │   ├── charts.py               # Генерация PNG-графиков (matplotlib)
 │   ├── reports.py              # Построение текста отчётов
 │   ├── middleware.py           # RateLimitMiddleware, UserMiddleware
-│   ├── keyboards.py            # ReplyKeyboard и InlineKeyboard
+│   ├── keyboards/              # ReplyKeyboard и InlineKeyboard, разбито по доменам (пакет, re-export через __init__.py)
 │   ├── export.py               # Excel export/import/backup: build и validate функции
 │   ├── exceptions.py           # Доменные исключения (GoalError и наследники)
 │   ├── scheduler.py            # APScheduler: рассылки сводок и напоминаний + форматтеры
@@ -27,11 +27,13 @@ FinanceBot/
 │   │   ├── delete.py           # Удаление записей с подтверждением
 │   │   ├── accounts.py         # Управление счетами
 │   │   ├── savings.py          # Накопления: снимки баланса
+│   │   ├── wealth.py           # Активы и пассивы (имущество и долги): CRUD
 │   │   ├── records_edit.py     # Редактирование отдельных записей из истории
 │   │   ├── categories.py       # Пользовательские категории + суггестия при вводе
 │   │   ├── budgets.py          # Месячные бюджеты по категориям
 │   │   ├── export_import.py    # Экспорт/импорт/бэкап в Excel
 │   │   ├── goals.py            # Финансовые цели: CRUD, пополнение, снятие
+│   │   ├── debts.py            # Долги и займы: создание, частичное погашение, архив
 │   │   ├── notifications.py    # /notifications, тоггл флагов, онбординг
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
@@ -47,10 +49,11 @@ FinanceBot/
 │           ├── savings.py      # snapshots, items, wealth-items
 │           ├── budgets.py      # CRUD бюджетов, alert-логика, сброс флагов
 │           ├── goals.py        # CRUD целей, deposit/withdraw, complete
+│           ├── debts.py        # CRUD долгов, частичные платежи, выборка для напоминаний
 │           ├── notifications.py # weekly/monthly/daily summary-выборки
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 485 pytest-тестов
+├── tests/                      # 509 pytest-тестов
 └── requirements.txt
 ```
 
@@ -79,6 +82,7 @@ notify_weekly: bool (default False)   — еженедельная сводка
 notify_monthly: bool (default False)  — ежемесячная сводка
 notify_daily: bool (default False)    — ежедневные итоги
 notify_reminder: bool (default False) — напоминание при простое
+notify_debts: bool (default False)    — напоминания о приближении срока долга
 ```
 
 ### Account
@@ -165,6 +169,33 @@ note: str (max 200, nullable)
 created_at: datetime
 ```
 
+### Debt
+Изолированная сущность: на баланс/отчёты/цели не влияет, погашение НЕ создаёт Record.
+```
+id: int (PK)
+user_id: int (FK → User.id, CASCADE)
+direction: str  — "I" (мне должны) / "O" (я должен)
+person_name: str (max 100 — MAX_DEBT_PERSON_NAME)
+amount: Decimal(14, 2)  — исходная сумма долга
+remaining: Decimal(14, 2)  — текущий остаток
+description: str (max 200, nullable)
+due_date: date (nullable)  — срок возврата
+is_closed: bool (default False)
+last_reminded_at: datetime (nullable)  — антиспам для напоминаний о сроке
+created_at: datetime
+closed_at: datetime (nullable)
+payments: relationship → DebtPayment (cascade delete)
+```
+
+### DebtPayment
+```
+id: int (PK)
+debt_id: int (FK → Debt.id, CASCADE)
+amount: Decimal(14, 2)  — сумма частичного погашения
+note: str (max 200, nullable)
+paid_at: datetime
+```
+
 ### UserCategory
 ```
 id: int (PK)
@@ -193,6 +224,9 @@ ix_savings_user_date            — (user_id, date, unique)         один с�
 ix_budgets_user_category          — (user_id, category, unique)     один бюджет на категорию
 ix_goals_user_completed           — (user_id, is_completed)         фильтрация активных целей
 ix_goal_deposits_goal_id          — (goal_id)                        операции по цели
+ix_debts_user_closed              — (user_id, is_closed)             активные / архивные долги
+ix_debts_due_date                 — (due_date)                       выборка для напоминаний о сроке
+ix_debt_payments_debt_id          — (debt_id)                        история платежей по долгу
 ix_user_categories_user_name      — (user_id, name, unique)         дубли категорий
 ix_category_keywords_user_keyword — (user_id, keyword, unique)      дубли ключевых слов
 ```
@@ -310,6 +344,20 @@ entering_withdraw_note     — ввод заметки к снятию
 editing_name               — редактирование имени существующей цели
 editing_amount             — редактирование целевой суммы
 editing_deadline           — редактирование дедлайна
+```
+
+### DebtStates
+```
+viewing_list            — список активных долгов
+viewing_detail          — карточка конкретного долга
+viewing_archive         — список закрытых долгов
+waiting_direction       — выбор направления (мне должны / я должен)
+waiting_person          — ввод имени должника / кредитора
+waiting_amount          — ввод суммы долга
+waiting_description      — ввод описания (опционально)
+waiting_due_date        — ввод срока возврата (или «Без срока»)
+waiting_payment_amount  — ввод суммы частичного погашения
+waiting_payment_note    — ввод заметки к погашению
 ```
 
 ## Middleware
@@ -477,21 +525,45 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
     → отправка файла
 ```
 
+### Долги и займы
+```
+[Долги]
+    → get_active_debts() + count_closed_debts()
+    → format_debts_list(): «мне должны» / «я должен», остаток, дедлайн, индикатор просрочки
+    → debts_menu_keyboard(has_active, has_archive)
+
+    Карточка (debt_detail)
+        → format_debt_detail(): остаток / исходная сумма, история платежей, дедлайн
+        → debt_detail_keyboard: [💵 Погасить] [🗑 Удалить]
+
+    Новый долг → направление (мне должны / я должен) → имя → сумма → описание → срок (опц.)
+        → create_debt()
+
+    Погасить → сумма частичного платежа → заметка
+        → add_payment(): DebtPayment + remaining -= amount; при remaining == 0 → is_closed=True, closed_at=now()
+        → история и отчёты НЕ засоряются (без Record)
+
+    Архив → закрытые долги с датой закрытия
+        → 🗑 Удалить → delete_debt() (каскад DebtPayment)
+```
+
 ### Уведомления (`core/scheduler.py`)
 ```
 APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.py → setup_scheduler()
     ├─ weekly_report   — вс 20:00  → send_weekly_report   → format_weekly_summary
     ├─ monthly_report  — last 20:00 → send_monthly_report → format_monthly_summary (сравнение с пред. месяцем)
     ├─ daily_summary   — ежедн. 21:00 → send_daily_summary → format_daily_summary
-    └─ reminders       — ежедн. 20:00 → send_reminders (простой 2+ дня, антиспам через last_reminded_at)
+    ├─ reminders       — ежедн. 20:00 → send_reminders (простой 2+ дня, антиспам через last_reminded_at)
+    └─ debt_reminders  — ежедн. 10:00 → send_debt_reminders (приближение/наступление due_date, антиспам через Debt.last_reminded_at)
 
 Аудитория: get_notifiable_users() — не забаненные, с ≥1 записью; каждый тип фильтруется флагом notify_*.
+Долговые напоминания: get_debts_to_remind() — открытые долги с due_date у пользователей с notify_debts.
 Выборки сумм/топ-категорий — core/database/requests/notifications.py (исключает SYSTEM_CATEGORIES).
 
 Настройки (core/handlers/notifications.py)
-    /notifications → notification_settings_keyboard(user): тоггл каждого флага (notify_toggle:<key>)
+    /notifications → notification_settings_keyboard(user): тоггл каждого флага (notify_toggle:<key>, включая notify_toggle:debts)
     Онбординг: после первой записи (_maybe_send_onboarding) → [Включить всё] / [Пропустить]
-        notify_enable_all — включает все 4 флага; notify_skip — закрывает без изменений
+        notify_enable_all — включает все флаги; notify_skip — закрывает без изменений
 ```
 
 ## Оптимизации
@@ -513,6 +585,8 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | MAX_AMOUNT | 1 000 000 |
 | MAX_GOAL_AMOUNT | 10 000 000 |
 | MAX_GOAL_NAME_LENGTH | 100 |
+| MAX_DEBT_AMOUNT | 10 000 000 |
+| MAX_DEBT_PERSON_NAME | 100 |
 | MAX_CATEGORIES_IN_PIE | 5 |
 | MAX_CAPTION_LENGTH | 1024 |
 | MAX_MESSAGE_LENGTH | 4096 |
@@ -520,7 +594,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (485)
+## Тесты (509)
 
 ```bash
 pytest tests/ -v
@@ -530,6 +604,7 @@ pytest tests/ -v
 |---|---|
 | test_db.py | CRUD-операции |
 | test_db_extended.py | Граничные случаи БД |
+| test_records_bulk_delete.py | Массовое удаление записей за период, исключение системных категорий, изоляция пользователей |
 | test_accounts.py | Счета, переводы, балансы |
 | test_accounts_extended.py | Расширенные сценарии счетов |
 | test_records_edit.py | Редактирование записей |
@@ -547,6 +622,7 @@ pytest tests/ -v
 | test_export_import_tz.py | Экспорт/импорт: корректность временной зоны |
 | test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
 | test_goals_errors.py | Цели: обработка ошибок и граничные случаи |
+| test_debts.py | Долги: CRUD, частичные погашения, выборка для напоминаний, каскадное удаление |
 | test_notifications.py | Уведомления: форматтеры сводок (weekly/monthly/daily), DB-выборки |
 | test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка |
 | test_charts.py | Генерация графиков (matplotlib) |
