@@ -19,6 +19,7 @@ _NOTIFY_FIELDS = {
     "monthly": "notify_monthly",
     "daily": "notify_daily",
     "reminder": "notify_reminder",
+    "debts": "notify_debts",
 }
 
 _NOTIFY_LABELS = {
@@ -26,6 +27,7 @@ _NOTIFY_LABELS = {
     "monthly": "Ежемесячная сводка",
     "daily": "Ежедневные итоги",
     "reminder": "Напоминание о записи",
+    "debts": "Напоминания о долгах",
 }
 
 
@@ -124,6 +126,7 @@ async def handle_notify_enable_all(callback: CallbackQuery, **kwargs) -> None:
         user.notify_monthly = True
         user.notify_daily = True
         user.notify_reminder = True
+        user.notify_debts = True
         await session.commit()
 
     try:

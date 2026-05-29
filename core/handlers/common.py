@@ -161,6 +161,13 @@ def is_goals(message: Message) -> bool:
     return (message.text or "").strip().lower() == "цели"
 
 
+def is_debts(message: Message) -> bool:
+    """Checks if message is the 'Долги' menu command."""
+    if not message.text:
+        return False
+    return (message.text or "").strip().lower() == "долги"
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -177,6 +184,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_export(message),
             is_import(message),
             is_goals(message),
+            is_debts(message),
         ]
     )
 
@@ -307,3 +315,18 @@ class GoalStates(StatesGroup):
     editing_name = State()
     editing_amount = State()
     editing_deadline = State()
+
+
+class DebtStates(StatesGroup):
+    """States for debts (loans receivable / payable) workflow."""
+
+    viewing_list = State()
+    viewing_detail = State()
+    viewing_archive = State()
+    waiting_direction = State()
+    waiting_person = State()
+    waiting_amount = State()
+    waiting_description = State()
+    waiting_due_date = State()
+    waiting_payment_amount = State()
+    waiting_payment_note = State()

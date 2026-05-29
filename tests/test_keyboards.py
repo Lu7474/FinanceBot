@@ -72,7 +72,7 @@ def test_main_menu_keyboard():
 
     # Проверяем структуру
     assert keyboard.keyboard is not None
-    assert len(keyboard.keyboard) == 6  # 6 рядов кнопок
+    assert len(keyboard.keyboard) == 7  # 7 рядов кнопок
 
     # Проверяем кнопки
     first_row = keyboard.keyboard[0]
@@ -104,6 +104,10 @@ def test_main_menu_keyboard():
     assert len(sixth_row) == 2
     assert sixth_row[0].text == "Импорт"
     assert sixth_row[1].text == "Цели"
+
+    seventh_row = keyboard.keyboard[6]
+    assert len(seventh_row) == 1
+    assert seventh_row[0].text == "Долги"
 
     # Проверяем настройки
     assert keyboard.resize_keyboard is True

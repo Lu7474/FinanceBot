@@ -65,6 +65,17 @@ from .categories import (
     seed_default_categories,
     suggest_category,
 )
+from .debts import (
+    add_payment,
+    count_closed_debts,
+    create_debt,
+    delete_debt,
+    get_active_debts,
+    get_closed_debts,
+    get_debt,
+    get_debt_payments,
+    get_debts_to_remind,
+)
 from .goals import (
     complete_goal,
     create_goal,
@@ -201,6 +212,16 @@ __all__ = [
     "get_goals",
     "update_goal",
     "withdraw_goal",
+    # debts
+    "add_payment",
+    "count_closed_debts",
+    "create_debt",
+    "delete_debt",
+    "get_active_debts",
+    "get_closed_debts",
+    "get_debt",
+    "get_debt_payments",
+    "get_debts_to_remind",
     # budgets
     "check_and_alert_budget",
     "delete_budget",

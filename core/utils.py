@@ -90,6 +90,24 @@ RU_MONTHS_GEN = {
 }
 
 
+# Short month names for compact debt UI: "1 апр" / "15 июн".
+# Distinct from scheduler._RU_MONTHS_SHORT which is Capitalized for table headers.
+RU_MONTHS_SHORT = {
+    1: "янв",
+    2: "фев",
+    3: "мар",
+    4: "апр",
+    5: "май",
+    6: "июн",
+    7: "июл",
+    8: "авг",
+    9: "сен",
+    10: "окт",
+    11: "ноя",
+    12: "дек",
+}
+
+
 def format_date_ru(d: date_type) -> str:
     """Formats date as '15 марта 2025'."""
     return f"{d.day} {RU_MONTHS_GEN[d.month]} {d.year}"
@@ -572,6 +590,108 @@ def _monthly_deposit_str(goal) -> str | None:
     """Formatted monthly deposit, or None if not applicable."""
     amount = monthly_deposit_amount(goal)
     return format_money(amount) if amount is not None else None
+
+
+def format_debt_date_short(d: date_type, today: date_type) -> str:
+    """Short date for debt lists: '1 апр' if current year, else '1 апр 2025'."""
+    if d.year == today.year:
+        return f"{d.day} {RU_MONTHS_SHORT[d.month]}"
+    return f"{d.day} {RU_MONTHS_SHORT[d.month]} {d.year}"
+
+
+def _debt_warn(due_date: date_type | None, today: date_type) -> bool:
+    """⚠️ marker condition: overdue or ≤ 3 days left."""
+    if due_date is None:
+        return False
+    return (due_date - today).days <= 3
+
+
+def _debt_second_line(debt, today: date_type) -> str:
+    """Detail line for two-line debt entry: 'из 15 000, до 15 июн' / 'без срока'."""
+    parts: list[str] = []
+    partial = debt.remaining < debt.amount
+    if partial:
+        parts.append(f"из {format_money(float(debt.amount))}")
+    if debt.due_date:
+        prefix = "📅 до " if not partial else "до "
+        parts.append(f"{prefix}{format_debt_date_short(debt.due_date, today)}")
+    elif not partial:
+        parts.append("без срока")
+    return ", ".join(parts) if parts else "без срока"
+
+
+def format_debts_list(debts: list, today: date_type) -> str:
+    """Renders the '💸 Долги и займы' block: two sections 📥/📤, two-line per debt."""
+    incoming = [d for d in debts if d.direction == "I"]
+    outgoing = [d for d in debts if d.direction == "O"]
+
+    lines: list[str] = ["💸 <b>Долги и займы</b>"]
+
+    def _section(items: list, header: str, emoji: str) -> None:
+        if not items:
+            return
+        total = sum(d.remaining for d in items)
+        lines.append("")
+        lines.append(f"{emoji} <b>{header}: {format_money(float(total))}</b>")
+        lines.append("")
+        for d in items:
+            warn = " ⚠️" if _debt_warn(d.due_date, today) else ""
+            lines.append(
+                f"{html.escape(d.person_name)} — "
+                f"<b>{format_money(float(d.remaining))}</b>{warn}"
+            )
+            lines.append(f"  {_debt_second_line(d, today)}")
+
+    _section(incoming, "Мне должны", "📥")
+    _section(outgoing, "Я должен", "📤")
+    return "\n".join(lines)
+
+
+def format_debt_detail(debt, payments: list, today: date_type) -> str:
+    """Renders debt card: full dates for main fields, short for payment history."""
+    direction_label = (
+        f"{html.escape(debt.person_name)} должен мне"
+        if debt.direction == "I"
+        else f"Я должен {html.escape(debt.person_name)}"
+    )
+
+    lines = [
+        f"📋 <b>Долг: {direction_label}</b>",
+        "",
+        f"Исходная сумма: {format_money(float(debt.amount))}",
+    ]
+    if debt.remaining < debt.amount:
+        lines.append(f"Остаток:        <b>{format_money(float(debt.remaining))}</b>")
+    if debt.description:
+        lines.append(f"Описание:       {html.escape(debt.description)}")
+    lines.append(f"Создан:         {format_date_ru(debt.created_at.date())}")
+    if debt.due_date:
+        days_left = (debt.due_date - today).days
+        due_full = format_date_ru(debt.due_date)
+        if days_left < 0:
+            tail = f"<b>просрочено на {-days_left} дн.</b>"
+        elif days_left == 0:
+            tail = "<b>сегодня</b>"
+        else:
+            tail = f"осталось {days_left} дн."
+        lines.append(f"Срок:           {due_full} ({tail})")
+    if debt.is_closed and debt.closed_at:
+        lines.append(f"Закрыт:         {format_date_ru(debt.closed_at.date())}")
+
+    if payments:
+        lines.append("")
+        lines.append("<b>История погашений:</b>")
+        total_paid = Decimal("0")
+        for p in payments:
+            d_str = format_debt_date_short(p.paid_at.date(), today)
+            note = f" ({html.escape(p.note)})" if p.note else ""
+            lines.append(
+                f"  {d_str} — {format_money(float(p.amount))}{note}"
+            )
+            total_paid += p.amount
+        lines.append(f"  <i>Итого выплачено: {format_money(float(total_paid))}</i>")
+
+    return "\n".join(lines)
 
 
 def log_exceptions(error_text: str) -> Callable:

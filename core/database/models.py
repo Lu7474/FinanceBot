@@ -1,6 +1,6 @@
 """
 SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem,
-Budget, UserCategory, CategoryKeyword, Goal, GoalDeposit.
+Budget, UserCategory, CategoryKeyword, Goal, GoalDeposit, Debt, DebtPayment.
 """
 
 from datetime import date, datetime
@@ -85,6 +85,7 @@ class User(Base):
     notify_monthly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     notify_daily: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     notify_reminder: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    notify_debts: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     records = relationship(
         "Record", back_populates="user", cascade="all, delete-orphan"
     )
@@ -107,6 +108,7 @@ class User(Base):
         "CategoryKeyword", back_populates="user", cascade="all, delete-orphan"
     )
     goals = relationship("Goal", back_populates="user", cascade="all, delete-orphan")
+    debts = relationship("Debt", back_populates="user", cascade="all, delete-orphan")
 
 
 # Счёт пользователя (Наличные, Карта и т.д.)
@@ -334,6 +336,54 @@ class GoalDeposit(Base):
     goal = relationship("Goal", back_populates="deposits")
 
 
+# Долг пользователя (мне должны / я должен). Изолированная сущность —
+# на баланс/отчёты/цели не влияет, погашение НЕ создаёт Record.
+class Debt(Base):
+    __tablename__ = "debts"
+    __table_args__ = (
+        Index("ix_debts_user_closed", "user_id", "is_closed"),
+        Index("ix_debts_due_date", "due_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    direction: Mapped[str] = mapped_column(String(1), nullable=False)  # "I" / "O"
+    person_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    remaining: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    is_closed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    last_reminded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="debts")
+    payments = relationship(
+        "DebtPayment", back_populates="debt", cascade="all, delete-orphan"
+    )
+
+
+class DebtPayment(Base):
+    __tablename__ = "debt_payments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    debt_id: Mapped[int] = mapped_column(
+        ForeignKey("debts.id", ondelete="CASCADE"), index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    paid_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    debt = relationship("Debt", back_populates="payments")
+
+
 # ==================== Инициализация ====================
 
 
@@ -353,6 +403,7 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_monthly BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_daily BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_reminder BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_debts BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
     ]
     for stmt in stmts:
@@ -436,6 +487,10 @@ async def _migrate(conn) -> None:
     if "notify_reminder" not in user_columns:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN notify_reminder INTEGER NOT NULL DEFAULT 0")
+        )
+    if "notify_debts" not in user_columns:
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN notify_debts INTEGER NOT NULL DEFAULT 0")
         )
 
     result = await conn.execute(

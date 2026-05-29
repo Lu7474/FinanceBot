@@ -19,3 +19,19 @@ class GoalCompleted(GoalError):
 
 class InsufficientFundsInGoal(GoalError):
     """Raised when withdrawal amount exceeds goal's current balance."""
+
+
+class DebtError(ValueError):
+    """Base class for debt operation errors."""
+
+
+class DebtNotFound(DebtError):
+    """Raised when debt does not exist or does not belong to user."""
+
+
+class DebtAlreadyClosed(DebtError):
+    """Raised when attempting to pay/modify an already-closed debt."""
+
+
+class PaymentExceedsRemaining(DebtError):
+    """Raised when payment amount exceeds debt's remaining balance."""

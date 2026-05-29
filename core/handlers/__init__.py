@@ -6,6 +6,7 @@ from .accounts import router as accounts_router
 from .admin import router as admin_router
 from .budgets import router as budgets_router
 from .categories import router as categories_router
+from .debts import router as debts_router
 from .delete import router as delete_router
 from .export_import import router as export_import_router
 from .fallback import router as fallback_router
@@ -33,5 +34,6 @@ router.include_router(delete_router)
 router.include_router(accounts_router)
 router.include_router(savings_router)
 router.include_router(goals_router)
+router.include_router(debts_router)
 router.include_router(notifications_router)
 router.include_router(fallback_router)  # must be last

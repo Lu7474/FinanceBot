@@ -12,6 +12,8 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import TIMEZONE
+from core.database.models import Debt, moscow_now
+from core.database.requests.debts import get_debts_to_remind
 from core.database.requests.notifications import (
     get_daily_summary_data,
     get_monthly_summary_data,
@@ -22,7 +24,8 @@ from core.database.requests.users import (
     get_notifiable_users,
     update_last_reminded,
 )
-from core.utils import RU_MONTHS, RU_MONTHS_GEN, format_money
+from core.keyboards import debt_reminder_open_keyboard
+from core.utils import RU_MONTHS, RU_MONTHS_GEN, format_money, today_msk
 
 _RU_MONTHS_SHORT = {
     1: "Янв", 2: "Фев", 3: "Мар", 4: "Апр",
@@ -357,6 +360,68 @@ async def send_reminders(bot: Bot, async_session) -> None:
         await asyncio.sleep(0.05)
 
 
+def _format_debt_reminder(debt: Debt, today: date) -> str:
+    """Compose the reminder message body for a single debt."""
+    person = html.escape(debt.person_name)
+    amount = format_money(float(debt.remaining))
+    due = debt.due_date
+    assert due is not None  # get_debts_to_remind filters out None
+    delta_days = (due - today).days
+
+    if delta_days == 1:
+        due_str = f"{due.day} {RU_MONTHS_GEN[due.month]} {due.year} (завтра)"
+    elif delta_days == 0:
+        due_str = f"{due.day} {RU_MONTHS_GEN[due.month]} {due.year} (сегодня)"
+    else:
+        # overdue
+        overdue_days = -delta_days
+        due_str = (
+            f"Срок истёк {overdue_days} "
+            f"{'день' if overdue_days == 1 else 'дней'} назад"
+        )
+
+    if debt.direction == "I":
+        head = f"{person} должен тебе {amount}"
+    else:
+        head = f"Ты должен {person} {amount}"
+
+    return (
+        "⏰ <b>Напоминание о долге</b>\n\n"
+        f"{head}\n"
+        f"Срок возврата: {due_str}"
+    )
+
+
+async def send_debt_reminders(bot: Bot, async_session) -> None:
+    """Send debt reminders at 10:00 MSK based on due_date rules."""
+    today = today_msk()
+
+    async with async_session() as session:
+        pairs = await get_debts_to_remind(session, today)
+
+    for debt, user in pairs:
+        try:
+            text = _format_debt_reminder(debt, today)
+            await bot.send_message(
+                user.tg_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=debt_reminder_open_keyboard(),
+            )
+            async with async_session() as session:
+                stored = await session.get(Debt, debt.id)
+                if stored:
+                    stored.last_reminded_at = moscow_now()
+                    await session.commit()
+        except (TelegramForbiddenError, TelegramBadRequest) as e:
+            logging.warning(f"Cannot send debt reminder to {user.tg_id}: {e}")
+        except Exception as e:
+            logging.exception(
+                f"Unexpected error sending debt reminder to {user.tg_id}: {e}"
+            )
+        await asyncio.sleep(0.05)
+
+
 # ==================== Setup ====================
 
 
@@ -396,6 +461,14 @@ def setup_scheduler(bot: Bot, async_session) -> AsyncIOScheduler:
         minute=0,
         args=[bot, async_session],
         id="reminders",
+    )
+    scheduler.add_job(
+        send_debt_reminders,
+        "cron",
+        hour=10,
+        minute=0,
+        args=[bot, async_session],
+        id="debt_reminders",
     )
     scheduler.start()
     return scheduler
