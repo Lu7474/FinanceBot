@@ -43,13 +43,41 @@ async def session():
         yield s
 
 
-def pytest_sessionfinish(session, exitstatus):
-    """Dispose module-level engine at session end.
+_exit_status = 0
 
-    StaticPool keeps one aiosqlite connection alive for the whole run; its
-    worker is a non-daemon thread blocked on `while True: tx.get()`. Without
-    dispose() the interpreter never exits and the CI step hangs at shutdown.
+
+def pytest_sessionfinish(session, exitstatus):
+    global _exit_status
+    _exit_status = int(exitstatus)
+
+
+def pytest_unconfigure(config):
+    """Force a clean process exit so the CI step doesn't hang.
+
+    App code uses a module-level production engine and a chart
+    ThreadPoolExecutor; under pytest-asyncio every test runs on its own event
+    loop, so some aiosqlite connection workers stay bound to already-closed
+    loops and can't be disposed from a fresh loop. Those non-daemon threads
+    keep Python 3.14 from exiting (the process hangs after the summary). We
+    release what we can, then os._exit with pytest's status. unconfigure is
+    the last hook, so the terminal summary is already printed. (Prod is
+    unaffected — it has one loop and shuts engine + executor down cleanly.)
     """
     import asyncio
+    import os
+    import sys
 
-    asyncio.run(test_engine.dispose())
+    from core.charts import shutdown_executor
+    from core.database.models import engine as prod_engine
+
+    async def _close() -> None:
+        await test_engine.dispose()
+        await prod_engine.dispose()
+
+    try:
+        asyncio.run(_close())
+        shutdown_executor()
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_exit_status)
