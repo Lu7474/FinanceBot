@@ -343,6 +343,149 @@ async def build_stacked_bar_chart(
         return None
 
 
+def _build_yearly_chart_sync(
+    data: List[Dict[str, Any]],
+    operation: str,
+    year: Optional[int],
+) -> Optional[io.BytesIO]:
+    """Stacked bar chart for the yearly report.
+
+    year set    → X = months of that year.
+    year=None   → X = years (all-time view, keeps it readable vs 24-36 months).
+    Top MAX_CATEGORIES_IN_PIE categories kept, rest folded into "Прочее".
+    """
+    if not data:
+        return None
+
+    try:
+        colors = INCOME_COLORS if operation == "+" else EXPENSE_COLORS
+
+        if year is None:
+            x_keys = sorted({d["year"] for d in data})
+            labels = [str(k) for k in x_keys]
+
+            def key_of(d: Dict[str, Any]) -> int:
+                return d["year"]
+        else:
+            x_keys = sorted({d["month"] for d in data})
+            labels = [RU_MONTHS_SHORT[m] for m in x_keys]
+
+            def key_of(d: Dict[str, Any]) -> int:
+                return d["month"]
+
+        # Category totals across whole period → pick top N
+        cat_totals: Dict[str, float] = {}
+        for d in data:
+            cat_totals[d["category"]] = cat_totals.get(d["category"], 0.0) + float(
+                d["total"]
+            )
+        top_cats = [
+            c
+            for c, _ in sorted(cat_totals.items(), key=lambda x: -x[1])[
+                :MAX_CATEGORIES_IN_PIE
+            ]
+        ]
+        use_other = len(cat_totals) > MAX_CATEGORIES_IN_PIE
+        cat_list = top_cats + (["Прочее"] if use_other else [])
+
+        key_index = {k: i for i, k in enumerate(x_keys)}
+        matrix: Dict[str, List[float]] = {c: [0.0] * len(x_keys) for c in cat_list}
+        for d in data:
+            i = key_index[key_of(d)]
+            if d["category"] in top_cats:
+                cat = d["category"]
+            elif use_other:
+                cat = "Прочее"
+            else:
+                continue
+            matrix[cat][i] += float(d["total"])
+
+        fig = Figure(figsize=(max(8, len(x_keys) * 1.3), 5))
+        ax = fig.subplots()
+        x = list(range(len(x_keys)))
+
+        bottom = [0.0] * len(x_keys)
+        for idx, cat in enumerate(cat_list):
+            vals = matrix[cat]
+            ax.bar(
+                x,
+                vals,
+                bottom=bottom,
+                label=cat,
+                color=colors[idx % len(colors)],
+                edgecolor="white",
+                linewidth=0.8,
+                width=0.6,
+            )
+            bottom = [b + v for b, v in zip(bottom, vals)]
+
+        max_total = max(bottom) if bottom else 0.0
+        for i, total_v in enumerate(bottom):
+            if total_v > 0:
+                ax.text(
+                    i,
+                    total_v + max_total * 0.01,
+                    format_money(total_v),
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                    fontweight="bold",
+                )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_ylim(0, max_total * 1.18 if max_total > 0 else 1)
+        ax.set_ylabel("")
+
+        title_type = "Доходы" if operation == "+" else "Расходы"
+        subtitle = "за всё время" if year is None else str(year)
+        ax.set_title(
+            f"{title_type} — {subtitle}", fontsize=13, fontweight="bold", pad=15
+        )
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
+
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        return buf
+
+    except Exception:
+        logging.exception("Ошибка при построении yearly chart")
+        return None
+
+
+async def build_yearly_chart(
+    data: List[Dict[str, Any]],
+    operation: str,
+    year: Optional[int],
+) -> Optional[io.BytesIO]:
+    """Async wrapper for the yearly chart with timeout."""
+    if not data:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_yearly_chart_sync,
+                data,
+                operation,
+                year,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут yearly chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении yearly chart")
+        return None
+
+
 async def build_report_pie(
     categories: Dict[str, Decimal],
     total: Decimal | float,

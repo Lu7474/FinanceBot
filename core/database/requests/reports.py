@@ -287,6 +287,86 @@ async def get_stacked_data(
     ]
 
 
+async def get_yearly_report(
+    session: AsyncSession,
+    user_id: int,
+    operation: str,
+    year: Optional[int] = None,
+    categories: Optional[List[str]] = None,
+) -> list[dict]:
+    """Sums grouped by (year, month, category) for the yearly report.
+
+    year=None → all time (kept split by year AND month, never merged).
+    categories=None/empty → all categories. SYSTEM_CATEGORIES excluded.
+    func.extract used (SQLite casts to INTEGER) — Postgres-safe, no strftime.
+    Returns [{year, month, category, total}] ordered by (year, month).
+    """
+    conditions = [
+        Record.user_id == user_id,
+        Record.operation == operation,
+        Record.category.not_in(SYSTEM_CATEGORIES),
+    ]
+    if year is not None:
+        conditions.append(func.extract("year", Record.created_at) == year)
+    if categories:
+        conditions.append(Record.category.in_(categories))
+
+    query = (
+        select(
+            func.extract("year", Record.created_at).label("year"),
+            func.extract("month", Record.created_at).label("month"),
+            Record.category,
+            func.sum(Record.amount).label("total"),
+        )
+        .where(*conditions)
+        .group_by(
+            func.extract("year", Record.created_at),
+            func.extract("month", Record.created_at),
+            Record.category,
+        )
+        .order_by(
+            func.extract("year", Record.created_at),
+            func.extract("month", Record.created_at),
+        )
+    )
+
+    rows = (await session.execute(query)).fetchall()
+    return [
+        {
+            "year": int(row.year),
+            "month": int(row.month),
+            "category": row.category or "Без категории",
+            "total": Decimal(str(row.total)),
+        }
+        for row in rows
+    ]
+
+
+async def get_categories_for_year(
+    session: AsyncSession,
+    user_id: int,
+    operation: str,
+    year: Optional[int] = None,
+) -> list[str]:
+    """Distinct categories for a year (or all time), ordered by total desc."""
+    conditions = [
+        Record.user_id == user_id,
+        Record.operation == operation,
+        Record.category.not_in(SYSTEM_CATEGORIES),
+    ]
+    if year is not None:
+        conditions.append(func.extract("year", Record.created_at) == year)
+
+    query = (
+        select(Record.category)
+        .where(*conditions)
+        .group_by(Record.category)
+        .order_by(func.sum(Record.amount).desc())
+    )
+    rows = (await session.execute(query)).fetchall()
+    return [row.category or "Без категории" for row in rows]
+
+
 async def get_weekday_report(
     session: AsyncSession,
     user_id: int,

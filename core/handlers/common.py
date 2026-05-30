@@ -224,6 +224,9 @@ class MenuStates(StatesGroup):
     waiting_for_history_category_filter = State()
     waiting_for_weekday_type = State()
     waiting_for_weekday_period = State()
+    waiting_for_yearly_type = State()
+    waiting_for_yearly_year = State()
+    waiting_for_yearly_cats = State()
 
 
 class AccountStates(StatesGroup):

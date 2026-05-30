@@ -68,9 +68,66 @@ def report_section_keyboard() -> InlineKeyboardMarkup:
                     callback_data="report_section:structure",
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="📅 Годовой отчёт",
+                    callback_data="report_section:yearly",
+                )
+            ],
             [CANCEL_BUTTON],
         ]
     )
+
+
+@lru_cache(maxsize=1)
+def yearly_report_type_keyboard() -> InlineKeyboardMarkup:
+    """Income/expense selection for the yearly report."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Расходы", callback_data="yr_type:expense"),
+                InlineKeyboardButton(text="Доходы", callback_data="yr_type:income"),
+            ],
+            [InlineKeyboardButton(text="← Назад", callback_data="report_section_back")],
+        ]
+    )
+
+
+def yearly_report_year_keyboard(years: list[int]) -> InlineKeyboardMarkup:
+    """Year picker for the yearly report + «За всё время»."""
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=str(year), callback_data=f"yr_year:{year}")]
+        for year in sorted(years)
+    ]
+    rows.append(
+        [InlineKeyboardButton(text="📊 За всё время", callback_data="yr_year:all")]
+    )
+    rows.append([InlineKeyboardButton(text="← Назад", callback_data="yr_back_type")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def yearly_report_cats_keyboard(
+    cats: list[str], selected: set[int]
+) -> InlineKeyboardMarkup:
+    """Multi-select toggle keyboard for categories (2 per row).
+
+    callback_data carries the category INDEX (not the name) to stay within the
+    64-byte limit — Cyrillic names would overflow. cats list lives in FSMContext.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for i, name in enumerate(cats):
+        short = name if len(name) <= 22 else name[:21] + "…"
+        label = f"✅ {short}" if i in selected else short
+        row.append(InlineKeyboardButton(text=label, callback_data=f"yr_cat:{i}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="Готово ✓", callback_data="yr_done")])
+    rows.append([InlineKeyboardButton(text="← Назад", callback_data="yr_back_year")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @lru_cache(maxsize=1)

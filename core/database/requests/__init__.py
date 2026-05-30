@@ -100,12 +100,14 @@ from .records import (
     update_record,
 )
 from .reports import (
+    get_categories_for_year,
     get_categories_summary,
     get_history_data,
     get_monthly_totals,
     get_stacked_data,
     get_top_categories_for_period,
     get_weekday_report,
+    get_yearly_report,
     search_records,
 )
 from .savings import (
@@ -148,12 +150,14 @@ __all__ = [
     "get_totals",
     "update_record",
     # reports
+    "get_categories_for_year",
     "get_categories_summary",
     "get_history_data",
     "get_monthly_totals",
     "get_stacked_data",
     "get_top_categories_for_period",
     "get_weekday_report",
+    "get_yearly_report",
     "search_records",
     # accounts
     "create_account",

@@ -16,19 +16,22 @@ from aiogram.types import (
 )
 from dateutil.relativedelta import relativedelta
 
-from config import TIMEZONE
+from config import MAX_CAPTION_LENGTH, TIMEZONE
 from core.charts import (
     build_category_chart,
     build_report_pie,
     build_stacked_bar_chart,
     build_trend_chart,
+    build_yearly_chart,
 )
 from core.database.models import async_session
 from core.database.requests import (
+    get_categories_for_year,
     get_categories_summary,
     get_monthly_totals,
     get_records,
     get_stacked_data,
+    get_yearly_report,
 )
 from core.keyboards import (
     chart_period_keyboard,
@@ -38,10 +41,14 @@ from core.keyboards import (
     report_type_keyboard,
     stacked_period_keyboard,
     stacked_type_keyboard,
+    yearly_report_cats_keyboard,
+    yearly_report_type_keyboard,
+    yearly_report_year_keyboard,
 )
 from core.reports import (
     format_period_caption,
     format_stacked_caption,
+    format_yearly_report,
     get_available_years_and_months,
     make_comparison_text,
 )
@@ -627,3 +634,231 @@ async def chart_nav_handler(callback: CallbackQuery, **kwargs) -> None:
         return
 
     await _render_chart_switch(callback, "month", op, year, month, user_id)
+
+
+# ==================== Feature: Годовой отчёт ====================
+
+
+@router.callback_query(F.data == "report_section:yearly")
+@log_exceptions("Ошибка при входе в годовой отчёт")
+async def yearly_entry(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Раздел «Годовой отчёт» — выбор типа (Доход/Расход)."""
+    await state.set_state(MenuStates.waiting_for_yearly_type)
+    await get_message(callback).edit_text(
+        "📅 <b>Годовой отчёт</b>\n\nВыберите тип:",
+        reply_markup=yearly_report_type_keyboard(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "yr_back_type")
+@log_exceptions("Ошибка при возврате к выбору типа годового отчёта")
+async def yearly_back_type(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Шаг назад: с выбора года обратно к выбору типа."""
+    await state.set_state(MenuStates.waiting_for_yearly_type)
+    await get_message(callback).edit_text(
+        "📅 <b>Годовой отчёт</b>\n\nВыберите тип:",
+        reply_markup=yearly_report_type_keyboard(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_yearly_type, F.data.startswith("yr_type:")
+)
+@log_exceptions("Ошибка при выборе типа годового отчёта")
+async def yearly_type(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Выбран тип — показываем доступные годы."""
+    raw = (callback.data or "").split(":", 1)[1]
+    operation = "+" if raw == "income" else "-"
+
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await get_message(callback).edit_text("Пользователь не найден.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    async with async_session() as session:
+        years_months = await get_available_years_and_months(
+            session, user_id, operation
+        )
+    years = sorted(years_months.keys())
+
+    if not years:
+        type_name = "доходам" if operation == "+" else "расходам"
+        await get_message(callback).edit_text(
+            f"Нет записей по {type_name} для годового отчёта."
+        )
+        await state.clear()
+        await callback.answer()
+        return
+
+    await state.update_data(yearly_operation=operation, yearly_years=years)
+    type_name = "Доходы" if operation == "+" else "Расходы"
+    await get_message(callback).edit_text(
+        f"Тип: <b>{type_name}</b>\n\nВыберите год:",
+        reply_markup=yearly_report_year_keyboard(years),
+        parse_mode="HTML",
+    )
+    await state.set_state(MenuStates.waiting_for_yearly_year)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "yr_back_year")
+@log_exceptions("Ошибка при возврате к выбору года годового отчёта")
+async def yearly_back_year(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Шаг назад: с выбора категорий обратно к выбору года."""
+    data = await state.get_data()
+    years = data.get("yearly_years", [])
+    operation = data.get("yearly_operation")
+    if not years or operation is None:
+        await callback.answer("Сессия истекла.", show_alert=True)
+        await state.clear()
+        return
+    type_name = "Доходы" if operation == "+" else "Расходы"
+    await get_message(callback).edit_text(
+        f"Тип: <b>{type_name}</b>\n\nВыберите год:",
+        reply_markup=yearly_report_year_keyboard(years),
+        parse_mode="HTML",
+    )
+    await state.set_state(MenuStates.waiting_for_yearly_year)
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_yearly_year, F.data.startswith("yr_year:")
+)
+@log_exceptions("Ошибка при выборе года годового отчёта")
+async def yearly_year(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Выбран год (или «За всё время») — показываем категории."""
+    raw = (callback.data or "").split(":", 1)[1]
+    if raw == "all":
+        year: int | None = None
+    else:
+        try:
+            year = int(raw)
+        except ValueError:
+            await callback.answer("Некорректные данные.")
+            return
+
+    data = await state.get_data()
+    operation = data.get("yearly_operation")
+    user_id = kwargs.get("user_id")
+    if not user_id or operation is None:
+        await get_message(callback).edit_text("Сессия истекла. Откройте отчёт заново.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    async with async_session() as session:
+        cats = await get_categories_for_year(session, user_id, operation, year)
+
+    await state.update_data(
+        yearly_year=year, yearly_cats_list=cats, yearly_selected=[]
+    )
+    subtitle = "за всё время" if year is None else str(year)
+    await get_message(callback).edit_text(
+        f"Год: <b>{subtitle}</b>\n\nВыберите категории (можно несколько).\n"
+        "<i>Ничего не выбрано = все категории.</i>",
+        reply_markup=yearly_report_cats_keyboard(cats, set()),
+        parse_mode="HTML",
+    )
+    await state.set_state(MenuStates.waiting_for_yearly_cats)
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_yearly_cats, F.data.startswith("yr_cat:")
+)
+@log_exceptions("Ошибка при выборе категории годового отчёта")
+async def yearly_cat_toggle(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Toggle одной категории по индексу — перерисовываем клавиатуру."""
+    try:
+        idx = int((callback.data or "").split(":", 1)[1])
+    except ValueError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    data = await state.get_data()
+    cats = data.get("yearly_cats_list", [])
+    selected = set(data.get("yearly_selected", []))
+    if idx < 0 or idx >= len(cats):
+        await callback.answer()
+        return
+
+    if idx in selected:
+        selected.discard(idx)
+    else:
+        selected.add(idx)
+    await state.update_data(yearly_selected=list(selected))
+
+    try:
+        await get_message(callback).edit_reply_markup(
+            reply_markup=yearly_report_cats_keyboard(cats, selected)
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(MenuStates.waiting_for_yearly_cats, F.data == "yr_done")
+@log_exceptions("Ошибка при формировании годового отчёта")
+async def yearly_done(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Готово — строим текстовый отчёт + график."""
+    data = await state.get_data()
+    operation = data.get("yearly_operation")
+    year = data.get("yearly_year")
+    cats = data.get("yearly_cats_list", [])
+    selected = data.get("yearly_selected", [])
+
+    user_id = kwargs.get("user_id")
+    if not user_id or operation is None:
+        await get_message(callback).edit_text("Сессия истекла. Откройте отчёт заново.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    categories = [cats[i] for i in selected if 0 <= i < len(cats)] or None
+
+    await get_message(callback).edit_text("⏳ Генерация годового отчёта...")
+    await callback.answer()
+
+    async with async_session() as session:
+        report = await get_yearly_report(
+            session, user_id, operation, year, categories
+        )
+
+    if not report:
+        await get_message(callback).edit_text("Нет данных за выбранный период.")
+        await state.clear()
+        return
+
+    buf = await build_yearly_chart(report, operation, year)
+    text = format_yearly_report(report, year, operation)
+    msg = get_message(callback)
+
+    if buf:
+        photo = BufferedInputFile(buf.read(), filename="yearly.png")
+        if len(text) <= MAX_CAPTION_LENGTH:
+            await msg.answer_photo(photo=photo, caption=text, parse_mode="HTML")
+        else:
+            await msg.answer_photo(photo=photo)
+            await msg.answer(text, parse_mode="HTML")
+    else:
+        await msg.answer(text, parse_mode="HTML")
+
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    await state.clear()

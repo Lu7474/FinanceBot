@@ -11,7 +11,12 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
-from config import MAX_CAPTION_LENGTH, MAX_CATEGORIES_IN_PIE, TIMEZONE
+from config import (
+    MAX_CAPTION_LENGTH,
+    MAX_CATEGORIES_IN_PIE,
+    MAX_MESSAGE_LENGTH,
+    TIMEZONE,
+)
 from core.database.models import Record
 from core.utils import RU_MONTHS, format_money
 
@@ -183,6 +188,77 @@ def format_stacked_caption(data: list[dict], operation: str) -> str:
     result = "\n".join(lines)
     if len(result) > MAX_CAPTION_LENGTH:
         result = result[: MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
+    return result
+
+
+def format_yearly_report(
+    data: list[dict], year: Optional[int], operation: str
+) -> str:
+    """Text for the yearly report.
+
+    Specific year → per-month totals (aligned <pre> table) + per-year category block.
+    year=None (all time) → per-year totals + all-time category block.
+    Caller decides caption vs separate message based on length.
+    """
+    type_gen = "доходов" if operation == "+" else "расходов"
+    icon = "💵" if operation == "+" else "🛒"
+    subtitle = str(year) if year is not None else "за всё время"
+    lines = [f"📅 <b>Годовой отчёт {type_gen} — {subtitle}</b>"]
+
+    # Per-bucket totals: by month for a single year, by year for all time.
+    bucket: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    if year is not None:
+        for d in data:
+            bucket[d["month"]] += d["total"]
+        keys = sorted(bucket)
+        labels = [RU_MONTHS[m][:3] for m in keys]
+        avg_label = "Среднее/мес"
+        # Divide by elapsed calendar months (12 for a past year, current month
+        # for the ongoing one) — empty months still count, but don't dilute by
+        # the unfinished part of the current year.
+        now = datetime.now(ZoneInfo(TIMEZONE))
+        divisor = 12 if year < now.year else max(now.month, 1)
+    else:
+        for d in data:
+            bucket[d["year"]] += d["total"]
+        keys = sorted(bucket)
+        labels = [str(k) for k in keys]
+        avg_label = "Среднее/год"
+        divisor = len(keys) or 1
+
+    grand = sum(bucket.values(), Decimal("0"))
+
+    money_strs = [format_money(bucket[k]) for k in keys]
+    width = max((len(s) for s in money_strs), default=0)
+    table = "\n".join(
+        f"{lab}  {ms:>{width}}" for lab, ms in zip(labels, money_strs)
+    )
+    if table:
+        lines.append("<pre>" + html.escape(table) + "</pre>")
+
+    # Category breakdown across the whole selected period.
+    cat_totals: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for d in data:
+        cat_totals[d["category"]] += d["total"]
+    sorted_cats = sorted(cat_totals.items(), key=lambda x: -x[1])
+
+    lines.append("\n📁 <b>По категориям:</b>")
+    cap = MAX_CATEGORIES_IN_PIE * 3  # keep text bounded, fold the long tail
+    for name, amount in sorted_cats[:cap]:
+        lines.append(f"  {icon} {html.escape(name)} — {format_money(amount)}")
+    tail = sum((v for _, v in sorted_cats[cap:]), Decimal("0"))
+    if tail > 0:
+        lines.append(f"  {icon} Прочее — {format_money(tail)}")
+
+    avg = grand / divisor if divisor else Decimal("0")
+    lines.append(
+        f"\n💰 <b>Итого:</b> {format_money(grand)}  |  "
+        f"{avg_label}: {format_money(avg)}"
+    )
+
+    result = "\n".join(lines)
+    if len(result) > MAX_MESSAGE_LENGTH:
+        result = result[: MAX_MESSAGE_LENGTH - 20] + "\n\n... (обрезано)"
     return result
 
 

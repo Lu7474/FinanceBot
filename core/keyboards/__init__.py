@@ -78,6 +78,9 @@ from .reports import (
     stacked_period_keyboard,
     stacked_type_keyboard,
     weekday_report_period_keyboard,
+    yearly_report_cats_keyboard,
+    yearly_report_type_keyboard,
+    yearly_report_year_keyboard,
 )
 from .savings import (
     savings_confirm_keyboard,
@@ -160,4 +163,7 @@ __all__ = [
     "wealth_menu_keyboard",
     "wealth_type_keyboard",
     "weekday_report_period_keyboard",
+    "yearly_report_cats_keyboard",
+    "yearly_report_type_keyboard",
+    "yearly_report_year_keyboard",
 ]
