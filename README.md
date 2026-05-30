@@ -1,7 +1,7 @@
 # FinanceBot
 
 [![Tests](https://github.com/Lu7474/FinanceBot/actions/workflows/tests.yml/badge.svg)](https://github.com/Lu7474/FinanceBot/actions/workflows/tests.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue)](https://python.org)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Telegram-бот для учёта личных финансов на aiogram 3 + SQLAlchemy 2.0 async. Записи через текст без кнопок, история за любой период, графики по категориям, бюджеты по категориям, накопления и учёт активов/пассивов, финансовые цели, долги и займы, экспорт/импорт в Excel, авторассылки сводок и напоминаний. 519 тестов, модульная архитектура.
@@ -10,7 +10,7 @@ Telegram-бот для учёта личных финансов на aiogram 3 +
 
 | | |
 |---|---|
-| Язык | Python 3.10+ |
+| Язык | Python 3.14 |
 | Фреймворк | aiogram 3 |
 | ORM / БД | SQLAlchemy 2.0 async + aiosqlite (опц. PostgreSQL через asyncpg) |
 | Графики | matplotlib |

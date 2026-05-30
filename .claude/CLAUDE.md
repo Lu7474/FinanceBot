@@ -8,7 +8,7 @@
 - If a task is small, implement it immediately without asking for permission or explaining the plan.
 
 ## Tech Stack
-- Python 3.10+, aiogram 3.20
+- Python 3.14, aiogram 3.28
 - SQLAlchemy 2.0 (Async), aiosqlite
 - Matplotlib, Pytest (asyncio)
 
