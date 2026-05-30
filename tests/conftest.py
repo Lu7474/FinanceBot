@@ -41,3 +41,15 @@ async def setup_db():
 async def session():
     async with test_session() as s:
         yield s
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Dispose module-level engine at session end.
+
+    StaticPool keeps one aiosqlite connection alive for the whole run; its
+    worker is a non-daemon thread blocked on `while True: tx.get()`. Without
+    dispose() the interpreter never exits and the CI step hangs at shutdown.
+    """
+    import asyncio
+
+    asyncio.run(test_engine.dispose())
