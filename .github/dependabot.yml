@@ -21,6 +21,9 @@ updates:
       # aiofiles 25+ конфликтует с aiogram (требует aiofiles<24.2)
       - dependency-name: "aiofiles"
         update-types: ["version-update:semver-major"]
+      # pydantic-core жёстко пинится pydantic (==), бампать отдельно нельзя ->
+      # ResolutionImpossible. Обновляется автоматически вместе с pydantic.
+      - dependency-name: "pydantic-core"
       # SQLAlchemy 2.0.50 ужесточает типы Result -> падает mypy.
       # Снять после правки аннотаций в core/database/requests/.
       - dependency-name: "SQLAlchemy"
