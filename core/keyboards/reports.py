@@ -52,6 +52,122 @@ def report_type_keyboard() -> InlineKeyboardMarkup:
 
 
 @lru_cache(maxsize=1)
+def report_section_keyboard() -> InlineKeyboardMarkup:
+    """Report-type submenu shown right after pressing «Отчёт»."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 По категориям",
+                    callback_data="report_section:categories",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📈 Структура по месяцам",
+                    callback_data="report_section:structure",
+                )
+            ],
+            [CANCEL_BUTTON],
+        ]
+    )
+
+
+@lru_cache(maxsize=1)
+def stacked_type_keyboard() -> InlineKeyboardMarkup:
+    """Income/expense selection for the stacked (structure) report."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Доход", callback_data="stacked_type:income"
+                ),
+                InlineKeyboardButton(
+                    text="Расход", callback_data="stacked_type:expense"
+                ),
+            ],
+            [InlineKeyboardButton(text="← Назад", callback_data="report_section_back")],
+        ]
+    )
+
+
+def stacked_period_keyboard(op: str) -> InlineKeyboardMarkup:
+    """Period selection for the stacked report. op = 'inc' | 'exp'."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="3 месяца", callback_data=f"stacked_build:{op}:3"
+                ),
+                InlineKeyboardButton(
+                    text="6 месяцев", callback_data=f"stacked_build:{op}:6"
+                ),
+            ],
+            [InlineKeyboardButton(text="Год", callback_data=f"stacked_build:{op}:12")],
+            [InlineKeyboardButton(text="← Назад", callback_data="report_section_back")],
+        ]
+    )
+
+
+def chart_period_keyboard(
+    current_period: str, report_type: str, year: int, month: int
+) -> InlineKeyboardMarkup:
+    """Interactive period switcher under a category chart (Feature 1).
+
+    current_period: 'month' | 'quarter' | 'year'. report_type: 'income' | 'expense'.
+    """
+    op = "inc" if report_type == "income" else "exp"
+    rows: list[list[InlineKeyboardButton]] = []
+
+    if current_period == "month":
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="◀", callback_data=f"chart_nav:prev:{op}:{year}:{month}"
+                ),
+                InlineKeyboardButton(
+                    text=f"{RU_MONTHS[month]} {year}", callback_data="chart_noop"
+                ),
+                InlineKeyboardButton(
+                    text="▶", callback_data=f"chart_nav:next:{op}:{year}:{month}"
+                ),
+            ]
+        )
+
+    def lbl(period: str, text: str) -> str:
+        return f"✅ {text}" if period == current_period else text
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=lbl("month", "Месяц"),
+                callback_data=f"chart_period:month:{op}:{year}:{month}",
+            ),
+            InlineKeyboardButton(
+                text=lbl("quarter", "Квартал"),
+                callback_data=f"chart_period:quarter:{op}:{year}:{month}",
+            ),
+            InlineKeyboardButton(
+                text=lbl("year", "Год"),
+                callback_data=f"chart_period:year:{op}:{year}:{month}",
+            ),
+        ]
+    )
+
+    if current_period == "month":
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📊 Сравнить с прошлым месяцем",
+                    callback_data=f"compare:{report_type}:{year}:{month}",
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@lru_cache(maxsize=1)
 def weekday_report_period_keyboard() -> InlineKeyboardMarkup:
     """Period selection for weekday report."""
     return InlineKeyboardMarkup(

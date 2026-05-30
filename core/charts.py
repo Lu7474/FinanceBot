@@ -66,22 +66,17 @@ def shutdown_executor() -> None:
     logging.info("Chart executor остановлен")
 
 
-def _build_report_pie_sync(
+def _render_category_bars_sync(
     categories: Dict[str, Decimal],
     total: Decimal | float,
-    date: datetime,
+    title: str,
     report_type: str,
-    records: Optional[List[Any]] = None,
-) -> Tuple[Optional[io.BytesIO], str]:
-    """Строит вертикальную столбчатую диаграмму по категориям."""
+) -> Optional[io.BytesIO]:
+    """Renders a vertical bar chart by category. Returns PNG buffer (no caption)."""
     if not categories:
-        return None, "Нет данных для построения отчета"
-
-    from core.reports import make_report_text
+        return None
 
     try:
-        month_name = RU_MONTHS[date.month]
-        title_type = "Доходы" if report_type == "income" else "Расходы"
         colors = INCOME_COLORS if report_type == "income" else EXPENSE_COLORS
 
         fig = Figure(figsize=(8, 5))
@@ -123,12 +118,7 @@ def _build_report_pie_sync(
 
         ax.set_ylim(0, max(values) * 1.15)
         ax.set_ylabel("")
-        ax.set_title(
-            f"{title_type} за {month_name} {date.year}",
-            fontsize=14,
-            fontweight="bold",
-            pad=15,
-        )
+        ax.set_title(title, fontsize=14, fontweight="bold", pad=15)
 
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -150,13 +140,207 @@ def _build_report_pie_sync(
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
         buf.seek(0)
-
-        caption = make_report_text(categories, total, date, report_type, records)
-        return buf, caption
+        return buf
 
     except Exception:
-        logging.exception("Ошибка при построении графика")
+        logging.exception("Ошибка при рендере столбчатой диаграммы")
+        return None
+
+
+def _build_report_pie_sync(
+    categories: Dict[str, Decimal],
+    total: Decimal | float,
+    date: datetime,
+    report_type: str,
+    records: Optional[List[Any]] = None,
+) -> Tuple[Optional[io.BytesIO], str]:
+    """Строит вертикальную столбчатую диаграмму по категориям за месяц + caption."""
+    if not categories:
+        return None, "Нет данных для построения отчета"
+
+    from core.reports import make_report_text
+
+    month_name = RU_MONTHS[date.month]
+    title_type = "Доходы" if report_type == "income" else "Расходы"
+    title = f"{title_type} за {month_name} {date.year}"
+
+    buf = _render_category_bars_sync(categories, total, title, report_type)
+    if buf is None:
         return None, "Ошибка при построении отчета"
+
+    caption = make_report_text(categories, total, date, report_type, records)
+    return buf, caption
+
+
+async def build_category_chart(
+    categories: Dict[str, Decimal],
+    total: Decimal | float,
+    title: str,
+    report_type: str,
+) -> Optional[io.BytesIO]:
+    """Async wrapper: category bar chart with a custom title (for period switching)."""
+    if not categories:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _render_category_bars_sync,
+                categories,
+                total,
+                title,
+                report_type,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут category chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении category chart")
+        return None
+
+
+def _build_stacked_bar_chart_sync(
+    data: List[Dict[str, Any]],
+    operation: str,
+) -> Optional[io.BytesIO]:
+    """Builds a stacked bar chart: X = months, stacks = categories.
+
+    data: [{year, month, category, total}, ...]. Top MAX_CATEGORIES_IN_PIE
+    categories kept, rest folded into "Прочее".
+    """
+    if not data:
+        return None
+
+    try:
+        colors = INCOME_COLORS if operation == "+" else EXPENSE_COLORS
+
+        # Ordered unique months
+        months: List[Tuple[int, int]] = []
+        seen: set[Tuple[int, int]] = set()
+        for d in data:
+            key = (d["year"], d["month"])
+            if key not in seen:
+                seen.add(key)
+                months.append(key)
+
+        # Category totals across whole period → pick top N
+        cat_totals: Dict[str, float] = {}
+        for d in data:
+            cat_totals[d["category"]] = cat_totals.get(d["category"], 0.0) + float(
+                d["total"]
+            )
+        top_cats = [
+            c
+            for c, _ in sorted(cat_totals.items(), key=lambda x: -x[1])[
+                :MAX_CATEGORIES_IN_PIE
+            ]
+        ]
+        use_other = len(cat_totals) > MAX_CATEGORIES_IN_PIE
+        cat_list = top_cats + (["Прочее"] if use_other else [])
+
+        # Build matrix category → [value per month]
+        month_index = {m: i for i, m in enumerate(months)}
+        matrix: Dict[str, List[float]] = {c: [0.0] * len(months) for c in cat_list}
+        for d in data:
+            i = month_index[(d["year"], d["month"])]
+            if d["category"] in top_cats:
+                cat = d["category"]
+            elif use_other:
+                cat = "Прочее"
+            else:
+                continue
+            matrix[cat][i] += float(d["total"])
+
+        labels = [f"{RU_MONTHS_SHORT[m]}\n{y}" for (y, m) in months]
+
+        fig = Figure(figsize=(max(8, len(months) * 1.3), 5))
+        ax = fig.subplots()
+        x = list(range(len(months)))
+
+        bottom = [0.0] * len(months)
+        for idx, cat in enumerate(cat_list):
+            vals = matrix[cat]
+            ax.bar(
+                x,
+                vals,
+                bottom=bottom,
+                label=cat,
+                color=colors[idx % len(colors)],
+                edgecolor="white",
+                linewidth=0.8,
+                width=0.6,
+            )
+            bottom = [b + v for b, v in zip(bottom, vals)]
+
+        max_total = max(bottom) if bottom else 0.0
+        for i, total_v in enumerate(bottom):
+            if total_v > 0:
+                ax.text(
+                    i,
+                    total_v + max_total * 0.01,
+                    format_money(total_v),
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                    fontweight="bold",
+                )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_ylim(0, max_total * 1.18 if max_total > 0 else 1)
+        ax.set_ylabel("")
+
+        title_type = "Доходы" if operation == "+" else "Расходы"
+        ax.set_title(
+            f"Структура: {title_type.lower()} по месяцам",
+            fontsize=13,
+            fontweight="bold",
+            pad=15,
+        )
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
+
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        return buf
+
+    except Exception:
+        logging.exception("Ошибка при построении stacked bar chart")
+        return None
+
+
+async def build_stacked_bar_chart(
+    data: List[Dict[str, Any]],
+    operation: str,
+) -> Optional[io.BytesIO]:
+    """Async wrapper for stacked bar chart with timeout."""
+    if not data:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_stacked_bar_chart_sync,
+                data,
+                operation,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут stacked chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении stacked chart")
+        return None
 
 
 async def build_report_pie(

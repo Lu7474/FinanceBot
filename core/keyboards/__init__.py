@@ -70,9 +70,13 @@ from .records import (
     record_edit_field_keyboard,
 )
 from .reports import (
+    chart_period_keyboard,
     get_months_keyboard,
     get_years_keyboard,
+    report_section_keyboard,
     report_type_keyboard,
+    stacked_period_keyboard,
+    stacked_type_keyboard,
     weekday_report_period_keyboard,
 )
 from .savings import (
@@ -99,6 +103,7 @@ __all__ = [
     "category_manage_keyboard",
     "category_select_keyboard",
     "category_suggest_keyboard",
+    "chart_period_keyboard",
     "confirm_account_delete_keyboard",
     "confirm_delete_keyboard",
     "debt_archive_keyboard",
@@ -141,11 +146,14 @@ __all__ = [
     "record_delete_confirm_keyboard",
     "record_detail_keyboard",
     "record_edit_field_keyboard",
+    "report_section_keyboard",
     "report_type_keyboard",
     "savings_confirm_keyboard",
     "savings_items_keyboard",
     "savings_view_keyboard",
     "search_result_keyboard",
+    "stacked_period_keyboard",
+    "stacked_type_keyboard",
     "user_categories_menu_keyboard",
     "wealth_back_keyboard",
     "wealth_items_keyboard",

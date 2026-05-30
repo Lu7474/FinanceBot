@@ -1,5 +1,6 @@
 """Handlers for reports (charts) and period comparison."""
 
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -7,23 +8,43 @@ from zoneinfo import ZoneInfo
 from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InputMediaPhoto,
+    Message,
+)
+from dateutil.relativedelta import relativedelta
 
 from config import TIMEZONE
-from core.charts import build_report_pie, build_trend_chart
+from core.charts import (
+    build_category_chart,
+    build_report_pie,
+    build_stacked_bar_chart,
+    build_trend_chart,
+)
 from core.database.models import async_session
 from core.database.requests import (
     get_categories_summary,
     get_monthly_totals,
     get_records,
+    get_stacked_data,
 )
 from core.keyboards import (
+    chart_period_keyboard,
     get_months_keyboard,
     get_years_keyboard,
+    report_section_keyboard,
     report_type_keyboard,
+    stacked_period_keyboard,
+    stacked_type_keyboard,
 )
-from core.reports import get_available_years_and_months, make_comparison_text
+from core.reports import (
+    format_period_caption,
+    format_stacked_caption,
+    get_available_years_and_months,
+    make_comparison_text,
+)
 from core.utils import RU_MONTHS, log_exceptions
 
 from .common import MenuStates, get_message, is_report
@@ -48,7 +69,101 @@ async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
         return
 
     await state.update_data(report_years_months=years_months)
-    await message.answer("Выберите тип отчёта:", reply_markup=report_type_keyboard())
+    await message.answer(
+        "Выберите тип отчёта:", reply_markup=report_section_keyboard()
+    )
+
+
+@router.callback_query(F.data == "report_section:categories")
+@log_exceptions("Ошибка при выборе раздела отчёта")
+async def report_section_categories(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Раздел «По категориям» — вход в существующий pie-флоу."""
+    # Clear state so report_type_handler (StateFilter None) fires next.
+    await state.clear()
+    await get_message(callback).edit_text(
+        "Выберите тип отчёта:", reply_markup=report_type_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "report_section:structure")
+@log_exceptions("Ошибка при выборе раздела отчёта")
+async def report_section_structure(callback: CallbackQuery, **kwargs) -> None:
+    """Раздел «Структура по месяцам» — выбор типа (Доход/Расход)."""
+    await get_message(callback).edit_text(
+        "Структура по месяцам — выберите тип:",
+        reply_markup=stacked_type_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "report_section_back")
+@log_exceptions("Ошибка при возврате в меню отчётов")
+async def report_section_back(callback: CallbackQuery, **kwargs) -> None:
+    """Назад к подменю типов отчёта."""
+    await get_message(callback).edit_text(
+        "Выберите тип отчёта:", reply_markup=report_section_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("stacked_type:"))
+@log_exceptions("Ошибка при выборе типа структуры")
+async def stacked_type_handler(callback: CallbackQuery, **kwargs) -> None:
+    """Выбран тип для структуры — показываем выбор периода."""
+    raw = (callback.data or "").split(":", 1)[1]
+    op = "inc" if raw == "income" else "exp"
+    await get_message(callback).edit_text(
+        "Выберите период:", reply_markup=stacked_period_keyboard(op)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("stacked_build:"))
+@log_exceptions("Ошибка при построении структуры")
+async def stacked_build_handler(callback: CallbackQuery, **kwargs) -> None:
+    """Строит stacked bar chart за выбранный период."""
+    try:
+        parts = (callback.data or "").split(":")
+        op = parts[1]
+        months_count = int(parts[2])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    operation_sign = "+" if op == "inc" else "-"
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+
+    await callback.answer("⏳ Генерация...")
+
+    async with async_session() as session:
+        data = await get_stacked_data(session, user_id, operation_sign, months_count)
+
+    if not data:
+        await get_message(callback).edit_text("Нет данных за выбранный период.")
+        return
+
+    buf = await build_stacked_bar_chart(data, operation_sign)
+    caption = format_stacked_caption(data, operation_sign)
+
+    if buf:
+        await get_message(callback).answer_photo(
+            photo=BufferedInputFile(buf.read(), filename="structure.png"),
+            caption=caption,
+            parse_mode="HTML",
+        )
+    else:
+        await get_message(callback).answer(caption, parse_mode="HTML")
+
+    try:
+        await get_message(callback).delete()
+    except Exception:
+        pass
 
 
 @router.callback_query(StateFilter(None), F.data.startswith("report_type:"))
@@ -234,24 +349,20 @@ async def menu_report_month(
                 categories, total, date_from, report_type, records
             )
 
-            compare_kb = InlineKeyboardBuilder()
-            compare_kb.button(
-                text="📊 Сравнить с прошлым месяцем",
-                callback_data=f"compare:{report_type}:{year}:{month}",
-            )
+            period_kb = chart_period_keyboard("month", report_type, year, month)
 
             if buf:
                 await get_message(callback).answer_photo(
                     photo=BufferedInputFile(buf.read(), filename="report.png"),
                     caption=caption,
                     parse_mode="HTML",
-                    reply_markup=compare_kb.as_markup(),
+                    reply_markup=period_kb,
                 )
             else:
                 await get_message(callback).answer(
                     caption,
                     parse_mode="HTML",
-                    reply_markup=compare_kb.as_markup(),
+                    reply_markup=period_kb,
                 )
         else:
             await get_message(callback).answer("Нет данных за выбранный период.")
@@ -363,3 +474,156 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
             await get_message(callback).answer(comparison_text, parse_mode="HTML")
     else:
         await get_message(callback).answer(comparison_text, parse_mode="HTML")
+
+
+# ==================== Feature 1: interactive period switch ====================
+
+
+def _period_dates(
+    period: str, year: int, month: int
+) -> tuple[datetime, datetime]:
+    """Returns (date_from, date_to) for a period anchored at (year, month).
+
+    month   → the given calendar month.
+    quarter → last 3 months ending now.
+    year    → last 12 months ending now.
+    """
+    tz = ZoneInfo(TIMEZONE)
+    now = datetime.now(tz)
+
+    if period == "month":
+        date_from = datetime(year, month, 1, tzinfo=tz)
+        if month == 12:
+            date_to = datetime(year + 1, 1, 1, tzinfo=tz) - timedelta(seconds=1)
+        else:
+            date_to = datetime(year, month + 1, 1, tzinfo=tz) - timedelta(seconds=1)
+        return date_from, date_to
+
+    if period == "quarter":
+        start = (now - relativedelta(months=2)).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        return start, now
+
+    # year
+    start = (now - relativedelta(months=11)).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    return start, now
+
+
+async def _render_chart_switch(
+    callback: CallbackQuery, period: str, op: str, year: int, month: int, user_id: int
+) -> None:
+    """Rebuilds the category chart for a new period and edits the photo in place."""
+    report_type = "income" if op == "inc" else "expense"
+    operation_sign = "+" if op == "inc" else "-"
+    title_type = "Доходы" if report_type == "income" else "Расходы"
+
+    date_from, date_to = _period_dates(period, year, month)
+    await callback.answer()
+
+    async with async_session() as session:
+        categories = await get_categories_summary(
+            session, user_id, operation_sign, date_from, date_to
+        )
+        total = sum(categories.values()) if categories else Decimal("0.0")
+        records = (
+            await get_records(session, user_id, "range", date_from, date_to, limit=30)
+            if period == "month"
+            else None
+        )
+
+    if not categories:
+        await get_message(callback).answer("Нет данных за выбранный период.")
+        return
+
+    if period == "month":
+        buf, caption = await build_report_pie(
+            categories, total, date_from, report_type, records
+        )
+    elif period == "quarter":
+        buf = await build_category_chart(
+            categories, total, f"{title_type} за последние 3 месяца", report_type
+        )
+        caption = format_period_caption(
+            categories, total, "Последние 3 месяца", report_type
+        )
+    else:  # year
+        buf = await build_category_chart(
+            categories, total, f"{title_type} за последние 12 месяцев", report_type
+        )
+        caption = format_period_caption(
+            categories, total, "Последние 12 месяцев", report_type
+        )
+
+    if not buf:
+        await get_message(callback).answer("Не удалось построить график.")
+        return
+
+    kb = chart_period_keyboard(period, report_type, year, month)
+    media = InputMediaPhoto(
+        media=BufferedInputFile(buf.read(), filename="report.png"),
+        caption=caption,
+        parse_mode="HTML",
+    )
+    try:
+        await get_message(callback).edit_media(media=media, reply_markup=kb)
+    except Exception:
+        logging.exception("Не удалось обновить график периода")
+
+
+@router.callback_query(F.data == "chart_noop")
+async def chart_noop(callback: CallbackQuery, **kwargs) -> None:
+    """Tap on the central month label — no-op."""
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("chart_period:"))
+@log_exceptions("Ошибка при смене периода графика")
+async def chart_period_handler(callback: CallbackQuery, **kwargs) -> None:
+    """Switch chart period (month/quarter/year)."""
+    try:
+        parts = (callback.data or "").split(":")
+        period, op = parts[1], parts[2]
+        year, month = int(parts[3]), int(parts[4])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+
+    await _render_chart_switch(callback, period, op, year, month, user_id)
+
+
+@router.callback_query(F.data.startswith("chart_nav:"))
+@log_exceptions("Ошибка при навигации по месяцам графика")
+async def chart_nav_handler(callback: CallbackQuery, **kwargs) -> None:
+    """Shift month back/forward (month period only)."""
+    try:
+        parts = (callback.data or "").split(":")
+        direction, op = parts[1], parts[2]
+        year, month = int(parts[3]), int(parts[4])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные.")
+        return
+
+    if direction == "prev":
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    else:
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    if year > now.year or (year == now.year and month > now.month):
+        await callback.answer("Нельзя смотреть будущий месяц.", show_alert=True)
+        return
+
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+
+    await _render_chart_switch(callback, "month", op, year, month, user_id)

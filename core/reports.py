@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
-from config import MAX_CAPTION_LENGTH, TIMEZONE
+from config import MAX_CAPTION_LENGTH, MAX_CATEGORIES_IN_PIE, TIMEZONE
 from core.database.models import Record
 from core.utils import RU_MONTHS, format_money
 
@@ -122,6 +122,67 @@ def make_report_text(
     if len(result) > MAX_CAPTION_LENGTH:
         result = result[: MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
 
+    return result
+
+
+def format_period_caption(
+    categories: Dict[str, Decimal],
+    total: Decimal | float,
+    period_label: str,
+    report_type: str,
+) -> str:
+    """Caption for quarter/year period switch (Feature 1). No monthly table."""
+    title_type = "Доходы" if report_type == "income" else "Расходы"
+    icon = "💵" if report_type == "income" else "🛒"
+
+    lines = [f"📊 <b>{title_type}</b> • {period_label}\n", "📁 <b>По категориям:</b>"]
+    for name, amount in sorted(categories.items(), key=lambda x: -x[1]):
+        lines.append(f"  {icon} {html.escape(name)} — {format_money(amount)}")
+    lines.append(f"\n💰 <b>Итого:</b> {format_money(total)}")
+
+    result = "\n".join(lines)
+    if len(result) > MAX_CAPTION_LENGTH:
+        result = result[: MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
+    return result
+
+
+def format_stacked_caption(data: list[dict], operation: str) -> str:
+    """Short category legend for stacked chart (Feature 2). No monospace table."""
+    title_type = "Расходы" if operation == "-" else "Доходы"
+    icon = "💵" if operation == "+" else "🛒"
+
+    months = sorted({(d["year"], d["month"]) for d in data})
+    if not months:
+        return f"📊 <b>Структура: {title_type.lower()}</b>\n\nНет данных за период."
+
+    (y1, m1), (y2, m2) = months[0], months[-1]
+    if (y1, m1) == (y2, m2):
+        period = f"{RU_MONTHS[m1]} {y1}"
+    else:
+        period = f"{RU_MONTHS[m1]} {y1} – {RU_MONTHS[m2]} {y2}"
+
+    cat_totals: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for d in data:
+        cat_totals[d["category"]] += d["total"]
+    grand = sum(cat_totals.values(), Decimal("0"))
+
+    sorted_cats = sorted(cat_totals.items(), key=lambda x: -x[1])
+    top = sorted_cats[:MAX_CATEGORIES_IN_PIE]
+    other = sum((v for _, v in sorted_cats[MAX_CATEGORIES_IN_PIE:]), Decimal("0"))
+
+    lines = [
+        f"📊 <b>Структура: {title_type.lower()}</b> • {period}\n",
+        "📁 <b>По категориям за период:</b>",
+    ]
+    for name, amount in top:
+        lines.append(f"  {icon} {html.escape(name)} — {format_money(amount)}")
+    if other > 0:
+        lines.append(f"  {icon} Прочее — {format_money(other)}")
+    lines.append(f"\n💰 <b>Итого:</b> {format_money(grand)}")
+
+    result = "\n".join(lines)
+    if len(result) > MAX_CAPTION_LENGTH:
+        result = result[: MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
     return result
 
 

@@ -233,6 +233,60 @@ async def get_monthly_totals(
     ]
 
 
+async def get_stacked_data(
+    session: AsyncSession,
+    user_id: int,
+    operation: str,
+    months_count: int,
+) -> list[dict]:
+    """Sums grouped by (year, month, category) for last N months. For stacked bar charts.
+
+    Returns [{year, month, category, total}, ...] ordered by (year, month).
+    Uses func.extract (works on both SQLite and Postgres) — no strftime.
+    """
+    now = now_moscow()
+    start_date = (now - relativedelta(months=months_count - 1)).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+
+    query = (
+        select(
+            func.extract("year", Record.created_at).label("year"),
+            func.extract("month", Record.created_at).label("month"),
+            Record.category,
+            func.sum(Record.amount).label("total"),
+        )
+        .where(
+            Record.user_id == user_id,
+            Record.operation == operation,
+            Record.category.not_in(SYSTEM_CATEGORIES),
+            Record.created_at >= start_date,
+        )
+        .group_by(
+            func.extract("year", Record.created_at),
+            func.extract("month", Record.created_at),
+            Record.category,
+        )
+        .order_by(
+            func.extract("year", Record.created_at),
+            func.extract("month", Record.created_at),
+        )
+    )
+
+    result = await session.execute(query)
+    rows = result.fetchall()
+
+    return [
+        {
+            "year": int(row.year),
+            "month": int(row.month),
+            "category": row.category or "Без категории",
+            "total": Decimal(str(row.total)),
+        }
+        for row in rows
+    ]
+
+
 async def get_weekday_report(
     session: AsyncSession,
     user_id: int,
