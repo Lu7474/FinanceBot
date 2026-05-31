@@ -18,7 +18,7 @@
 - Tests: `tests/`
 - Run: `python bot.py`
 - Test: `./env/Scripts/python.exe -m pytest`
-- Lint: `ruff check . --fix` | Format: `black .`
+- Lint: `ruff check . --fix` | Format: `ruff format .`
 
 ## Code Style
 - **PEP8 & Type Hints**: Mandatory.

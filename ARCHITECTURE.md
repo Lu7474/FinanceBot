@@ -21,9 +21,10 @@ FinanceBot/
 │   │   ├── __init__.py         # Сборка всех роутеров в один Router
 │   │   ├── common.py           # FSM states, фильтры кнопок, get_user_id_from_event
 │   │   ├── menu.py             # /start, /help, /cancel
+│   │   ├── more.py             # Подменю «Ещё»: переключение главного и второго экранов reply-меню
 │   │   ├── records.py          # Добавление записей (кнопка + быстрый ввод)
 │   │   ├── history.py          # История с пагинацией
-│   │   ├── reports.py          # Отчёты и сравнение периодов
+│   │   ├── reports.py          # Отчёты: по категориям / структура по месяцам / годовой; сравнение и переключение периода
 │   │   ├── delete.py           # Удаление записей с подтверждением
 │   │   ├── accounts.py         # Управление счетами
 │   │   ├── savings.py          # Накопления: снимки баланса
@@ -35,6 +36,7 @@ FinanceBot/
 │   │   ├── goals.py            # Финансовые цели: CRUD, пополнение, снятие
 │   │   ├── debts.py            # Долги и займы: создание, частичное погашение, архив
 │   │   ├── notifications.py    # /notifications, тоггл флагов, онбординг
+│   │   ├── family.py           # Семейный бюджет: создание/вступление, общая история и отчёты, управление
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
 │   └── database/
@@ -43,7 +45,7 @@ FinanceBot/
 │           ├── _common.py      # apply_period_filter, SYSTEM_CATEGORIES, лимиты
 │           ├── users.py        # get_user_by_tg_id, set_user, notifiable-users, last-reminded
 │           ├── records.py      # add/get/update/delete_record, delete_records_bulk, totals, duplicate-check
-│           ├── reports.py      # categories_summary, history_data, monthly/weekday/search
+│           ├── reports.py      # categories_summary, history_data, monthly/yearly/stacked/search
 │           ├── accounts.py     # CRUD счетов, балансы, переводы
 │           ├── categories.py   # UserCategory + suggest/learn keywords + seed_defaults
 │           ├── savings.py      # snapshots, items, wealth-items
@@ -51,9 +53,10 @@ FinanceBot/
 │           ├── goals.py        # CRUD целей, deposit/withdraw, complete
 │           ├── debts.py        # CRUD долгов, частичные платежи, выборка для напоминаний
 │           ├── notifications.py # weekly/monthly/daily summary-выборки
+│           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 509 pytest-тестов
+├── tests/                      # 538 pytest-тестов
 └── requirements.txt
 ```
 
@@ -215,6 +218,27 @@ category_id: int (FK → UserCategory.id, CASCADE)
 keyword: str (max 50, unique per user)
 ```
 
+### Family
+Группа пользователей с общим доступом к истории и отчётам. Записи остаются личными (`Record.user_id`) — семья только агрегирует их в scope.
+```
+id: int (PK)
+name: str (max 100)
+owner_id: int (FK → User.id, CASCADE)  — владелец, быстрый чек прав управления
+invite_code: str (max 8, unique)  — код приглашения (алфавит без похожих 0 O 1 I L)
+created_at: datetime
+members: relationship → FamilyMember (cascade delete)
+```
+
+### FamilyMember
+Членство пользователя в семье — единственный источник правды о составе. Один юзер состоит максимум в одной семье (unique на user_id). Лимит — 5 участников (`MAX_FAMILY_MEMBERS`).
+```
+id: int (PK)
+family_id: int (FK → Family.id, CASCADE)
+user_id: int (FK → User.id, CASCADE, unique)
+role: str (max 10)  — "owner" | "member"
+joined_at: datetime
+```
+
 ### Индексы
 ```
 ix_records_user_created         — (user_id, created_at)           выборка по периоду
@@ -229,6 +253,7 @@ ix_debts_due_date                 — (due_date)                       выбо�
 ix_debt_payments_debt_id          — (debt_id)                        история платежей по долгу
 ix_user_categories_user_name      — (user_id, name, unique)         дубли категорий
 ix_category_keywords_user_keyword — (user_id, keyword, unique)      дубли ключевых слов
+ix_family_members_family_id       — (family_id)                     состав семьи
 ```
 
 ## FSM
@@ -253,8 +278,9 @@ waiting_for_delete_bulk_confirm  — подтверждение массовог
 waiting_for_search_query
 waiting_for_search_page
 waiting_for_history_category_filter
-waiting_for_weekday_type    — выбор типа (Расходы/Доходы) для weekday-отчёта
-waiting_for_weekday_period  — выбор периода для weekday-отчёта
+waiting_for_yearly_type     — выбор типа (Доходы/Расходы) для годового отчёта
+waiting_for_yearly_year     — выбор года (или «за всё время») для годового отчёта
+waiting_for_yearly_cats     — мультивыбор категорий для годового отчёта
 ```
 
 ### BudgetStates
@@ -360,6 +386,15 @@ waiting_payment_amount  — ввод суммы частичного погаш�
 waiting_payment_note    — ввод заметки к погашению
 ```
 
+### FamilyStates
+```
+summary         — экран сводки семьи (доходы/расходы по участникам за месяц)
+creating_name   — ввод названия при создании семьи
+joining_code    — ввод кода приглашения
+viewing_history — постраничная общая история с фильтром по участнику
+renaming        — владелец вводит новое название
+```
+
 ## Middleware
 
 ### UserMiddleware
@@ -379,6 +414,24 @@ waiting_payment_note    — ввод заметки к погашению
 Read-only функции (`reports.py`, `_common.py`) commit не делают.
 
 ## Основные потоки
+
+### Меню
+```
+Главное меню (main_menu_keyboard):
+  [Доход] [Расход]
+  [История] [Отчёт]
+  [Счета] [Удалить запись]
+  [Ещё]
+
+Подменю «Ещё» (more_menu_keyboard, more.py) — второй экран reply-клавиатуры:
+  [Накопления] [Категории]
+  [Бюджеты] [Цели]
+  [Долги] [Семья]
+  [Экспорт] [Импорт]
+  [Назад]
+
+Активы/Пассивы (wealth) — inline-кнопка «💰 Активы/Пассивы» внутри раздела «Накопления».
+```
 
 ### Добавление записи (кнопка)
 ```
@@ -414,10 +467,19 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 
 ### Отчёт
 ```
-[Отчёт] → тип → год → месяц
-    → get_categories_summary()  — SQL GROUP BY
-    → build_report_chart()      — PNG (ThreadPoolExecutor, таймаут 10 с)
-    → отправка фото + caption
+[Отчёт] → report_section_keyboard — три раздела:
+
+  📊 По категориям → тип (Доход / Расход) → год → месяц
+      → get_categories_summary()  — SQL GROUP BY
+      → build_report_pie()        — PNG (ThreadPoolExecutor, таймаут 10 с)
+      → под графиком chart_period_keyboard: ◀ [месяц] ▶,
+        переключатель Месяц / Квартал / Год, «Сравнить с прошлым месяцем» (build_trend_chart)
+
+  📈 Структура по месяцам → тип → период (3 / 6 / 12 мес)
+      → get_stacked_data() → build_stacked_bar_chart() — stacked PNG
+
+  📅 Годовой отчёт → тип → год (или «за всё время») → мультивыбор категорий
+      → get_yearly_report() → format_yearly_report() + build_yearly_chart()
 ```
 
 ### Управление счетами
@@ -455,16 +517,6 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
     → Добавить / Изменить / Удалить лимит по категории расходов
     → при записи расхода: check_budget_alerts() → уведомление при ≥80% и ≥100%
     → автосброс флагов alerted_80/alerted_100 в новом месяце
-```
-
-### Отчёт по дням недели
-```
-[Отчёт] → По дням недели
-    → выбор типа (Расходы / Доходы)
-    → выбор периода
-    → get_weekday_report()  — SQL GROUP BY strftime('%w')
-    → format_weekday_report() — таблица среднего по дням
-    → build_weekday_chart()   — столбчатый PNG-график
 ```
 
 ### Цели
@@ -547,6 +599,28 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
         → 🗑 Удалить → delete_debt() (каскад DebtPayment)
 ```
 
+### Семья (`core/handlers/family.py`)
+```
+[Ещё] → [Семья]
+    Нет семьи → family_join_or_create_keyboard: [Создать] / [Присоединиться]
+        Создать → ввод названия → create_family() (owner + invite_code 8 симв.)
+        Присоединиться → ввод кода (или /join <код>) → join_family()
+            (проверки: код валиден, < 5 участников, юзер ещё без семьи)
+
+    Есть семья → сводка get_family_summary(): доходы/расходы по участникам за месяц
+        family_menu_keyboard(is_owner):
+          [📋 Общая история] → get_family_member_ids() + get_history_data(scope)
+              → постранично, фильтр по участнику (цветовые маркеры)
+          [📊 Общий отчёт] → тип → период (месяц / 3 мес / год)
+              → get_family_category_breakdown() → build_family_stacked_chart() + текст
+          [⚙️ Управление] (только владелец): regenerate_invite_code / rename_family /
+              kick_member / dissolve_family
+          [Покинуть] (участник) → leave_family() (владелец не может — только расформировать)
+
+Записи остаются личными (Record.user_id), семья только агрегирует их в scope.
+Семья НЕ кэшируется в UserMiddleware — хендлеры вызывают get_family() напрямую.
+```
+
 ### Уведомления (`core/scheduler.py`)
 ```
 APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.py → setup_scheduler()
@@ -594,7 +668,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (509)
+## Тесты (538)
 
 ```bash
 pytest tests/ -v
@@ -617,13 +691,14 @@ pytest tests/ -v
 | test_period_filters.py | Фильтры периодов и DB-запросы |
 | test_queries.py | Сложные SQL-запросы |
 | test_search_filter.py | Поиск записей и фильтры истории |
-| test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов; weekday-отчёт |
+| test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов |
 | test_export_import.py | Экспорт/импорт: парсинг xlsx, валидация строк, bulk insert, дубли |
 | test_export_import_tz.py | Экспорт/импорт: корректность временной зоны |
 | test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
 | test_goals_errors.py | Цели: обработка ошибок и граничные случаи |
 | test_debts.py | Долги: CRUD, частичные погашения, выборка для напоминаний, каскадное удаление |
 | test_notifications.py | Уведомления: форматтеры сводок (weekly/monthly/daily), DB-выборки |
+| test_family.py | Семья: membership, инвайт-коды, лимит участников, общие сводки и разбивки, права владельца |
 | test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка |
 | test_charts.py | Генерация графиков (matplotlib) |
 | test_middleware.py | RateLimitMiddleware и UserMiddleware |
