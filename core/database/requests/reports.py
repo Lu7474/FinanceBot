@@ -6,7 +6,7 @@ from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import case, func, select
+from sqlalchemy import ColumnElement, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
@@ -19,19 +19,23 @@ from ._common import SYSTEM_CATEGORIES, apply_period_filter
 
 async def get_categories_summary(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     operation: str,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
 ) -> dict[str, Decimal]:
-    """Sum-by-category via SQL GROUP BY. Returns {category: total}."""
+    """Sum-by-category via SQL GROUP BY. Returns {category: total}.
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     query = (
         select(
             Record.category,
             func.sum(Record.amount).label("total"),
         )
         .where(
-            Record.user_id == user_id,
+            Record.user_id.in_(user_ids),
             Record.operation == operation,
             Record.category.not_in(SYSTEM_CATEGORIES),
         )
@@ -57,7 +61,7 @@ async def get_categories_summary(
 
 async def get_history_data(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     within: str = "all",
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
@@ -68,10 +72,14 @@ async def get_history_data(
     operation_filter: Optional[str] = None,
     category_filter: Optional[str] = None,
 ) -> tuple[int, Decimal, Decimal, List[Record]]:
-    """Single call returning (total_count, income_sum, expense_sum, records)."""
+    """Single call returning (total_count, income_sum, expense_sum, records).
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
     now = datetime.now(ZoneInfo(TIMEZONE))
 
-    base_conditions = [Record.user_id == user_id]
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
+    base_conditions: list[ColumnElement[bool]] = [Record.user_id.in_(user_ids)]
     if not include_transfers:
         base_conditions.append(Record.category.not_in(SYSTEM_CATEGORIES))
     if account_id is not None:
@@ -117,15 +125,19 @@ async def get_history_data(
 
 async def search_records(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     query_str: str,
     limit: Optional[int] = None,
     offset: int = 0,
 ) -> tuple[int, Decimal, Decimal, List[Record]]:
-    """Parses query_str, builds WHERE, returns (total_count, income_sum, expense_sum, records)."""
+    """Parses query_str, builds WHERE, returns (total_count, income_sum, expense_sum, records).
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     parsed = parse_search_query(query_str)
-    conditions = [
-        Record.user_id == user_id,
+    conditions: list[ColumnElement[bool]] = [
+        Record.user_id.in_(user_ids),
         Record.category.not_in(SYSTEM_CATEGORIES),
     ]
     if parsed.get("operation") in {"+", "-"}:
@@ -164,17 +176,21 @@ async def search_records(
 
 async def get_top_categories_for_period(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     within: str,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     limit: int = 15,
     operation_filter: Optional[str] = None,
 ) -> list[str]:
-    """Returns top N categories by frequency for given period."""
+    """Returns top N categories by frequency for given period.
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
     now = datetime.now(ZoneInfo(TIMEZONE))
-    conditions = [
-        Record.user_id == user_id,
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
+    conditions: list[ColumnElement[bool]] = [
+        Record.user_id.in_(user_ids),
         Record.category.not_in(SYSTEM_CATEGORIES),
     ]
     if operation_filter is not None:
@@ -193,12 +209,16 @@ async def get_top_categories_for_period(
 
 async def get_monthly_totals(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     operation: str,
     months_back: int = 12,
 ) -> list[tuple[int, int, Decimal]]:
-    """Sums grouped by (year, month) for the last N months. For trend charts."""
+    """Sums grouped by (year, month) for the last N months. For trend charts.
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
     now = now_moscow()
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     start_date = (now - relativedelta(months=months_back - 1)).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
@@ -210,7 +230,7 @@ async def get_monthly_totals(
             func.sum(Record.amount).label("total"),
         )
         .where(
-            Record.user_id == user_id,
+            Record.user_id.in_(user_ids),
             Record.operation == operation,
             Record.category.not_in(SYSTEM_CATEGORIES),
             Record.created_at >= start_date,
@@ -235,7 +255,7 @@ async def get_monthly_totals(
 
 async def get_stacked_data(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     operation: str,
     months_count: int,
 ) -> list[dict]:
@@ -243,8 +263,10 @@ async def get_stacked_data(
 
     Returns [{year, month, category, total}, ...] ordered by (year, month).
     Uses func.extract (works on both SQLite and Postgres) — no strftime.
+    user_id accepts a single id (personal) or a list (family scope).
     """
     now = now_moscow()
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     start_date = (now - relativedelta(months=months_count - 1)).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
@@ -257,7 +279,7 @@ async def get_stacked_data(
             func.sum(Record.amount).label("total"),
         )
         .where(
-            Record.user_id == user_id,
+            Record.user_id.in_(user_ids),
             Record.operation == operation,
             Record.category.not_in(SYSTEM_CATEGORIES),
             Record.created_at >= start_date,
@@ -289,7 +311,7 @@ async def get_stacked_data(
 
 async def get_yearly_report(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     operation: str,
     year: Optional[int] = None,
     categories: Optional[List[str]] = None,
@@ -300,9 +322,11 @@ async def get_yearly_report(
     categories=None/empty → all categories. SYSTEM_CATEGORIES excluded.
     func.extract used (SQLite casts to INTEGER) — Postgres-safe, no strftime.
     Returns [{year, month, category, total}] ordered by (year, month).
+    user_id accepts a single id (personal) or a list (family scope).
     """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     conditions = [
-        Record.user_id == user_id,
+        Record.user_id.in_(user_ids),
         Record.operation == operation,
         Record.category.not_in(SYSTEM_CATEGORIES),
     ]
@@ -344,13 +368,17 @@ async def get_yearly_report(
 
 async def get_categories_for_year(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     operation: str,
     year: Optional[int] = None,
 ) -> list[str]:
-    """Distinct categories for a year (or all time), ordered by total desc."""
+    """Distinct categories for a year (or all time), ordered by total desc.
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     conditions = [
-        Record.user_id == user_id,
+        Record.user_id.in_(user_ids),
         Record.operation == operation,
         Record.category.not_in(SYSTEM_CATEGORIES),
     ]
@@ -369,19 +397,23 @@ async def get_categories_for_year(
 
 async def get_weekday_report(
     session: AsyncSession,
-    user_id: int,
+    user_id: int | list[int],
     operation: str,
     date_from: datetime,
     date_to: datetime,
 ) -> dict[int, Decimal]:
-    """Returns {weekday: total} where weekday 0=Mon..6=Sun. Days with no records = Decimal('0')."""
+    """Returns {weekday: total} where weekday 0=Mon..6=Sun. Days with no records = Decimal('0').
+
+    user_id accepts a single id (personal) or a list (family scope).
+    """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     result = await session.execute(
         select(
             func.strftime("%w", Record.created_at).label("sqlite_wd"),
             func.sum(Record.amount).label("total"),
         )
         .where(
-            Record.user_id == user_id,
+            Record.user_id.in_(user_ids),
             Record.operation == operation,
             Record.category.not_in(SYSTEM_CATEGORIES),
             Record.created_at.between(date_from, date_to),

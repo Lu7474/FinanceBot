@@ -76,6 +76,21 @@ from .debts import (
     get_debt_payments,
     get_debts_to_remind,
 )
+from .family import (
+    MAX_FAMILY_MEMBERS,
+    create_family,
+    dissolve_family,
+    get_family,
+    get_family_category_breakdown,
+    get_family_member_ids,
+    get_family_members,
+    get_family_summary,
+    join_family,
+    kick_member,
+    leave_family,
+    regenerate_invite_code,
+    rename_family,
+)
 from .goals import (
     complete_goal,
     create_goal,
@@ -228,6 +243,20 @@ __all__ = [
     "get_debt",
     "get_debt_payments",
     "get_debts_to_remind",
+    # family
+    "MAX_FAMILY_MEMBERS",
+    "create_family",
+    "dissolve_family",
+    "get_family",
+    "get_family_category_breakdown",
+    "get_family_member_ids",
+    "get_family_members",
+    "get_family_summary",
+    "join_family",
+    "kick_member",
+    "leave_family",
+    "regenerate_invite_code",
+    "rename_family",
     # budgets
     "check_and_alert_budget",
     "delete_budget",

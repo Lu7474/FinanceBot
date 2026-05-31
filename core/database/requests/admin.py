@@ -15,6 +15,8 @@ from core.database.models import (
     Account,
     Budget,
     CategoryKeyword,
+    Family,
+    FamilyMember,
     Goal,
     GoalDeposit,
     Record,
@@ -124,6 +126,27 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
         if not user:
             return False
         uid = user.id
+
+        # Family: if the user owns families, dissolve them (drop their members
+        # explicitly first — bulk delete bypasses ORM cascade). Then drop the
+        # user's own membership in case they were a member of someone else's family.
+        owned_family_ids = list(
+            (
+                await session.execute(
+                    select(Family.id).where(Family.owner_id == uid)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if owned_family_ids:
+            await session.execute(
+                delete(FamilyMember).where(
+                    FamilyMember.family_id.in_(owned_family_ids)
+                )
+            )
+            await session.execute(delete(Family).where(Family.owner_id == uid))
+        await session.execute(delete(FamilyMember).where(FamilyMember.user_id == uid))
 
         # GoalDeposit -> Goal
         await session.execute(

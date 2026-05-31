@@ -16,7 +16,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Накопления"), KeyboardButton(text="Категории")],
             [KeyboardButton(text="Бюджеты"), KeyboardButton(text="Экспорт")],
             [KeyboardButton(text="Импорт"), KeyboardButton(text="Цели")],
-            [KeyboardButton(text="Долги")],
+            [KeyboardButton(text="Долги"), KeyboardButton(text="Семья")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,

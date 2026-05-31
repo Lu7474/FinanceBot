@@ -10,6 +10,7 @@ from .debts import router as debts_router
 from .delete import router as delete_router
 from .export_import import router as export_import_router
 from .fallback import router as fallback_router
+from .family import router as family_router
 from .goals import router as goals_router
 from .history import router as history_router
 from .menu import router as menu_router
@@ -38,4 +39,5 @@ router.include_router(wealth_router)
 router.include_router(goals_router)
 router.include_router(debts_router)
 router.include_router(notifications_router)
+router.include_router(family_router)
 router.include_router(fallback_router)  # must be last

@@ -1,6 +1,7 @@
 """
 SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem,
-Budget, UserCategory, CategoryKeyword, Goal, GoalDeposit, Debt, DebtPayment.
+Budget, UserCategory, CategoryKeyword, Goal, GoalDeposit, Debt, DebtPayment,
+Family, FamilyMember.
 """
 
 from datetime import date, datetime
@@ -382,6 +383,43 @@ class DebtPayment(Base):
     paid_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
 
     debt = relationship("Debt", back_populates="payments")
+
+
+# Семья — группа пользователей с общим доступом к истории и отчётам.
+# Записи остаются личными (Record.user_id), семья только агрегирует их в scope.
+class Family(Base):
+    __tablename__ = "families"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )  # быстрый чек прав управления
+    invite_code: Mapped[str] = mapped_column(String(8), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    members = relationship(
+        "FamilyMember", back_populates="family", cascade="all, delete-orphan"
+    )
+
+
+# Членство пользователя в семье — единственный источник правды о составе.
+# Один юзер может состоять только в одной семье (unique на user_id).
+class FamilyMember(Base):
+    __tablename__ = "family_members"
+    __table_args__ = (Index("ix_family_members_family_id", "family_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    family_id: Mapped[int] = mapped_column(
+        ForeignKey("families.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(10), nullable=False)  # "owner" | "member"
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    family = relationship("Family", back_populates="members")
 
 
 # ==================== Инициализация ====================

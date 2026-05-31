@@ -168,6 +168,13 @@ def is_debts(message: Message) -> bool:
     return (message.text or "").strip().lower() == "долги"
 
 
+def is_family(message: Message) -> bool:
+    """Checks if message is the 'Семья' menu command."""
+    if not message.text:
+        return False
+    return (message.text or "").strip().lower() in ("семья", "👨‍👩‍👧 семья")
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -185,6 +192,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_import(message),
             is_goals(message),
             is_debts(message),
+            is_family(message),
         ]
     )
 
@@ -333,3 +341,13 @@ class DebtStates(StatesGroup):
     waiting_due_date = State()
     waiting_payment_amount = State()
     waiting_payment_note = State()
+
+
+class FamilyStates(StatesGroup):
+    """States for the family budget workflow."""
+
+    summary = State()
+    creating_name = State()  # entering family name on creation
+    joining_code = State()  # entering invite code to join
+    viewing_history = State()  # paginated shared history
+    renaming = State()  # owner entering new family name

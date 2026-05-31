@@ -343,6 +343,152 @@ async def build_stacked_bar_chart(
         return None
 
 
+# Per-member palette for family charts (matches MEMBER_MARKERS order in keyboards).
+FAMILY_MEMBER_COLORS = ["#3498db", "#2ecc71", "#e67e22", "#9b59b6", "#f1c40f"]
+
+
+def _build_family_stacked_chart_sync(
+    data: List[Dict[str, Any]],
+    member_meta: List[Tuple[int, str]],
+    operation: str,
+) -> Optional[io.BytesIO]:
+    """Horizontal stacked bar: Y = categories, segment colour = family member.
+
+    data: [{category, user_id, total}, ...]. member_meta: ordered [(user_id, name)]
+    (defines colour by position). Top MAX_CATEGORIES_IN_PIE categories kept.
+    """
+    if not data or not member_meta:
+        return None
+
+    try:
+        # Category totals → pick top N, fold the rest into "Прочее"
+        cat_totals: Dict[str, float] = {}
+        for d in data:
+            cat_totals[d["category"]] = cat_totals.get(d["category"], 0.0) + float(
+                d["total"]
+            )
+        top_cats = [
+            c
+            for c, _ in sorted(cat_totals.items(), key=lambda x: -x[1])[
+                :MAX_CATEGORIES_IN_PIE
+            ]
+        ]
+        use_other = len(cat_totals) > MAX_CATEGORIES_IN_PIE
+        cat_list = top_cats + (["Прочее"] if use_other else [])
+
+        member_ids = [uid for uid, _ in member_meta]
+        member_index = {uid: i for i, uid in enumerate(member_ids)}
+        cat_index = {c: i for i, c in enumerate(cat_list)}
+
+        # matrix[member_pos] = [value per category]
+        matrix: List[List[float]] = [
+            [0.0] * len(cat_list) for _ in member_meta
+        ]
+        member_totals = [0.0] * len(member_meta)
+        for d in data:
+            uid = d["user_id"]
+            if uid not in member_index:
+                continue
+            if d["category"] in top_cats:
+                ci = cat_index[d["category"]]
+            elif use_other:
+                ci = cat_index["Прочее"]
+            else:
+                continue
+            mi = member_index[uid]
+            val = float(d["total"])
+            matrix[mi][ci] += val
+            member_totals[mi] += val
+
+        y = list(range(len(cat_list)))
+        fig = Figure(figsize=(8, max(4, len(cat_list) * 0.6)))
+        ax = fig.subplots()
+
+        left = [0.0] * len(cat_list)
+        for mi, (uid, name) in enumerate(member_meta):
+            vals = matrix[mi]
+            color = FAMILY_MEMBER_COLORS[mi % len(FAMILY_MEMBER_COLORS)]
+            label = f"{name} ({format_money(member_totals[mi])})"
+            ax.barh(
+                y,
+                vals,
+                left=left,
+                label=label,
+                color=color,
+                edgecolor="white",
+                linewidth=0.8,
+                height=0.6,
+            )
+            left = [b + v for b, v in zip(left, vals)]
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(cat_list, fontsize=10)
+        ax.invert_yaxis()
+
+        max_total = max(left) if left else 0.0
+        for i, total_v in enumerate(left):
+            if total_v > 0:
+                ax.text(
+                    total_v + max_total * 0.01,
+                    i,
+                    format_money(total_v),
+                    va="center",
+                    fontsize=9,
+                    fontweight="bold",
+                )
+
+        ax.set_xlim(0, max_total * 1.18 if max_total > 0 else 1)
+        title_type = "Доходы" if operation == "+" else "Расходы"
+        ax.set_title(
+            f"{title_type} по категориям (семья)",
+            fontsize=13,
+            fontweight="bold",
+            pad=12,
+        )
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.legend(loc="lower right", fontsize=8, framealpha=0.9)
+
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        return buf
+
+    except Exception:
+        logging.exception("Ошибка при построении family stacked chart")
+        return None
+
+
+async def build_family_stacked_chart(
+    data: List[Dict[str, Any]],
+    member_meta: List[Tuple[int, str]],
+    operation: str,
+) -> Optional[io.BytesIO]:
+    """Async wrapper for the family stacked chart with timeout."""
+    if not data or not member_meta:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_family_stacked_chart_sync,
+                data,
+                member_meta,
+                operation,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут family stacked chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении family stacked chart")
+        return None
+
+
 def _build_yearly_chart_sync(
     data: List[Dict[str, Any]],
     operation: str,

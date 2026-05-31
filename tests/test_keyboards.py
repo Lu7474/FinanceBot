@@ -106,8 +106,9 @@ def test_main_menu_keyboard():
     assert sixth_row[1].text == "Цели"
 
     seventh_row = keyboard.keyboard[6]
-    assert len(seventh_row) == 1
+    assert len(seventh_row) == 2
     assert seventh_row[0].text == "Долги"
+    assert seventh_row[1].text == "Семья"
 
     # Проверяем настройки
     assert keyboard.resize_keyboard is True
