@@ -18,7 +18,7 @@ from .categories import (
     category_suggest_keyboard,
     user_categories_menu_keyboard,
 )
-from .common import CANCEL_BUTTON, main_menu_keyboard
+from .common import CANCEL_BUTTON, main_menu_keyboard, more_menu_keyboard
 from .debts import (
     debt_archive_keyboard,
     debt_delete_confirm_keyboard,
@@ -165,6 +165,7 @@ __all__ = [
     "history_record_select_keyboard",
     "import_confirm_keyboard",
     "main_menu_keyboard",
+    "more_menu_keyboard",
     "notification_settings_keyboard",
     "notify_onboarding_keyboard",
     "record_account_select_keyboard",

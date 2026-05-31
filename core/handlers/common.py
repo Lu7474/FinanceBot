@@ -175,6 +175,20 @@ def is_family(message: Message) -> bool:
     return (message.text or "").strip().lower() in ("семья", "👨‍👩‍👧 семья")
 
 
+def is_more(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Ещё' (открыть подменю)."""
+    if not message.text:
+        return False
+    return (message.text or "").strip().lower() in ("ещё", "еще")
+
+
+def is_back(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Назад' (вернуться в меню)."""
+    if not message.text:
+        return False
+    return (message.text or "").strip().lower() == "назад"
+
+
 def is_main_menu_button(message: Message) -> bool:
     """True если сообщение — кнопка главного меню."""
     return any(
@@ -193,6 +207,8 @@ def is_main_menu_button(message: Message) -> bool:
             is_goals(message),
             is_debts(message),
             is_family(message),
+            is_more(message),
+            is_back(message),
         ]
     )
 

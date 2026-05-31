@@ -14,6 +14,7 @@ from .family import router as family_router
 from .goals import router as goals_router
 from .history import router as history_router
 from .menu import router as menu_router
+from .more import router as more_router
 from .notifications import router as notifications_router
 from .records import parse_record_line as parse_record_line
 from .records import router as records_router
@@ -25,6 +26,7 @@ from .wealth import router as wealth_router
 router = Router()
 router.include_router(admin_router)
 router.include_router(menu_router)
+router.include_router(more_router)
 router.include_router(budgets_router)
 router.include_router(categories_router)
 router.include_router(export_import_router)

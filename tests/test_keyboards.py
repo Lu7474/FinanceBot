@@ -64,15 +64,15 @@ from core.keyboards import (
 from core.utils import RU_MONTHS
 
 
-# Проверяет структуру главного меню (5 рядов, правильные тексты)
+# Проверяет структуру главного меню (ядро + ряд «Ещё»)
 def test_main_menu_keyboard():
     from core.keyboards import main_menu_keyboard as _mkb
 
     keyboard = _mkb()
 
-    # Проверяем структуру
+    # Проверяем структуру: 4 ряда (3 ряда по 2 + ряд «Ещё»)
     assert keyboard.keyboard is not None
-    assert len(keyboard.keyboard) == 7  # 7 рядов кнопок
+    assert len(keyboard.keyboard) == 4
 
     # Проверяем кнопки
     first_row = keyboard.keyboard[0]
@@ -91,26 +91,33 @@ def test_main_menu_keyboard():
     assert third_row[1].text == "Удалить запись"
 
     fourth_row = keyboard.keyboard[3]
-    assert len(fourth_row) == 2
-    assert fourth_row[0].text == "Накопления"
-    assert fourth_row[1].text == "Категории"
+    assert len(fourth_row) == 1
+    assert fourth_row[0].text == "Ещё"
 
-    fifth_row = keyboard.keyboard[4]
-    assert len(fifth_row) == 2
-    assert fifth_row[0].text == "Бюджеты"
-    assert fifth_row[1].text == "Экспорт"
-
-    sixth_row = keyboard.keyboard[5]
-    assert len(sixth_row) == 2
-    assert sixth_row[0].text == "Импорт"
-    assert sixth_row[1].text == "Цели"
-
-    seventh_row = keyboard.keyboard[6]
-    assert len(seventh_row) == 2
-    assert seventh_row[0].text == "Долги"
-    assert seventh_row[1].text == "Семья"
+    # Перенесённых во второй экран кнопок в главном меню быть не должно
+    main_texts = {btn.text for row in keyboard.keyboard for btn in row}
+    for moved in ("Накопления", "Категории", "Бюджеты", "Цели", "Долги", "Семья", "Экспорт", "Импорт"):
+        assert moved not in main_texts
 
     # Проверяем настройки
+    assert keyboard.resize_keyboard is True
+    assert keyboard.one_time_keyboard is False
+
+
+# Проверяет подменю «Ещё»: 8 перенесённых разделов + «Назад»
+def test_more_menu_keyboard():
+    from aiogram.types import ReplyKeyboardMarkup
+
+    from core.keyboards import more_menu_keyboard as _more
+
+    keyboard = _more()
+    assert isinstance(keyboard, ReplyKeyboardMarkup)
+
+    texts = {btn.text for row in keyboard.keyboard for btn in row}
+    for expected in ("Накопления", "Категории", "Бюджеты", "Цели", "Долги", "Семья", "Экспорт", "Импорт"):
+        assert expected in texts
+    assert "Назад" in texts
+
     assert keyboard.resize_keyboard is True
     assert keyboard.one_time_keyboard is False
 
