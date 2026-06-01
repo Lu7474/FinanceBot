@@ -357,12 +357,6 @@ def parse_search_query(query: str) -> dict:
     return {"type": "text", "value": q}
 
 
-def format_day_total(total: float) -> str:
-    """Returns '+2 700₽' or '−3 650₽'."""
-    sign = "+" if total >= 0 else "−"
-    return f"{sign}{abs(total):,.0f}₽".replace(",", " ")
-
-
 def normalize_category(text: str) -> str:
     """Sanitizes (NFKC + strip hidden chars) and capitalizes first letter."""
     text = clean_text(text)

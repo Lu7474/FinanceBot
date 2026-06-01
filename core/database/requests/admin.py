@@ -3,9 +3,9 @@
 import csv
 import io
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy import case, delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -266,14 +266,6 @@ async def find_users_by_name(session: AsyncSession, query_str: str) -> List[User
         select(User).where(User.name.ilike(f"%{query_str}%")).limit(10)
     )
     return list(result.scalars().all())
-
-
-async def get_user_last_activity(
-    session: AsyncSession, user_id: int
-) -> Optional[datetime]:
-    return await session.scalar(
-        select(func.max(Record.created_at)).where(Record.user_id == user_id)
-    )
 
 
 async def get_active_user_tg_ids(session: AsyncSession, days: int = 7) -> List[int]:

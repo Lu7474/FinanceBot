@@ -36,7 +36,6 @@ from .admin import (
     get_bot_stats,
     get_power_user_tg_ids,
     get_top_users,
-    get_user_last_activity,
     get_user_records_csv,
     get_user_stats,
 )
@@ -220,7 +219,6 @@ __all__ = [
     "get_bot_stats",
     "get_power_user_tg_ids",
     "get_top_users",
-    "get_user_last_activity",
     "get_user_records_csv",
     "get_user_stats",
     # goals
