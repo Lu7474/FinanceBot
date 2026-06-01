@@ -1,4 +1,4 @@
-"""Tests for Budget CRUD, alert logic, and weekday report."""
+"""Tests for Budget CRUD and alert logic."""
 
 import sys
 from datetime import datetime
@@ -21,7 +21,6 @@ from core.database.requests import (
     delete_budget,
     get_budget_status,
     get_budgets,
-    get_weekday_report,
     reset_budget_alerts_if_new_month,
     set_budget,
 )
@@ -254,55 +253,6 @@ async def test_reset_alerts_new_month(session):
         budget = await s.scalar(select(Budget).where(Budget.user_id == user_id))
     assert budget.alerted_80 is False
     assert budget.alerted_100 is False
-
-
-# ==================== Tests: get_weekday_report ====================
-
-
-@pytest.mark.asyncio
-async def test_weekday_report_grouping(session):
-    user_id = await _make_user(212)
-    now = datetime.now(ZoneInfo(TIMEZONE))
-
-    # Monday = weekday() == 0
-    from datetime import timedelta
-
-    today = now.date()
-    days_since_monday = today.weekday()
-    last_monday = today - timedelta(days=days_since_monday)
-    monday_dt = datetime(
-        last_monday.year,
-        last_monday.month,
-        last_monday.day,
-        0,
-        0,
-        tzinfo=ZoneInfo(TIMEZONE),
-    )
-
-    await _add_expense(user_id, "Еда", Decimal("500"), monday_dt)
-    await _add_expense(user_id, "Еда", Decimal("300"), monday_dt)
-
-    async with test_session() as s:
-        date_from = datetime(now.year, now.month, 1, tzinfo=ZoneInfo(TIMEZONE))
-        date_to = now
-        data = await get_weekday_report(s, user_id, "-", date_from, date_to)
-
-    assert 0 in data  # Monday key exists
-    assert data[0] == Decimal("800")  # 500 + 300
-
-
-@pytest.mark.asyncio
-async def test_weekday_report_zero_days(session):
-    user_id = await _make_user(213)
-    now = datetime.now(ZoneInfo(TIMEZONE))
-
-    async with test_session() as s:
-        date_from = datetime(now.year, now.month, 1, tzinfo=ZoneInfo(TIMEZONE))
-        date_to = now
-        data = await get_weekday_report(s, user_id, "-", date_from, date_to)
-
-    assert len(data) == 7
-    assert all(v == Decimal("0") for v in data.values())
 
 
 # ==================== Tests: N+1 query prevention ====================

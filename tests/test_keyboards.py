@@ -59,7 +59,6 @@ from core.keyboards import (
     wealth_items_keyboard,
     wealth_menu_keyboard,
     wealth_type_keyboard,
-    weekday_report_period_keyboard,
 )
 from core.utils import RU_MONTHS
 
@@ -424,13 +423,6 @@ def test_user_categories_menu_keyboard():
     kb = user_categories_menu_keyboard()
     assert len(kb.inline_keyboard) == 1
     assert len(kb.inline_keyboard[0]) == 3
-
-
-def test_weekday_report_period_keyboard():
-    kb = weekday_report_period_keyboard()
-    callbacks = _flat(kb)
-    assert any(btn.callback_data == "wd_period:month" for btn in callbacks)
-    assert any(btn.callback_data == "wd_period:year" for btn in callbacks)
 
 
 def test_export_period_keyboard():

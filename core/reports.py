@@ -37,48 +37,6 @@ def format_budget_status(budgets: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def format_weekday_report(
-    data: dict[int, Decimal],
-    operation: str,
-    date_from: Any,
-    date_to: Any,
-    weeks_count: int,
-) -> str:
-    """Formats weekday report as text table with progress bars."""
-    values = list(data.values())
-    max_val = max(values) if any(v > 0 for v in values) else Decimal("1")
-    max_wd = max(data, key=lambda k: data[k])
-    min_wd = min(
-        (k for k in data if data[k] > 0), key=lambda k: data[k], default=max_wd
-    )
-
-    title_type = "Расходы" if operation == "-" else "Доходы"
-    if date_from.month == date_to.month and date_from.year == date_to.year:
-        period = f"{RU_MONTHS[date_from.month]} {date_from.year}"
-    else:
-        period = f"{date_from.strftime('%d.%m.%Y')} – {date_to.strftime('%d.%m.%Y')}"
-
-    lines = [f"📅 <b>{title_type} по дням недели ({period})</b>\n"]
-
-    from core.utils import RU_WEEKDAYS
-
-    for wd in range(7):
-        total = data[wd]
-        filled = int((total / max_val) * 10) if max_val > 0 else 0
-        bar = "█" * filled + "░" * (10 - filled)
-        avg = total / weeks_count if weeks_count > 0 else Decimal("0")
-        suffix = ""
-        if total > 0 and wd == max_wd:
-            suffix = "  ← максимум"
-        elif total > 0 and wd == min_wd and min_wd != max_wd:
-            suffix = "  ← минимум"
-        lines.append(
-            f"{RU_WEEKDAYS[wd]}  {bar}  {format_money(float(total)):>10}   avg: {format_money(float(avg))}/нед{suffix}"
-        )
-
-    return "\n".join(lines)
-
-
 def make_report_text(
     categories: Dict[str, Decimal],
     total: Decimal | float,

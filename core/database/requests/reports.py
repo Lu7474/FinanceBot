@@ -393,39 +393,3 @@ async def get_categories_for_year(
     )
     rows = (await session.execute(query)).fetchall()
     return [row.category or "Без категории" for row in rows]
-
-
-async def get_weekday_report(
-    session: AsyncSession,
-    user_id: int | list[int],
-    operation: str,
-    date_from: datetime,
-    date_to: datetime,
-) -> dict[int, Decimal]:
-    """Returns {weekday: total} where weekday 0=Mon..6=Sun. Days with no records = Decimal('0').
-
-    user_id accepts a single id (personal) or a list (family scope).
-    """
-    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
-    result = await session.execute(
-        select(
-            func.strftime("%w", Record.created_at).label("sqlite_wd"),
-            func.sum(Record.amount).label("total"),
-        )
-        .where(
-            Record.user_id.in_(user_ids),
-            Record.operation == operation,
-            Record.category.not_in(SYSTEM_CATEGORIES),
-            Record.created_at.between(date_from, date_to),
-        )
-        .group_by(func.strftime("%w", Record.created_at))
-    )
-    rows = result.fetchall()
-
-    # SQLite strftime('%w'): 0=Sun..6=Sat → convert to 0=Mon..6=Sun
-    data: dict[int, Decimal] = {i: Decimal("0") for i in range(7)}
-    for row in rows:
-        sqlite_wd = int(row.sqlite_wd)
-        mon_wd = (sqlite_wd - 1) % 7
-        data[mon_wd] = Decimal(str(row.total))
-    return data

@@ -122,7 +122,6 @@ from .reports import (
     get_monthly_totals,
     get_stacked_data,
     get_top_categories_for_period,
-    get_weekday_report,
     get_yearly_report,
     search_records,
 )
@@ -173,7 +172,6 @@ __all__ = [
     "get_monthly_totals",
     "get_stacked_data",
     "get_top_categories_for_period",
-    "get_weekday_report",
     "get_yearly_report",
     "search_records",
     # accounts

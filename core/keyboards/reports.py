@@ -222,23 +222,3 @@ def chart_period_keyboard(
         )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-@lru_cache(maxsize=1)
-def weekday_report_period_keyboard() -> InlineKeyboardMarkup:
-    """Period selection for weekday report."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Этот месяц", callback_data="wd_period:month"
-                ),
-                InlineKeyboardButton(text="3 месяца", callback_data="wd_period:3m"),
-            ],
-            [
-                InlineKeyboardButton(text="Полгода", callback_data="wd_period:6m"),
-                InlineKeyboardButton(text="Год", callback_data="wd_period:year"),
-            ],
-            [InlineKeyboardButton(text="← Назад", callback_data="wd_period:back")],
-        ]
-    )
