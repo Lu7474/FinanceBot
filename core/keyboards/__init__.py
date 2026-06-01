@@ -76,6 +76,7 @@ from .history import (
 )
 from .notifications import notification_settings_keyboard, notify_onboarding_keyboard
 from .records import (
+    description_prompt_keyboard,
     record_account_select_keyboard,
     record_delete_confirm_keyboard,
     record_detail_keyboard,
@@ -142,6 +143,7 @@ __all__ = [
     "debt_skip_keyboard",
     "debts_menu_keyboard",
     "delete_period_keyboard",
+    "description_prompt_keyboard",
     "export_period_keyboard",
     "export_type_keyboard",
     "get_delete_months_keyboard",

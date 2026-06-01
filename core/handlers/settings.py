@@ -1,4 +1,4 @@
-"""Handlers for the Settings section: description toggle + notifications link."""
+"""Handlers for the Settings section: description mode + notifications link."""
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -8,11 +8,21 @@ from aiogram.types import CallbackQuery, Message
 
 from core.database.models import User, async_session
 from core.keyboards import notification_settings_keyboard, settings_menu_keyboard
+from core.keyboards.settings import DESCRIPTION_MODES
 from core.utils import log_exceptions
 
 from .common import get_message, get_user_id_from_event, is_settings
 
 router = Router()
+
+_MODE_LABELS = dict(DESCRIPTION_MODES)
+_VALID_MODES = set(_MODE_LABELS)
+
+_SETTINGS_TEXT = (
+    "⚙️ <b>Настройки</b>\n\n"
+    "📝 <b>Описание записей</b> — текстовый комментарий к доходу/расходу. "
+    "Выберите способ ввода:"
+)
 
 
 async def _get_user_obj(session, user_id: int) -> User | None:
@@ -43,19 +53,24 @@ async def open_settings(message: Message, state: FSMContext, **kwargs) -> None:
         return
 
     await message.answer(
-        "⚙️ <b>Настройки</b>\n\nНажмите на пункт чтобы изменить.",
+        _SETTINGS_TEXT,
         reply_markup=settings_menu_keyboard(user),
         parse_mode="HTML",
     )
 
 
-# ==================== Toggle: description ====================
+# ==================== Description mode (radio) ====================
 
 
-@router.callback_query(F.data == "settings:toggle_desc")
-@log_exceptions("Ошибка при переключении описания записей")
-async def handle_toggle_description(callback: CallbackQuery, **kwargs) -> None:
-    """Toggle use_description flag and refresh the keyboard."""
+@router.callback_query(F.data.startswith("settings:mode:"))
+@log_exceptions("Ошибка при выборе режима описания")
+async def handle_set_description_mode(callback: CallbackQuery, **kwargs) -> None:
+    """Set the description input mode and refresh the radio keyboard."""
+    mode = (callback.data or "").split(":")[2]
+    if mode not in _VALID_MODES:
+        await callback.answer("Неизвестный режим.")
+        return
+
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
@@ -66,7 +81,10 @@ async def handle_toggle_description(callback: CallbackQuery, **kwargs) -> None:
         if not user:
             await callback.answer("Ошибка.")
             return
-        user.use_description = not user.use_description
+        if user.description_mode == mode:
+            await callback.answer("Уже выбрано.")
+            return
+        user.description_mode = mode
         await session.commit()
         await session.refresh(user)
 
@@ -77,8 +95,7 @@ async def handle_toggle_description(callback: CallbackQuery, **kwargs) -> None:
     except TelegramBadRequest:
         pass
 
-    state = "включено" if user.use_description else "выключено"
-    await callback.answer(f"Описание записей: {state}")
+    await callback.answer(f"Режим: {_MODE_LABELS.get(mode, mode)}")
 
 
 # ==================== Link: notifications ====================
@@ -133,7 +150,7 @@ async def handle_back_to_settings(callback: CallbackQuery, **kwargs) -> None:
 
     try:
         await get_message(callback).edit_text(
-            "⚙️ <b>Настройки</b>\n\nНажмите на пункт чтобы изменить.",
+            _SETTINGS_TEXT,
             reply_markup=settings_menu_keyboard(user),
             parse_mode="HTML",
         )

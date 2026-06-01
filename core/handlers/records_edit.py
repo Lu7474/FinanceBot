@@ -227,7 +227,7 @@ async def record_view(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     """Show record detail card."""
     try:
         record_id = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -247,7 +247,7 @@ async def record_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     """Show field selection keyboard."""
     try:
         record_id = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -282,7 +282,7 @@ async def record_field_select(
     try:
         record_id = int(parts[2])
         field = parts[3]
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -311,11 +311,17 @@ async def record_field_select(
         cur_amount_raw = f"{float(record.amount):.0f}"
         cur_category = record.category
         cur_date_raw = record.created_at.strftime("%d.%m.%Y")
+        cur_description = record.description or ""
 
+    cur_desc_display = html.escape(cur_description) if cur_description else "—"
     prompts = {
         "amount": f"Текущая сумма: <code>{cur_amount_raw}</code>\n\nВведите новую сумму:",
         "category": f"Текущая категория: <code>{html.escape(cur_category)}</code>\n\nВведите новую категорию:",
         "date": f"Текущая дата: <code>{cur_date_raw}</code>\n\nВведите новую дату в формате ДД.ММ или ДД.ММ.ГГ:",
+        "description": (
+            f"Текущее описание: {cur_desc_display}\n\n"
+            "Введите новое описание (или «-» чтобы очистить):"
+        ),
     }
     prompt = prompts.get(field)
     if not prompt:
@@ -384,6 +390,10 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
             return
         update_fields = {"created_at": value}
 
+    elif field == "description":
+        cleaned = "" if text == "-" else text[:255]
+        update_fields = {"description": cleaned or None}
+
     else:
         await state.clear()
         return
@@ -403,6 +413,7 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
         old_amount = old_record.amount
         old_category = old_record.category
         old_date_str = old_record.created_at.strftime("%d.%m.%Y")
+        old_description = old_record.description or ""
 
         # Detect no-op
         if field == "amount" and old_amount == update_fields["amount"]:
@@ -412,6 +423,8 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
         elif field == "date":
             new_date_str = update_fields["created_at"].strftime("%d.%m.%Y")
             no_change = old_date_str == new_date_str
+        elif field == "description":
+            no_change = old_description == (update_fields["description"] or "")
         else:
             no_change = False
 
@@ -441,6 +454,11 @@ async def record_edit_value(message: Message, state: FSMContext, **kwargs) -> No
             f"✅ Сохранено\n"
             f"Категория: {html.escape(old_category or '')} → {html.escape(new_category or '')}"
         )
+    elif field == "description":
+        new_desc = update_fields["description"]
+        old_d = html.escape(old_description) if old_description else "—"
+        new_d = html.escape(new_desc) if new_desc else "—"
+        confirm_text = f"✅ Сохранено\nОписание: {old_d} → {new_d}"
     else:
         confirm_text = f"✅ Сохранено\nДата: {old_date_str} → {new_date_str}"
 
@@ -470,7 +488,7 @@ async def record_account_select(
     try:
         record_id = int(parts[2])
         account_id = int(parts[3])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -530,7 +548,7 @@ async def record_delete_ask(
     """Show delete confirmation dialog."""
     try:
         record_id = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -549,7 +567,7 @@ async def record_delete_confirm(
     """Delete the record and return to history."""
     try:
         record_id = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 

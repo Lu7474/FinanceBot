@@ -42,6 +42,7 @@ from .common import (
 )
 from .records import (
     _deserialize_records,
+    _maybe_offer_description,
     _maybe_send_onboarding,
     _send_budget_alerts,
     format_added_records_response,
@@ -103,6 +104,7 @@ async def _continue_to_account_or_save(
             await _send_budget_alerts(target, user_id, added)
             if added:
                 await _maybe_send_onboarding(target, user_id)
+                await _maybe_offer_description(target, user_id, added)
         else:
             await get_message(target).edit_text(response, parse_mode="HTML")
             await get_message(target).answer(
@@ -111,6 +113,7 @@ async def _continue_to_account_or_save(
             await _send_budget_alerts(get_message(target), user_id, added)
             if added:
                 await _maybe_send_onboarding(get_message(target), user_id)
+                await _maybe_offer_description(get_message(target), user_id, added)
         await state.clear()
     else:
         from core.keyboards import account_select_keyboard

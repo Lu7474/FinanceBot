@@ -83,7 +83,7 @@ async def bulk_insert_records(
 ) -> int:
     """Insert records in bulk. Returns count of inserted records.
 
-    Each row: {date, operation, amount, category, account_id}
+    Each row: {date, operation, amount, category, account_id, description}
     """
     count = 0
     for row in rows:
@@ -97,6 +97,7 @@ async def bulk_insert_records(
                 category=row["category"],
                 account_id=row.get("account_id"),
                 created_at=created_at,
+                description=row.get("description"),
             )
         )
         count += 1

@@ -200,6 +200,7 @@ def test_format_record_card_contains_key_fields(user_and_record):
         category = "Кафе"
         created_at = datetime(2025, 6, 1, 12, 0)
         account = FakeAccount()
+        description = "Обед с другом"
 
     card = format_record_card(FakeRecord())
     assert "42" in card
@@ -207,6 +208,7 @@ def test_format_record_card_contains_key_fields(user_and_record):
     assert "Кафе" in card
     assert "01.06.2025" in card
     assert "Карта Сбер" in card
+    assert "Обед с другом" in card
 
 
 # ==================== 7. record_edit_field_keyboard shows account button only when has_accounts ====================

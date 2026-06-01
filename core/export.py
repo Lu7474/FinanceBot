@@ -25,7 +25,7 @@ _SECTION_FONT = Font(bold=True, color="1F3864")
 _INT_FMT = "#,##0"
 _CENTER = Alignment(horizontal="center")
 
-_RECORDS_COLS = ["Дата", "Тип", "Сумма", "Категория", "Счёт"]
+_RECORDS_COLS = ["Дата", "Тип", "Сумма", "Категория", "Описание", "Счёт"]
 
 
 def _hdr_row(ws, row: int, ncols: int) -> None:
@@ -262,11 +262,9 @@ def _build_backup_sync(
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         if records_rows:
-            df = pd.DataFrame(
-                records_rows, columns=["Дата", "Тип", "Сумма", "Категория", "Счёт"]
-            )
+            df = pd.DataFrame(records_rows, columns=_RECORDS_COLS)
         else:
-            df = pd.DataFrame(columns=["Дата", "Тип", "Сумма", "Категория", "Счёт"])
+            df = pd.DataFrame(columns=_RECORDS_COLS)
         df.to_excel(writer, sheet_name="Записи", index=False)
 
         if budgets:
@@ -298,6 +296,7 @@ def _build_template_sync() -> BytesIO:
                 "Тип": "Расход",
                 "Сумма": 500.0,
                 "Категория": "Еда",
+                "Описание": "Обед с коллегами",
                 "Счёт": "Наличные",
             }
         ]
@@ -342,7 +341,7 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
         amount = Decimal(str(raw_amount))
         if amount <= 0 or amount > MAX_AMOUNT:
             raise ValueError
-    except (InvalidOperation, ValueError, TypeError):
+    except InvalidOperation, ValueError, TypeError:
         return None, f"Строка {row_num}: неверная сумма «{raw_amount}»"
 
     # --- Категория ---
@@ -369,12 +368,21 @@ def validate_import_row(row: dict, row_num: int) -> tuple[dict | None, str | Non
                 )
             account_name = s
 
+    # --- Описание (опционально) ---
+    raw_desc = row.get("Описание")
+    description: str | None = None
+    if raw_desc is not None:
+        s = clean_text(str(raw_desc))
+        if s and s != "nan":
+            description = s[:255]
+
     return {
         "date": parsed_date,
         "operation": operation,
         "amount": amount,
         "category": category,
         "account_name": account_name,
+        "description": description,
     }, None
 
 

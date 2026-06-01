@@ -122,6 +122,7 @@ def _records_to_rows(records) -> list[dict]:
             "Тип": "Доход" if r.operation == "+" else "Расход",
             "Сумма": float(r.amount),
             "Категория": r.category,
+            "Описание": r.description or "",
             "Счёт": r.account.name if r.account else "—",
         }
         for r in records
@@ -389,6 +390,7 @@ async def handle_import_file(message: Message, state: FSMContext, user_id: int) 
             "amount": float(row["amount"]),
             "category": row["category"],
             "account_name": row.get("account_name"),
+            "description": row.get("description"),
         }
         for row in valid_rows
     ]
@@ -430,6 +432,7 @@ async def handle_import_confirm(
                         "amount": Decimal(str(row["amount"])),
                         "category": row["category"],
                         "account_id": acc_id,
+                        "description": row.get("description"),
                     }
                 )
 

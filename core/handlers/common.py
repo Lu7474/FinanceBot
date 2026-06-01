@@ -1,5 +1,7 @@
 """Shared helpers, command filters, and FSM state definitions."""
 
+from collections.abc import Sequence
+
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
@@ -43,14 +45,18 @@ async def get_user_id_from_event(
 
 async def save_parsed_records(
     user_id: int,
-    records_to_add: list[tuple],
+    records_to_add: Sequence[tuple],
     account_id: int | None = None,
 ) -> list[tuple]:
-    """Сохраняет распарсенные записи в БД атомарно (все или ни одной)."""
+    """Сохраняет распарсенные записи в БД атомарно (все или ни одной).
+
+    Каждый элемент records_to_add — (operation, amount, category, date, description).
+    Возвращает добавленные записи в том же 5-элементном формате.
+    """
     added_records = []
     async with async_session() as session:
         try:
-            for operation, amount, category, record_date in records_to_add:
+            for operation, amount, category, record_date, description in records_to_add:
                 ok = await add_record(
                     session,
                     user_id,
@@ -59,9 +65,12 @@ async def save_parsed_records(
                     category,
                     record_date,
                     account_id,
+                    description,
                 )
                 if ok:
-                    added_records.append((operation, amount, category, record_date))
+                    added_records.append(
+                        (operation, amount, category, record_date, description)
+                    )
             await session.commit()
         except Exception:
             await session.rollback()
@@ -229,6 +238,7 @@ class AddRecord(StatesGroup):
 
     waiting_for_amount = State()
     waiting_for_account = State()
+    waiting_for_description = State()  # button-mode: typing description post-save
 
 
 class BudgetStates(StatesGroup):

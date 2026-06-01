@@ -27,6 +27,20 @@ def record_detail_keyboard(record_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def description_prompt_keyboard(record_id: int) -> InlineKeyboardMarkup:
+    """Single button offering to add a description to the just-added record."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ Добавить описание",
+                    callback_data=f"add_desc:{record_id}",
+                )
+            ]
+        ]
+    )
+
+
 def record_edit_field_keyboard(
     record_id: int, has_accounts: bool = True
 ) -> InlineKeyboardMarkup:
@@ -52,6 +66,14 @@ def record_edit_field_keyboard(
                 text="Счёт", callback_data=f"record:field:{record_id}:account"
             )
         )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="Описание",
+                callback_data=f"record:field:{record_id}:description",
+            )
+        ]
+    )
     rows.append(
         [InlineKeyboardButton(text="Отмена", callback_data=f"record:view:{record_id}")]
     )

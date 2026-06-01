@@ -454,11 +454,15 @@ def format_record_card(record) -> str:
     category = html.escape(record.category or "не указано")
     account_str = html.escape(record.account.name) if record.account else "—"
 
+    desc_line = ""
+    if record.description:
+        desc_line = f"\nОписание: {html.escape(record.description)}"
+
     return (
         f"📋 <b>Запись #{record.id}</b>\n\n"
         f"Тип: {op_label}\n"
         f"Сумма: <b>{amount_str}</b>\n"
-        f"Категория: {category}\n"
+        f"Категория: {category}{desc_line}\n"
         f"Дата: {date_str}\n"
         f"Счёт: {account_str}"
     )

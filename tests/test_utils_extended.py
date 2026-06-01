@@ -227,7 +227,9 @@ class _FakeAccount:
 
 
 class _FakeRecord:
-    def __init__(self, category: str, account_name: str | None):
+    def __init__(
+        self, category: str, account_name: str | None, description: str | None = None
+    ):
         from datetime import datetime
 
         self.id = 1
@@ -236,6 +238,7 @@ class _FakeRecord:
         self.category = category
         self.created_at = datetime(2025, 5, 17, 12, 0, 0)
         self.account = _FakeAccount(account_name) if account_name else None
+        self.description = description
 
 
 def test_format_record_card_escapes_html_in_category():

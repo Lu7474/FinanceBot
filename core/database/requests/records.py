@@ -16,7 +16,9 @@ from core.database.models import Account, Record
 
 from ._common import SYSTEM_CATEGORIES, VALID_OPERATIONS, apply_period_filter
 
-_ALLOWED_EDIT_FIELDS = frozenset({"amount", "category", "created_at", "account_id"})
+_ALLOWED_EDIT_FIELDS = frozenset(
+    {"amount", "category", "created_at", "account_id", "description"}
+)
 
 
 async def count_records(
@@ -105,6 +107,7 @@ async def add_record(
     category: str = "не указано",
     created_at: Optional[datetime] = None,
     account_id: Optional[int] = None,
+    description: Optional[str] = None,
 ) -> bool:
     """Add a new income/expense record. Raises ValueError on bad operation."""
     if operation not in VALID_OPERATIONS:
@@ -118,6 +121,7 @@ async def add_record(
             amount=amount,
             category=category,
             account_id=account_id,
+            description=description,
         )
         if created_at is not None:
             record.created_at = created_at
@@ -174,6 +178,16 @@ async def get_record_by_id(
         select(Record)
         .options(selectinload(Record.account))
         .where(Record.id == record_id, Record.user_id == user_id)
+    )
+
+
+async def get_last_record_id(session: AsyncSession, user_id: int) -> Optional[int]:
+    """Return id of the user's most recently inserted record, or None."""
+    return await session.scalar(
+        select(Record.id)
+        .where(Record.user_id == user_id)
+        .order_by(Record.id.desc())
+        .limit(1)
     )
 
 
@@ -276,7 +290,12 @@ async def check_duplicates_batch(
 
     duplicates = set()
     for idx, r in enumerate(rows):
-        key = (r["date"].isoformat(), r["operation"], Decimal(str(r["amount"])), r["category"])
+        key = (
+            r["date"].isoformat(),
+            r["operation"],
+            Decimal(str(r["amount"])),
+            r["category"],
+        )
         if key in existing:
             duplicates.add(idx)
     return duplicates

@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import NamedTuple, Optional
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -13,22 +14,26 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH, TIMEZONE
-from core.database.models import async_session
+from core.database.models import User, async_session
 from core.database.requests import (
     check_and_alert_budget,
     get_accounts,
+    get_last_record_id,
     get_user_categories,
     suggest_category,
+    update_record,
 )
 from core.database.requests._common import now_moscow
 from core.database.requests.records import count_records
 from core.keyboards import (
     account_select_keyboard,
     category_suggest_keyboard,
+    description_prompt_keyboard,
     main_menu_keyboard,
     notify_onboarding_keyboard,
+    record_detail_keyboard,
 )
-from core.utils import clean_text, log_exceptions
+from core.utils import clean_text, format_record_card, log_exceptions
 
 from .common import (
     AddRecord,
@@ -59,6 +64,22 @@ async def _maybe_send_onboarding(target: Message, user_id: int) -> None:
         )
 
 
+async def _maybe_offer_description(target: Message, user_id: int, added: list) -> None:
+    """In button mode, offer to attach a description to a single just-added record."""
+    if len(added) != 1:
+        return
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        if not user or user.description_mode != "button":
+            return
+        record_id = await get_last_record_id(session, user_id)
+    if record_id:
+        await target.answer(
+            "Добавить описание к записи?",
+            reply_markup=description_prompt_keyboard(record_id),
+        )
+
+
 async def _send_budget_alerts(
     message: Message,
     user_id: int,
@@ -67,7 +88,7 @@ async def _send_budget_alerts(
     """Checks budget thresholds for expense records and sends alerts."""
     assert message.bot is not None
     async with async_session() as session:
-        for op, amount, category, _ in added_records:
+        for op, amount, category, _, _ in added_records:
             if op == "-":
                 try:
                     alerts = await check_and_alert_budget(
@@ -82,20 +103,24 @@ async def _send_budget_alerts(
 
 def _deserialize_records(
     serialized: list[dict],
-) -> list[tuple[str, Decimal, str, datetime | None]]:
+) -> list[ParsedRecord]:
     """Восстанавливает записи из FSM-state (str → Decimal/datetime)."""
     result = []
     try:
         for d in serialized:
             date = datetime.fromisoformat(d["date"]) if d.get("date") else None
-            result.append((d["op"], Decimal(d["amount"]), d["cat"], date))
+            result.append(
+                ParsedRecord(
+                    d["op"], Decimal(d["amount"]), d["cat"], date, d.get("desc")
+                )
+            )
     except (InvalidOperation, ValueError, TypeError, KeyError) as e:
         raise ValueError(f"Повреждённые данные в FSM: {e}") from e
     return result
 
 
 def format_added_records_response(
-    added_records: list[tuple[str, Decimal, str, datetime | None]],
+    added_records: list[tuple],
     errors: list[str] | None = None,
     account_name: str | None = None,
 ) -> str:
@@ -106,7 +131,7 @@ def format_added_records_response(
     today = datetime.now(ZoneInfo(TIMEZONE)).date()
 
     if len(added_records) == 1:
-        op, amt, cat, record_date = added_records[0]
+        op, amt, cat, record_date, _ = added_records[0]
         icon = "💵" if op == "+" else "🛒"
         op_type = "Доход" if op == "+" else "Расход"
 
@@ -121,11 +146,11 @@ def format_added_records_response(
 📁 Категория: {html.escape(cat)}{date_str}
 """.replace(",", " ")
     else:
-        total_income = sum(amt for op, amt, _, _ in added_records if op == "+")
-        total_expense = sum(amt for op, amt, _, _ in added_records if op == "-")
+        total_income = sum(amt for op, amt, _, _, _ in added_records if op == "+")
+        total_expense = sum(amt for op, amt, _, _, _ in added_records if op == "-")
 
         response = f"✅ <b>Добавлено записей: {len(added_records)}</b>\n\n"
-        for op, amt, cat, record_date in added_records:
+        for op, amt, cat, record_date, _ in added_records:
             icon = "💵" if op == "+" else "🛒"
             sign = "+" if op == "+" else "-"
             date_suffix = ""
@@ -152,10 +177,75 @@ def format_added_records_response(
     return response.strip()
 
 
+class ParsedRecord(NamedTuple):
+    """Result of parsing one record line."""
+
+    operation: str
+    amount: Decimal
+    category: str
+    date: datetime | None
+    description: Optional[str] = None
+
+
+def _split_category_description(
+    rest: str, mode: str, user_categories: Optional[list[str]]
+) -> tuple[str, Optional[str]]:
+    """Split the post-amount remainder into (category, description) per mode.
+
+    Modes:
+    - off / button → whole remainder is the category, no description.
+    - brackets → trailing "(...)" is the description, prefix is the category.
+    - auto → longest matching known category as a prefix; tail → description.
+      Fallback (no match): first word = category, rest = description.
+    """
+    if mode == "brackets":
+        m = re.search(r"\(([^)]*)\)\s*$", rest)
+        if m:
+            description = m.group(1).strip() or None
+            category = clean_text(rest[: m.start()])
+        else:
+            description = None
+            category = clean_text(rest)
+        category = category.capitalize() if category else "Не указано"
+        return category, description
+
+    if mode == "auto":
+        words = clean_text(rest).split()
+        if not words:
+            return "Не указано", None
+        cats_sorted = sorted(
+            user_categories or [], key=lambda c: len(c.split()), reverse=True
+        )
+        lower_words = [w.lower() for w in words]
+        for cat in cats_sorted:
+            cat_words = cat.split()
+            n = len(cat_words)
+            if (
+                n
+                and n <= len(words)
+                and lower_words[:n] == [cw.lower() for cw in cat_words]
+            ):
+                description = " ".join(words[n:]).strip() or None
+                return cat, description  # keep stored category casing
+        # fallback: first word = category, rest = description
+        category = words[0].capitalize()
+        description = " ".join(words[1:]).strip() or None
+        return category, description
+
+    # off / button (and any unknown mode): whole remainder is the category
+    category = clean_text(rest)
+    category = category.capitalize() if category else "Не указано"
+    return category, None
+
+
 def parse_record_line(
-    line: str, default_operation: str | None = None
-) -> tuple[str, Decimal, str, datetime | None] | None:
-    """Парсит строку записи и возвращает (операция, сумма, категория, дата) или None при ошибке.
+    line: str,
+    default_operation: str | None = None,
+    *,
+    mode: str = "off",
+    user_categories: Optional[list[str]] = None,
+) -> ParsedRecord | None:
+    """Парсит строку записи в ParsedRecord или None при ошибке.
 
     Форматы:
     - "1000 еда" — использует default_operation, сегодняшняя дата
@@ -163,6 +253,9 @@ def parse_record_line(
     - "-500 еда" — расход, сегодняшняя дата
     - "27.01 500 еда" — указанная дата (ДД.ММ текущего года)
     - "27.01.25 500 еда" — указанная дата (ДД.ММ.ГГ)
+
+    `mode` управляет выделением описания из хвоста строки (см.
+    `_split_category_description`); `user_categories` нужен только для mode="auto".
     """
     line = line.strip()
     if not line:
@@ -213,19 +306,52 @@ def parse_record_line(
         amount = Decimal(match.group(1).replace(",", "."))
         if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
             return None
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         return None
 
-    category = clean_text(line.replace(match.group(0), ""))
-    if not category:
-        category = "Не указано"
-    else:
-        category = category.capitalize()
+    rest = line.replace(match.group(0), "", 1)
+    category, description = _split_category_description(rest, mode, user_categories)
 
     if len(category) > MAX_CATEGORY_LENGTH:
         return None
+    if description:
+        description = description[:255]
 
-    return operation, amount, category, record_date
+    return ParsedRecord(operation, amount, category, record_date, description)
+
+
+async def _get_description_context(user_id: int) -> tuple[str, list[str]]:
+    """Return (description_mode, category_names) used to parse the user's input."""
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        mode = user.description_mode if user else "off"
+        cats: list[str] = []
+        if mode == "auto":
+            user_cats = await get_user_categories(session, user_id)
+            cats = [c.name for c in user_cats]
+    return mode, cats
+
+
+def _parse_lines(
+    lines: list[str],
+    default_operation: str | None,
+    mode: str,
+    cats: list[str],
+) -> tuple[list[ParsedRecord], list[str]]:
+    """Parse multiple input lines into records + per-line error messages."""
+    records_to_add: list[ParsedRecord] = []
+    errors: list[str] = []
+    for i, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        result = parse_record_line(
+            line, default_operation, mode=mode, user_categories=cats
+        )
+        if result:
+            records_to_add.append(result)
+        else:
+            errors.append(f"Строка {i}: не удалось распознать")
+    return records_to_add, errors
 
 
 async def _maybe_ask_category(
@@ -309,18 +435,15 @@ async def handle_amount_and_category(
     data = await state.get_data()
     default_operation = data.get("operation")
 
-    lines = (message.text or "").strip().split("\n")
-    records_to_add = []
-    errors = []
+    user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
+    if not user_id:
+        await message.answer("Ошибка. Отправьте /start для регистрации.")
+        await state.clear()
+        return
 
-    for i, line in enumerate(lines, 1):
-        if not line.strip():
-            continue
-        result = parse_record_line(line, default_operation)
-        if result:
-            records_to_add.append(result)
-        else:
-            errors.append(f"Строка {i}: не удалось распознать")
+    mode, cats = await _get_description_context(user_id)
+    lines = (message.text or "").strip().split("\n")
+    records_to_add, errors = _parse_lines(lines, default_operation, mode, cats)
 
     if not records_to_add:
         await message.answer(
@@ -331,27 +454,22 @@ async def handle_amount_and_category(
         )
         return
 
-    user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
-    if not user_id:
-        await message.answer("Ошибка. Отправьте /start для регистрации.")
-        await state.clear()
-        return
-
     serialized = [
         {
-            "op": op,
-            "amount": str(amt),
-            "cat": cat,
-            "date": dt.isoformat() if dt else None,
+            "op": r.operation,
+            "amount": str(r.amount),
+            "cat": r.category,
+            "date": r.date.isoformat() if r.date else None,
+            "desc": r.description,
         }
-        for op, amt, cat, dt in records_to_add
+        for r in records_to_add
     ]
 
     # Category suggestion flow for single records
     if len(records_to_add) == 1:
-        op, _amt, cat, _dt = records_to_add[0]
+        r = records_to_add[0]
         intercepted = await _maybe_ask_category(
-            message, state, user_id, op, cat, serialized, errors
+            message, state, user_id, r.operation, r.category, serialized, errors
         )
         if intercepted:
             return
@@ -372,6 +490,7 @@ async def handle_amount_and_category(
         await _send_budget_alerts(message, user_id, added)
         if added:
             await _maybe_send_onboarding(message, user_id)
+            await _maybe_offer_description(message, user_id, added)
         await state.clear()
         return
 
@@ -385,6 +504,7 @@ async def handle_amount_and_category(
         await _send_budget_alerts(message, user_id, added)
         if added:
             await _maybe_send_onboarding(message, user_id)
+            await _maybe_offer_description(message, user_id, added)
         await state.clear()
         return
 
@@ -404,7 +524,7 @@ async def handle_record_account_select(
     """Сохраняет записи с выбранным счётом."""
     try:
         account_id = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -443,6 +563,7 @@ async def handle_record_account_select(
     await _send_budget_alerts(get_message(callback), user_id, added)
     if added:
         await _maybe_send_onboarding(get_message(callback), user_id)
+        await _maybe_offer_description(get_message(callback), user_id, added)
     await state.clear()
     await callback.answer()
 
@@ -453,20 +574,14 @@ async def handle_record_account_select(
 @log_exceptions("Ошибка при добавлении записи")
 async def handle_direct_record(message: Message, state: FSMContext, **kwargs) -> None:
     """Прямой ввод записей без нажатия кнопки (если начинается с +/- или с даты)."""
+    user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
+    if not user_id:
+        await message.answer("Ошибка. Отправьте /start для регистрации.")
+        return
+
+    mode, cats = await _get_description_context(user_id)
     lines = (message.text or "").strip().split("\n")
-
-    records_to_add = []
-    errors = []
-
-    for i, line in enumerate(lines, 1):
-        if not line.strip():
-            continue
-
-        result = parse_record_line(line, default_operation=None)
-        if result:
-            records_to_add.append(result)
-        else:
-            errors.append(f"Строка {i}: не удалось распознать")
+    records_to_add, errors = _parse_lines(lines, None, mode, cats)
 
     if not records_to_add:
         await message.answer(
@@ -476,26 +591,22 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         )
         return
 
-    user_id = await get_user_id_from_event(message, kwargs, create_if_missing=True)
-    if not user_id:
-        await message.answer("Ошибка. Отправьте /start для регистрации.")
-        return
-
     serialized = [
         {
-            "op": op,
-            "amount": str(amt),
-            "cat": cat,
-            "date": dt.isoformat() if dt else None,
+            "op": r.operation,
+            "amount": str(r.amount),
+            "cat": r.category,
+            "date": r.date.isoformat() if r.date else None,
+            "desc": r.description,
         }
-        for op, amt, cat, dt in records_to_add
+        for r in records_to_add
     ]
 
     # Category suggestion flow for single records
     if len(records_to_add) == 1:
-        op, _amt, cat, _dt = records_to_add[0]
+        r = records_to_add[0]
         intercepted = await _maybe_ask_category(
-            message, state, user_id, op, cat, serialized, errors
+            message, state, user_id, r.operation, r.category, serialized, errors
         )
         if intercepted:
             return
@@ -516,6 +627,7 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         )
         await _send_budget_alerts(message, user_id, added)
         await _maybe_send_onboarding(message, user_id)
+        await _maybe_offer_description(message, user_id, added)
         return
 
     if len(accounts) == 1:
@@ -532,6 +644,7 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         )
         await _send_budget_alerts(message, user_id, added)
         await _maybe_send_onboarding(message, user_id)
+        await _maybe_offer_description(message, user_id, added)
         return
 
     await state.update_data(
@@ -543,3 +656,66 @@ async def handle_direct_record(message: Message, state: FSMContext, **kwargs) ->
         parse_mode="HTML",
     )
     await state.set_state(AddRecord.waiting_for_account)
+
+
+# ==================== Описание записи (режим button) ====================
+
+
+@router.callback_query(F.data.startswith("add_desc:"))
+@log_exceptions("Ошибка при запросе описания")
+async def handle_add_description_request(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """«Добавить описание» под только что созданной записью (режим button)."""
+    try:
+        record_id = int((callback.data or "").split(":")[1])
+    except IndexError, ValueError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    await state.update_data(desc_record_id=record_id, desc_user_id=user_id)
+    await state.set_state(AddRecord.waiting_for_description)
+    await get_message(callback).answer("✏️ Введите описание для записи:")
+    await callback.answer()
+
+
+@router.message(AddRecord.waiting_for_description, ~F.func(is_main_menu_button))
+@log_exceptions("Ошибка при сохранении описания")
+async def handle_description_input(
+    message: Message, state: FSMContext, **kwargs
+) -> None:
+    """Сохраняет введённое описание в запись и показывает обновлённую карточку."""
+    data = await state.get_data()
+    record_id = data.get("desc_record_id")
+    user_id = data.get("desc_user_id")
+    await state.clear()
+
+    if not record_id or not user_id:
+        await message.answer(
+            "Сессия истекла. Попробуйте снова.", reply_markup=main_menu_keyboard()
+        )
+        return
+
+    description = (message.text or "").strip()[:255] or None
+    async with async_session() as session:
+        updated = await update_record(
+            session, record_id, user_id, description=description
+        )
+        if updated:
+            await session.commit()
+
+    if not updated:
+        await message.answer("Запись не найдена.", reply_markup=main_menu_keyboard())
+        return
+
+    await message.answer("✅ Описание сохранено.", reply_markup=main_menu_keyboard())
+    await message.answer(
+        format_record_card(updated),
+        reply_markup=record_detail_keyboard(record_id),
+        parse_mode="HTML",
+    )

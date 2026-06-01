@@ -18,7 +18,7 @@ def test_parse_simple_record():
     """Парсинг простой записи: сумма + категория."""
     result = parse_record_line("500 еда", default_operation="-")
     assert result is not None
-    op, amount, category, date = result
+    op, amount, category, date, _desc = result
     assert op == "-"
     assert amount == Decimal("500")
     assert category == "Еда"  # Нормализация: первая заглавная
@@ -29,7 +29,7 @@ def test_parse_record_with_sign():
     """Парсинг записи со знаком операции."""
     result = parse_record_line("+1000 зарплата")
     assert result is not None
-    op, amount, category, date = result
+    op, amount, category, date, _desc = result
     assert op == "+"
     assert amount == Decimal("1000")
     assert category == "Зарплата"  # Нормализация: первая заглавная
@@ -58,7 +58,7 @@ def test_parse_record_with_date_ddmm():
     """Парсинг записи с датой ДД.ММ."""
     result = parse_record_line("27.01 500 продукты", default_operation="-")
     assert result is not None
-    op, amount, category, date = result
+    op, amount, category, date, _desc = result
     assert op == "-"
     assert amount == Decimal("500")
     assert category == "Продукты"  # Нормализация
@@ -72,7 +72,7 @@ def test_parse_record_with_date_ddmmyy():
     """Парсинг записи с датой ДД.ММ.ГГ."""
     result = parse_record_line("15.12.25 1000 подарок", default_operation="+")
     assert result is not None
-    op, amount, category, date = result
+    op, amount, category, date, _desc = result
     assert op == "+"
     assert amount == Decimal("1000")
     assert category == "Подарок"  # Нормализация
@@ -86,7 +86,7 @@ def test_parse_record_with_date_and_sign():
     """Парсинг записи с датой и знаком операции."""
     result = parse_record_line("20.01.26 +5000 зарплата")
     assert result is not None
-    op, amount, category, date = result
+    op, amount, category, date, _desc = result
     assert op == "+"
     assert amount == Decimal("5000")
     assert category == "Зарплата"  # Нормализация
@@ -138,3 +138,54 @@ def test_parse_no_amount():
     """Без суммы → None."""
     result = parse_record_line("просто текст", default_operation="-")
     assert result is None
+
+
+# ==================== Режимы описания ====================
+
+
+def test_mode_off_no_description():
+    """Режим off (по умолчанию): описание не выделяется, категория многословная."""
+    result = parse_record_line("500 обед с клиентом", default_operation="-")
+    assert result is not None
+    assert result.category == "Обед с клиентом"
+    assert result.description is None
+
+
+def test_mode_brackets():
+    """Режим brackets: хвост в скобках → описание, до скобок → категория."""
+    result = parse_record_line("500 еда (обед с клиентом)", "-", mode="brackets")
+    assert result.category == "Еда"
+    assert result.description == "обед с клиентом"
+
+
+def test_mode_brackets_no_parens():
+    """Режим brackets без скобок: вся строка — категория, описания нет."""
+    result = parse_record_line("500 еда", "-", mode="brackets")
+    assert result.category == "Еда"
+    assert result.description is None
+
+
+def test_mode_auto_known_category():
+    """Режим auto: greedy-match по заведённой многословной категории."""
+    cats = ["Магазин А", "Еда"]
+    result = parse_record_line(
+        "500 Магазин А у дома", "-", mode="auto", user_categories=cats
+    )
+    assert result.category == "Магазин А"
+    assert result.description == "у дома"
+
+
+def test_mode_auto_fallback_first_word():
+    """Режим auto без совпадения: первое слово — категория, остальное — описание."""
+    result = parse_record_line(
+        "500 такси аэропорт", "-", mode="auto", user_categories=["Еда"]
+    )
+    assert result.category == "Такси"
+    assert result.description == "аэропорт"
+
+
+def test_mode_button_like_off():
+    """Режим button парсит как off (описание добавляется постфактум кнопкой)."""
+    result = parse_record_line("500 такси домой", "-", mode="button")
+    assert result.category == "Такси домой"
+    assert result.description is None

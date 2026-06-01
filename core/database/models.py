@@ -99,9 +99,9 @@ class User(Base):
     notify_debts: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
-    use_description: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
-    )
+    description_mode: Mapped[str] = mapped_column(
+        String(10), default="off", server_default="off"
+    )  # off | brackets | button | auto
     records = relationship(
         "Record", back_populates="user", cascade="all, delete-orphan"
     )
@@ -177,6 +177,7 @@ class Record(Base):
     account_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     user = relationship("User", back_populates="records")
     account = relationship("Account", back_populates="records")
 
@@ -188,6 +189,7 @@ class Record(Base):
             "category": self.category,
             "date": self.created_at.strftime("%d.%m.%Y"),
             "created_at": self.created_at,
+            "description": self.description,
         }
         if include_id:
             result["id"] = self.id
@@ -455,7 +457,8 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_daily BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_reminder BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_debts BOOLEAN NOT NULL DEFAULT false",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS use_description BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS description_mode VARCHAR(10) NOT NULL DEFAULT 'off'",
+        "ALTER TABLE records ADD COLUMN IF NOT EXISTS description VARCHAR(255)",
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
     ]
     for stmt in stmts:
@@ -502,6 +505,10 @@ async def _migrate(conn) -> None:
     # Add account_id to records if missing (SQLite supports ADD COLUMN)
     result = await conn.execute(text("PRAGMA table_info(records)"))
     columns = {row[1] for row in result.fetchall()}
+    if "description" not in columns:
+        await conn.execute(
+            text("ALTER TABLE records ADD COLUMN description VARCHAR(255)")
+        )
     if "account_id" not in columns:
         await conn.execute(
             text(
@@ -552,10 +559,10 @@ async def _migrate(conn) -> None:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN notify_debts INTEGER NOT NULL DEFAULT 0")
         )
-    if "use_description" not in user_columns:
+    if "description_mode" not in user_columns:
         await conn.execute(
             text(
-                "ALTER TABLE users ADD COLUMN use_description INTEGER NOT NULL DEFAULT 0"
+                "ALTER TABLE users ADD COLUMN description_mode VARCHAR(10) NOT NULL DEFAULT 'off'"
             )
         )
 
