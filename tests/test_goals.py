@@ -649,11 +649,15 @@ def test_goal_eta_no_progress_returns_none():
 
 
 def test_monthly_deposit_amount_basic():
-    deadline = date.today() + timedelta(days=180)  # ~6 months
+    # Deadline ровно на 6 календарных месяцев вперёд (функция считает по
+    # year*12+month, а не по дням — поэтому фиксируем месяцы, а не timedelta).
+    today = today_msk()
+    m = today.month - 1 + 6
+    deadline = date(today.year + m // 12, m % 12 + 1, 15)
     g = _make_mock_goal("X", 60000, 0, deadline=deadline)
     amount = monthly_deposit_amount(g)
     assert amount is not None
-    assert 9000 < amount < 11000  # ~10000/month
+    assert amount == 10000  # 60000 / 6 месяцев
 
 
 def test_monthly_deposit_amount_no_deadline():
