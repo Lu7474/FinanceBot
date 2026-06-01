@@ -182,6 +182,13 @@ def is_more(message: Message) -> bool:
     return (message.text or "").strip().lower() in ("ещё", "еще")
 
 
+def is_settings(message: Message) -> bool:
+    """Проверяет, является ли сообщение командой 'Настройки'."""
+    if not message.text:
+        return False
+    return (message.text or "").strip().lower() == "настройки"
+
+
 def is_back(message: Message) -> bool:
     """Проверяет, является ли сообщение командой 'Назад' (вернуться в меню)."""
     if not message.text:
@@ -208,6 +215,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_debts(message),
             is_family(message),
             is_more(message),
+            is_settings(message),
             is_back(message),
         ]
     )

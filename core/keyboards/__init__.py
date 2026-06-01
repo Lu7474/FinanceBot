@@ -99,6 +99,7 @@ from .savings import (
     savings_items_keyboard,
     savings_view_keyboard,
 )
+from .settings import settings_menu_keyboard
 from .wealth import (
     wealth_back_keyboard,
     wealth_items_keyboard,
@@ -178,6 +179,7 @@ __all__ = [
     "savings_items_keyboard",
     "savings_view_keyboard",
     "search_result_keyboard",
+    "settings_menu_keyboard",
     "stacked_period_keyboard",
     "stacked_type_keyboard",
     "user_categories_menu_keyboard",

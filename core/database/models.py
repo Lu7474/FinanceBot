@@ -81,12 +81,27 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
-    last_reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    notify_weekly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    notify_monthly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    notify_daily: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    notify_reminder: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    notify_debts: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    last_reminded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    notify_weekly: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    notify_monthly: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    notify_daily: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    notify_reminder: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    notify_debts: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    use_description: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     records = relationship(
         "Record", back_populates="user", cascade="all, delete-orphan"
     )
@@ -356,9 +371,7 @@ class Debt(Base):
     remaining: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    is_closed: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
-    )
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     last_reminded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
@@ -442,6 +455,7 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_daily BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_reminder BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_debts BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS use_description BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
     ]
     for stmt in stmts:
@@ -509,14 +523,20 @@ async def _migrate(conn) -> None:
             text("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
         )
     if "last_reminded_at" not in user_columns:
-        await conn.execute(text("ALTER TABLE users ADD COLUMN last_reminded_at DATETIME"))
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN last_reminded_at DATETIME")
+        )
     if "notify_weekly" not in user_columns:
         await conn.execute(
-            text("ALTER TABLE users ADD COLUMN notify_weekly INTEGER NOT NULL DEFAULT 0")
+            text(
+                "ALTER TABLE users ADD COLUMN notify_weekly INTEGER NOT NULL DEFAULT 0"
+            )
         )
     if "notify_monthly" not in user_columns:
         await conn.execute(
-            text("ALTER TABLE users ADD COLUMN notify_monthly INTEGER NOT NULL DEFAULT 0")
+            text(
+                "ALTER TABLE users ADD COLUMN notify_monthly INTEGER NOT NULL DEFAULT 0"
+            )
         )
     if "notify_daily" not in user_columns:
         await conn.execute(
@@ -524,11 +544,19 @@ async def _migrate(conn) -> None:
         )
     if "notify_reminder" not in user_columns:
         await conn.execute(
-            text("ALTER TABLE users ADD COLUMN notify_reminder INTEGER NOT NULL DEFAULT 0")
+            text(
+                "ALTER TABLE users ADD COLUMN notify_reminder INTEGER NOT NULL DEFAULT 0"
+            )
         )
     if "notify_debts" not in user_columns:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN notify_debts INTEGER NOT NULL DEFAULT 0")
+        )
+    if "use_description" not in user_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN use_description INTEGER NOT NULL DEFAULT 0"
+            )
         )
 
     result = await conn.execute(

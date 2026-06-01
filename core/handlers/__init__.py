@@ -21,6 +21,7 @@ from .records import router as records_router
 from .records_edit import router as records_edit_router
 from .reports import router as reports_router
 from .savings import router as savings_router
+from .settings import router as settings_router
 from .wealth import router as wealth_router
 
 router = Router()
@@ -42,4 +43,5 @@ router.include_router(goals_router)
 router.include_router(debts_router)
 router.include_router(notifications_router)
 router.include_router(family_router)
+router.include_router(settings_router)
 router.include_router(fallback_router)  # must be last
