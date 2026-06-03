@@ -49,8 +49,9 @@ async def main():
     scheduler = setup_scheduler(bot, async_session)
 
     try:
-        # Запуск бота (skip_updates=True — игнорируем старые сообщения)
-        await dp.start_polling(bot, skip_updates=True)
+        # Сбрасываем накопленную очередь старых апдейтов перед стартом
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
     finally:
         # Graceful shutdown: закрываем все ресурсы
         logging.info("Завершение работы бота...")
