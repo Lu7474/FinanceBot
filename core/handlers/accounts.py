@@ -7,11 +7,14 @@ from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 
 from config import MAX_ACCOUNT_NAME_LENGTH, MAX_AMOUNT, RECORDS_PER_PAGE
-from core.database.models import async_session
+from core.database.models import Account, Record, async_session
 from core.database.requests import (
     MAX_ACCOUNTS_PER_USER,
+    cancel_transfer,
+    count_transfers,
     create_account,
     create_transfer,
     delete_account,
@@ -21,6 +24,8 @@ from core.database.requests import (
     get_accounts,
     get_history_data,
     get_records,
+    get_transfer,
+    get_transfers,
     move_and_delete_account,
     rename_account,
     set_account_balance,
@@ -31,8 +36,11 @@ from core.keyboards import (
     account_manage_keyboard,
     accounts_menu_keyboard,
     confirm_account_delete_keyboard,
+    confirm_transfer_cancel_keyboard,
     history_period_keyboard,
     main_menu_keyboard,
+    transfer_card_keyboard,
+    transfers_list_keyboard,
 )
 from core.utils import clean_text, log_exceptions
 
@@ -205,7 +213,7 @@ async def handle_acc_rename_select(
     """Сохраняет выбранный счёт и запрашивает новое название."""
     try:
         account_id = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -314,7 +322,7 @@ async def handle_acc_delete_select(
     """Если есть записи — предлагает выбрать счёт для переноса. Иначе — простое подтверждение."""
     try:
         account_id = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -358,7 +366,7 @@ async def handle_acc_delete_move(
         parts = (callback.data or "").split(":")
         from_id = int(parts[1])
         to_id = int(parts[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -392,7 +400,7 @@ async def handle_acc_delete_confirm(
     """Удаляет счёт и обновляет список."""
     try:
         account_id = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -489,7 +497,7 @@ async def handle_acc_transfer_from(
     """Показывает список счетов-назначения (исключая источник)."""
     try:
         from_id = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -525,7 +533,7 @@ async def handle_acc_transfer_to(
         parts = (callback.data or "").split(":")
         from_id = int(parts[1])
         to_id = int(parts[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -562,7 +570,7 @@ async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) 
         amount = Decimal((message.text or "").strip().replace(",", "."))
         if amount <= 0 or amount > Decimal(str(MAX_AMOUNT)):
             raise ValueError
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         await message.answer(
             f"Некорректная сумма. Введите число от 0.01 до {MAX_AMOUNT:,}:".replace(
                 ",", " "
@@ -612,7 +620,224 @@ async def handle_transfer_amount(message: Message, state: FSMContext, **kwargs) 
     await state.clear()
 
 
+# --- Переводы: история и отмена ---
+
+
+def _format_amount(amount: Decimal) -> str:
+    """5000 → '5 000 ₽'."""
+    return f"{amount:,.0f} ₽".replace(",", " ")
+
+
+async def _render_transfers_list(
+    callback: CallbackQuery, state: FSMContext, user_id: int, page: int
+) -> None:
+    """Рендерит страницу списка переводов."""
+    async with async_session() as session:
+        total = await count_transfers(session, user_id)
+        if total == 0:
+            await get_message(callback).edit_text(
+                "🔁 <b>Переводы</b>\n\nПереводов пока нет.",
+                reply_markup=acc_back_keyboard(),
+                parse_mode="HTML",
+            )
+            await state.set_state(AccountStates.waiting_for_transfers_page)
+            await state.update_data(acc_user_id=user_id, tr_total_pages=0)
+            return
+
+        total_pages = (total + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+        page = max(0, min(page, total_pages - 1))
+        transfers = await get_transfers(
+            session, user_id, limit=RECORDS_PER_PAGE, offset=page * RECORDS_PER_PAGE
+        )
+
+    await state.set_state(AccountStates.waiting_for_transfers_page)
+    await state.update_data(
+        acc_user_id=user_id, tr_page=page, tr_total_pages=total_pages
+    )
+    await get_message(callback).edit_text(
+        f"🔁 <b>Переводы</b> ({total})\n\nТап по переводу — открыть и отменить.",
+        reply_markup=transfers_list_keyboard(transfers, page, total_pages),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data == "acc_transfers")
+@log_exceptions("Ошибка при открытии переводов")
+async def handle_acc_transfers(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Открывает список переводов (первая страница)."""
+    await state.clear()
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+    await _render_transfers_list(callback, state, user_id, 0)
+    await callback.answer()
+
+
+@router.callback_query(
+    AccountStates.waiting_for_transfers_page, F.data.startswith("acc_tr_page:")
+)
+@log_exceptions("Ошибка при навигации по переводам")
+async def handle_acc_tr_page(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Навигация по страницам списка переводов."""
+    try:
+        page_str = (callback.data or "").split(":")[1]
+        if page_str == "noop":
+            await callback.answer()
+            return
+        new_page = int(page_str)
+    except IndexError, ValueError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+    await _render_transfers_list(callback, state, user_id, new_page)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_tr_view:"))
+@log_exceptions("Ошибка при открытии перевода")
+async def handle_acc_tr_view(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Показывает карточку перевода с кнопкой отмены."""
+    try:
+        transfer_id = int((callback.data or "").split(":")[1])
+    except IndexError, ValueError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        transfer = await get_transfer(session, user_id, transfer_id)
+
+    if not transfer:
+        await callback.answer("Перевод не найден.", show_alert=True)
+        await _render_transfers_list(callback, state, user_id, 0)
+        return
+
+    date_str = transfer["date"].strftime("%d.%m.%Y %H:%M")
+    from_name = html.escape(transfer["from_name"] or "(удалён)")
+    to_name = html.escape(transfer["to_name"] or "(удалён)")
+    await get_message(callback).edit_text(
+        f"🔁 <b>Перевод</b>\n\n"
+        f"📅 {date_str}\n"
+        f"{from_name} → {to_name}\n"
+        f"Сумма: <b>{_format_amount(transfer['amount'])}</b>",
+        reply_markup=transfer_card_keyboard(transfer_id),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_tr_cancel:"))
+@log_exceptions("Ошибка при запросе отмены перевода")
+async def handle_acc_tr_cancel(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Запрашивает подтверждение отмены перевода."""
+    try:
+        transfer_id = int((callback.data or "").split(":")[1])
+    except IndexError, ValueError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        transfer = await get_transfer(session, user_id, transfer_id)
+
+    if not transfer:
+        await callback.answer("Перевод не найден.", show_alert=True)
+        await _render_transfers_list(callback, state, user_id, 0)
+        return
+
+    from_name = html.escape(transfer["from_name"] or "(удалён)")
+    to_name = html.escape(transfer["to_name"] or "(удалён)")
+    await get_message(callback).edit_text(
+        f"Отменить перевод {from_name} → "
+        f"{to_name} на <b>{_format_amount(transfer['amount'])}</b>?\n\n"
+        "Балансы счетов вернутся к прежним.",
+        reply_markup=confirm_transfer_cancel_keyboard(transfer_id),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("acc_tr_del:"))
+@log_exceptions("Ошибка при отмене перевода")
+async def handle_acc_tr_del(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Удаляет обе записи перевода и возвращает к списку."""
+    try:
+        transfer_id = int((callback.data or "").split(":")[1])
+    except IndexError, ValueError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        ok = await cancel_transfer(session, user_id, transfer_id)
+        if ok:
+            await session.commit()
+
+    if not ok:
+        await callback.answer("Перевод уже отменён или не найден.", show_alert=True)
+    else:
+        await callback.answer("Перевод отменён.")
+    await _render_transfers_list(callback, state, user_id, 0)
+
+
 # --- История счёта ---
+
+
+async def _annotate_transfer_direction(
+    session, records: list, account_id: int | None
+) -> None:
+    """Дописывает направление переводам в истории счёта.
+
+    Для записей с transfer_id подменяет category на «Перевод → {назначение}»
+    (расход) или «Перевод ← {источник}» (доход). Правка только в памяти, на
+    рендер — в БД не пишется. Легаси-переводы без transfer_id и переводы на
+    удалённый счёт остаются как «Перевод».
+    """
+    tids = list({r.transfer_id for r in records if r.transfer_id})
+    if not tids:
+        return
+    # NB: `account_id != account_id` в SQL даёт NULL (не TRUE) для записей с
+    # account_id IS NULL — поэтому пара на удалённый счёт сюда не попадёт и
+    # перевод останется без подписи направления. Это ожидаемо.
+    rows = await session.execute(
+        select(Record.transfer_id, Account.name)
+        .outerjoin(Account, Record.account_id == Account.id)
+        .where(Record.transfer_id.in_(tids), Record.account_id != account_id)
+    )
+    other = {tid: name for tid, name in rows.fetchall() if name}
+    for r in records:
+        if r.transfer_id in other:
+            arrow = "→" if r.operation == "-" else "←"
+            r.category = f"Перевод {arrow} {other[r.transfer_id]}"
+    # Detach: правка category — только для рендера, исключаем случайный flush в БД.
+    session.expunge_all()
 
 
 @router.callback_query(F.data == "acc_history")
@@ -644,7 +869,7 @@ async def handle_acc_history_select(
     """Сохраняет выбранный счёт и показывает выбор периода."""
     try:
         account_id = int((callback.data or "").split(":")[1])
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         await callback.answer("Некорректные данные.")
         return
     data = await state.get_data()
@@ -683,7 +908,7 @@ async def handle_acc_hist_period(
     """Загружает первую страницу истории выбранного счёта."""
     try:
         period = (callback.data or "").split(":")[1]
-    except (IndexError, AttributeError):
+    except IndexError, AttributeError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -703,6 +928,7 @@ async def handle_acc_hist_period(
             account_id=account_id,
             include_transfers=True,
         )
+        await _annotate_transfer_direction(session, records, account_id)
 
     if total_count == 0:
         await get_message(callback).edit_text(
@@ -759,7 +985,7 @@ async def handle_acc_hist_page(
             await callback.answer()
             return
         new_page = int(page_str)
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -789,6 +1015,7 @@ async def handle_acc_hist_page(
             account_id=account_id,
             include_transfers=True,
         )
+        await _annotate_transfer_direction(session, records, account_id)
 
     await state.update_data(acc_hist_page=new_page)
     header = f"📋 <b>{html.escape(acc_name)}</b> — {html.escape(acc_balance)}"
@@ -840,7 +1067,7 @@ async def handle_acc_set_balance_select(
     """Запрашивает желаемый баланс для выбранного счёта."""
     try:
         account_id = int((callback.data or "").split(":")[1])
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         await callback.answer("Некорректные данные.")
         return
     data = await state.get_data()
@@ -878,7 +1105,7 @@ async def handle_set_balance_amount(
         desired = Decimal((message.text or "").strip().replace(",", "."))
         if desired < 0 or desired > Decimal(str(MAX_AMOUNT)):
             raise ValueError
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         await message.answer(
             f"Некорректная сумма. Введите число от 0 до {MAX_AMOUNT:,}:".replace(
                 ",", " "

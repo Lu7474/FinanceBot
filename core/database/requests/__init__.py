@@ -13,6 +13,8 @@ from ._common import (
     apply_period_filter,
 )
 from .accounts import (
+    cancel_transfer,
+    count_transfers,
     create_account,
     create_transfer,
     delete_account,
@@ -21,6 +23,8 @@ from .accounts import (
     get_account_record_count,
     get_accounts,
     get_or_create_account,
+    get_transfer,
+    get_transfers,
     move_and_delete_account,
     rename_account,
     set_account_balance,
@@ -174,6 +178,8 @@ __all__ = [
     "get_yearly_report",
     "search_records",
     # accounts
+    "cancel_transfer",
+    "count_transfers",
     "create_account",
     "create_transfer",
     "delete_account",
@@ -182,6 +188,8 @@ __all__ = [
     "get_account_record_count",
     "get_accounts",
     "get_or_create_account",
+    "get_transfer",
+    "get_transfers",
     "move_and_delete_account",
     "rename_account",
     "set_account_balance",

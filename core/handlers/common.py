@@ -278,6 +278,7 @@ class AccountStates(StatesGroup):
     waiting_for_set_balance = State()
     waiting_for_acc_hist_period = State()
     waiting_for_acc_hist_page = State()
+    waiting_for_transfers_page = State()
 
 
 class AdminStates(StatesGroup):

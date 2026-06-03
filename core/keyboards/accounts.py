@@ -28,6 +28,9 @@ def accounts_menu_keyboard() -> InlineKeyboardMarkup:
                 ),
                 InlineKeyboardButton(text="📋 История", callback_data="acc_history"),
             ],
+            [
+                InlineKeyboardButton(text="🔁 Переводы", callback_data="acc_transfers"),
+            ],
         ]
     )
 
@@ -88,3 +91,71 @@ def account_delete_move_keyboard(from_id: int, targets: List) -> InlineKeyboardM
     builder.button(text="Отмена", callback_data="acc_delete_cancel")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def transfers_list_keyboard(
+    transfers: List[dict], page: int, total_pages: int
+) -> InlineKeyboardMarkup:
+    """List of transfer pairs (one button per pair) + pagination + back."""
+    builder = InlineKeyboardBuilder()
+    row_sizes: list[int] = []
+    for t in transfers:
+        date_str = t["date"].strftime("%d.%m")
+        amount_str = f"{t['amount']:,.0f}₽".replace(",", " ")
+        # Trim names so the button label stays readable on narrow clients.
+        from_name = (t["from_name"] or "(удалён)")[:15]
+        to_name = (t["to_name"] or "(удалён)")[:15]
+        text = f"{date_str} │ {from_name} → {to_name} │ {amount_str}"
+        builder.button(text=text, callback_data=f"acc_tr_view:{t['transfer_id']}")
+        row_sizes.append(1)
+
+    if total_pages > 1:
+        nav = 0
+        if page > 0:
+            builder.button(text="◀ Назад", callback_data=f"acc_tr_page:{page - 1}")
+            nav += 1
+        builder.button(
+            text=f"{page + 1}/{total_pages}", callback_data="acc_tr_page:noop"
+        )
+        nav += 1
+        if page < total_pages - 1:
+            builder.button(text="Вперёд ▶", callback_data=f"acc_tr_page:{page + 1}")
+            nav += 1
+        row_sizes.append(nav)
+
+    builder.button(text="← Назад", callback_data="acc_back")
+    row_sizes.append(1)
+    builder.adjust(*row_sizes)
+    return builder.as_markup()
+
+
+def transfer_card_keyboard(transfer_id: int) -> InlineKeyboardMarkup:
+    """Single transfer card: cancel + back to list."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗑 Отменить перевод",
+                    callback_data=f"acc_tr_cancel:{transfer_id}",
+                ),
+            ],
+            [InlineKeyboardButton(text="← К списку", callback_data="acc_transfers")],
+        ]
+    )
+
+
+def confirm_transfer_cancel_keyboard(transfer_id: int) -> InlineKeyboardMarkup:
+    """Confirmation for transfer cancellation."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Да, отменить",
+                    callback_data=f"acc_tr_del:{transfer_id}",
+                ),
+                InlineKeyboardButton(
+                    text="Нет", callback_data=f"acc_tr_view:{transfer_id}"
+                ),
+            ]
+        ]
+    )

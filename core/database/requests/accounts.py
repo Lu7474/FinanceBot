@@ -42,9 +42,7 @@ async def create_account(
 async def get_accounts(session: AsyncSession, user_id: int) -> List[Account]:
     """Returns all accounts for the user ordered by creation date."""
     result = await session.execute(
-        select(Account)
-        .where(Account.user_id == user_id)
-        .order_by(Account.created_at)
+        select(Account).where(Account.user_id == user_id).order_by(Account.created_at)
     )
     return list(result.scalars().all())
 
@@ -156,8 +154,7 @@ async def get_account_balances(session: AsyncSession, user_id: int) -> List[tupl
     return [
         (
             acc,
-            balance_map.get(acc.id, Decimal("0"))
-            + Decimal(str(acc.balance_offset)),
+            balance_map.get(acc.id, Decimal("0")) + Decimal(str(acc.balance_offset)),
         )
         for acc in accounts
     ]
@@ -286,29 +283,157 @@ async def create_transfer(
     to_account_id: int,
     amount: Decimal,
 ) -> bool:
-    """Creates two records (expense + income) for a transfer between accounts."""
+    """Creates two linked records (expense + income) for a transfer.
+
+    Both rows share a transfer_id (= expense row id) so the pair can be listed
+    and cancelled atomically.
+    """
     try:
-        session.add_all(
-            [
-                Record(
-                    user_id=user_id,
-                    operation="-",
-                    amount=amount,
-                    category=TRANSFER_CATEGORY,
-                    account_id=from_account_id,
-                ),
-                Record(
-                    user_id=user_id,
-                    operation="+",
-                    amount=amount,
-                    category=TRANSFER_CATEGORY,
-                    account_id=to_account_id,
-                ),
-            ]
+        expense = Record(
+            user_id=user_id,
+            operation="-",
+            amount=amount,
+            category=TRANSFER_CATEGORY,
+            account_id=from_account_id,
         )
+        income = Record(
+            user_id=user_id,
+            operation="+",
+            amount=amount,
+            category=TRANSFER_CATEGORY,
+            account_id=to_account_id,
+        )
+        session.add_all([expense, income])
+        await session.flush()  # assigns PKs
+        expense.transfer_id = expense.id
+        income.transfer_id = expense.id
         await session.flush()
         return True
     except Exception as e:
         await session.rollback()
         logging.exception(f"Ошибка при создании перевода для user_id {user_id}: {e}")
+        return False
+
+
+async def count_transfers(session: AsyncSession, user_id: int) -> int:
+    """Returns the number of transfer pairs (distinct transfer_id) for the user."""
+    return (
+        await session.scalar(
+            select(func.count(func.distinct(Record.transfer_id))).where(
+                Record.user_id == user_id,
+                Record.category == TRANSFER_CATEGORY,
+                Record.transfer_id.isnot(None),
+            )
+        )
+        or 0
+    )
+
+
+async def get_transfers(
+    session: AsyncSession, user_id: int, limit: int, offset: int
+) -> List[dict]:
+    """Returns a page of transfer pairs, newest first.
+
+    Each dict: {transfer_id, amount, date (datetime), from_name, to_name}.
+    Account names fall back to «(удалён)» when the linked account is gone.
+    """
+    # Newest transfer_ids for this page (group by pair, order by recency).
+    id_rows = await session.execute(
+        select(Record.transfer_id, func.max(Record.created_at).label("ts"))
+        .where(
+            Record.user_id == user_id,
+            Record.category == TRANSFER_CATEGORY,
+            Record.transfer_id.isnot(None),
+        )
+        .group_by(Record.transfer_id)
+        .order_by(func.max(Record.created_at).desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    transfer_ids = [row.transfer_id for row in id_rows.fetchall()]
+    if not transfer_ids:
+        return []
+
+    # All records of those pairs, joined to account names.
+    rows = await session.execute(
+        select(Record, Account.name)
+        .outerjoin(Account, Record.account_id == Account.id)
+        .where(
+            Record.user_id == user_id,
+            Record.transfer_id.in_(transfer_ids),
+        )
+    )
+    pairs: dict[int, dict] = {}
+    for record, acc_name in rows.fetchall():
+        entry = pairs.setdefault(
+            record.transfer_id,
+            {
+                "transfer_id": record.transfer_id,
+                "amount": record.amount,
+                "date": record.created_at,
+                "from_name": None,
+                "to_name": None,
+            },
+        )
+        name = acc_name or "(удалён)"
+        if record.operation == "-":
+            entry["from_name"] = name
+        else:
+            entry["to_name"] = name
+
+    # Preserve the page ordering (newest first).
+    return [pairs[tid] for tid in transfer_ids if tid in pairs]
+
+
+async def get_transfer(
+    session: AsyncSession, user_id: int, transfer_id: int
+) -> Optional[dict]:
+    """Returns a single transfer pair as a dict, or None if not found/not owned."""
+    rows = await session.execute(
+        select(Record, Account.name)
+        .outerjoin(Account, Record.account_id == Account.id)
+        .where(
+            Record.user_id == user_id,
+            Record.transfer_id == transfer_id,
+        )
+    )
+    result: Optional[dict] = None
+    for record, acc_name in rows.fetchall():
+        if result is None:
+            result = {
+                "transfer_id": transfer_id,
+                "amount": record.amount,
+                "date": record.created_at,
+                "from_name": None,
+                "to_name": None,
+            }
+        name = acc_name or "(удалён)"
+        if record.operation == "-":
+            result["from_name"] = name
+        else:
+            result["to_name"] = name
+    return result
+
+
+async def cancel_transfer(
+    session: AsyncSession, user_id: int, transfer_id: int
+) -> bool:
+    """Deletes both records of a transfer atomically. False if nothing was removed.
+
+    user_id is enforced in the WHERE clause to prevent cancelling someone
+    else's transfer (IDOR). Tolerates a half-deleted pair.
+    """
+    try:
+        result = await session.execute(
+            delete(Record).where(
+                Record.user_id == user_id,
+                Record.transfer_id == transfer_id,
+                Record.category == TRANSFER_CATEGORY,
+            )
+        )
+        await session.flush()
+        return (result.rowcount or 0) > 0
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при отмене перевода {transfer_id}: {e}")
         return False

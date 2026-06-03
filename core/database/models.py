@@ -178,6 +178,10 @@ class Record(Base):
         ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Links the two records (expense + income) of one transfer. NULL for normal records.
+    transfer_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, index=True
+    )
     user = relationship("User", back_populates="records")
     account = relationship("Account", back_populates="records")
 
@@ -459,6 +463,8 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_debts BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS description_mode VARCHAR(10) NOT NULL DEFAULT 'off'",
         "ALTER TABLE records ADD COLUMN IF NOT EXISTS description VARCHAR(255)",
+        "ALTER TABLE records ADD COLUMN IF NOT EXISTS transfer_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_records_transfer_id ON records(transfer_id)",
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
     ]
     for stmt in stmts:
@@ -515,6 +521,13 @@ async def _migrate(conn) -> None:
                 "ALTER TABLE records ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
             )
         )
+    if "transfer_id" not in columns:
+        await conn.execute(text("ALTER TABLE records ADD COLUMN transfer_id INTEGER"))
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_records_transfer_id ON records(transfer_id)"
+        )
+    )
     result = await conn.execute(text("PRAGMA table_info(accounts)"))
     acc_columns = {row[1] for row in result.fetchall()}
     if "balance_offset" not in acc_columns:
