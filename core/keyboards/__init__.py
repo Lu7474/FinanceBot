@@ -6,6 +6,7 @@ Re-exported here so existing call sites keep using `from core.keyboards import X
 from .accounts import (
     acc_back_keyboard,
     account_delete_move_keyboard,
+    account_history_keyboard,
     account_manage_keyboard,
     account_select_keyboard,
     accounts_menu_keyboard,
@@ -124,6 +125,7 @@ __all__ = [
     "member_marker",
     "acc_back_keyboard",
     "account_delete_move_keyboard",
+    "account_history_keyboard",
     "account_manage_keyboard",
     "account_select_keyboard",
     "accounts_menu_keyboard",

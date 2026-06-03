@@ -129,6 +129,50 @@ def transfers_list_keyboard(
     return builder.as_markup()
 
 
+def account_history_keyboard(
+    account_id: int, page: int, total_pages: int, operation_filter: str | None
+) -> InlineKeyboardMarkup:
+    """История счёта: пагинация + фильтр по типу операции + выход.
+
+    Своя клавиатура вместо общего рендера истории, у которого в этом контексте
+    мёртвые фильтры/поиск (их callback'и обрабатываются только в MenuStates).
+    Свой префикс acc_hist_page: разграничивает пагинацию от общей истории.
+    """
+    builder = InlineKeyboardBuilder()
+    row_sizes: list[int] = []
+
+    if total_pages > 1:
+        nav = 0
+        if page > 0:
+            builder.button(text="◀ Назад", callback_data=f"acc_hist_page:{page - 1}")
+            nav += 1
+        builder.button(
+            text=f"{page + 1}/{total_pages}", callback_data="acc_hist_page:noop"
+        )
+        nav += 1
+        if page < total_pages - 1:
+            builder.button(text="Вперёд ▶", callback_data=f"acc_hist_page:{page + 1}")
+            nav += 1
+        row_sizes.append(nav)
+
+    all_text = "✓ Все" if operation_filter is None else "Все"
+    exp_text = "✓ Расходы" if operation_filter == "-" else "Расходы"
+    inc_text = "✓ Доходы" if operation_filter == "+" else "Доходы"
+    builder.button(text=all_text, callback_data="acc_hist_filter:all")
+    builder.button(text=exp_text, callback_data="acc_hist_filter:expense")
+    builder.button(text=inc_text, callback_data="acc_hist_filter:income")
+    row_sizes.append(3)
+
+    builder.button(
+        text="← К периодам", callback_data=f"acc_history_select:{account_id}"
+    )
+    builder.button(text="← К счетам", callback_data="acc_back")
+    row_sizes.append(2)
+
+    builder.adjust(*row_sizes)
+    return builder.as_markup()
+
+
 def transfer_card_keyboard(transfer_id: int) -> InlineKeyboardMarkup:
     """Single transfer card: cancel + back to list."""
     return InlineKeyboardMarkup(

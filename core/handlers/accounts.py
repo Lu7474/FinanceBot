@@ -23,7 +23,6 @@ from core.database.requests import (
     get_account_record_count,
     get_accounts,
     get_history_data,
-    get_records,
     get_transfer,
     get_transfers,
     move_and_delete_account,
@@ -33,6 +32,7 @@ from core.database.requests import (
 from core.keyboards import (
     acc_back_keyboard,
     account_delete_move_keyboard,
+    account_history_keyboard,
     account_manage_keyboard,
     accounts_menu_keyboard,
     confirm_account_delete_keyboard,
@@ -900,79 +900,100 @@ async def handle_acc_history_select(
     await callback.answer()
 
 
-@router.callback_query(AccountStates.waiting_for_acc_hist_period)
-@log_exceptions("Ошибка при получении истории счёта")
-async def handle_acc_hist_period(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
-    """Загружает первую страницу истории выбранного счёта."""
-    try:
-        period = (callback.data or "").split(":")[1]
-    except IndexError, AttributeError:
-        await callback.answer("Некорректные данные.")
-        return
+_HIST_FILTER_OP = {"all": None, "expense": "-", "income": "+"}
 
+
+async def _render_acc_history(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user_id: int,
+    period: str,
+    page: int,
+    op_filter: str | None,
+) -> None:
+    """Рендерит страницу истории счёта: текст + своя клавиатура (пагинация,
+    фильтр по типу, выход). Источник истины по счёту берётся из state."""
     data = await state.get_data()
     account_id = data.get("acc_hist_account_id")
+    if not isinstance(account_id, int):
+        await callback.answer(
+            "Данные устарели. Откройте историю заново.", show_alert=True
+        )
+        return
     acc_name = data.get("acc_hist_account_name", "Счёт")
     acc_balance = data.get("acc_hist_balance", "")
+    header = f"📋 <b>{html.escape(acc_name)}</b> — {html.escape(acc_balance)}"
 
-    user_id: int = kwargs["user_id"]
     async with async_session() as session:
         total_count, income_sum, expense_sum, records = await get_history_data(
             session,
             user_id,
             period,
             limit=RECORDS_PER_PAGE,
-            offset=0,
+            offset=page * RECORDS_PER_PAGE,
             account_id=account_id,
             include_transfers=True,
+            operation_filter=op_filter,
         )
         await _annotate_transfer_direction(session, records, account_id)
 
     if total_count == 0:
-        await get_message(callback).edit_text(
-            f"📋 <b>{acc_name}</b>\nЗаписей за указанный период нет.",
-            parse_mode="HTML",
+        # Пусто — но оставляем клавиатуру, чтобы можно было сменить фильтр/выйти.
+        note = {"-": " (фильтр: Расходы)", "+": " (фильтр: Доходы)"}.get(
+            op_filter or "", ""
         )
-        await state.clear()
-        await callback.answer()
-        return
+        text = f"{header}\n\nЗаписей за период нет{note}."
+        total_pages = 1
+        page = 0
+    else:
+        total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+        page = max(0, min(page, total_pages - 1))
+        text, _ = build_history_page(
+            records,
+            page,
+            total_pages,
+            income_sum,
+            expense_sum,
+            period=period,
+            total_count=total_count,
+            header=header,
+            operation_filter=op_filter,
+        )
 
-    total_pages = (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
     await state.update_data(
         acc_hist_period=period,
-        acc_hist_page=0,
+        acc_hist_page=page,
         acc_hist_total_pages=total_pages,
-        acc_hist_total_count=total_count,
-        acc_hist_income=str(income_sum),
-        acc_hist_expense=str(expense_sum),
+        acc_hist_filter=op_filter or "",
+    )
+    await state.set_state(AccountStates.waiting_for_acc_hist_page)
+    await get_message(callback).edit_text(
+        text,
+        reply_markup=account_history_keyboard(account_id, page, total_pages, op_filter),
+        parse_mode="HTML",
     )
 
-    header = f"📋 <b>{html.escape(acc_name)}</b> — {html.escape(acc_balance)}"
-    text, kb = build_history_page(
-        records,
-        0,
-        total_pages,
-        income_sum,
-        expense_sum,
-        period=period,
-        total_count=total_count,
-        header=header,
+
+@router.callback_query(AccountStates.waiting_for_acc_hist_period)
+@log_exceptions("Ошибка при получении истории счёта")
+async def handle_acc_hist_period(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Выбран период — показываем первую страницу истории счёта (без фильтра)."""
+    try:
+        period = (callback.data or "").split(":")[1]
+    except IndexError, AttributeError:
+        await callback.answer("Некорректные данные.")
+        return
+
+    await _render_acc_history(
+        callback, state, kwargs["user_id"], period, page=0, op_filter=None
     )
-    if total_pages > 1:
-        await get_message(callback).edit_text(
-            text, reply_markup=kb.as_markup(), parse_mode="HTML"
-        )
-        await state.set_state(AccountStates.waiting_for_acc_hist_page)
-    else:
-        await get_message(callback).edit_text(text, parse_mode="HTML")
-        await state.clear()
     await callback.answer()
 
 
 @router.callback_query(
-    AccountStates.waiting_for_acc_hist_page, F.data.startswith("hist_page:")
+    AccountStates.waiting_for_acc_hist_page, F.data.startswith("acc_hist_page:")
 )
 @log_exceptions("Ошибка при навигации по истории счёта")
 async def handle_acc_hist_page(
@@ -990,47 +1011,53 @@ async def handle_acc_hist_page(
         return
 
     data = await state.get_data()
-    account_id = data.get("acc_hist_account_id")
-    acc_name = data.get("acc_hist_account_name", "Счёт")
-    acc_balance = data.get("acc_hist_balance", "")
     period = data.get("acc_hist_period")
-    assert isinstance(period, str)
+    if not isinstance(period, str):
+        await callback.answer(
+            "Данные устарели. Откройте историю заново.", show_alert=True
+        )
+        return
     total_pages = data.get("acc_hist_total_pages", 1)
-    total_count = data.get("acc_hist_total_count", 0)
-    income_sum = Decimal(data.get("acc_hist_income", "0"))
-    expense_sum = Decimal(data.get("acc_hist_expense", "0"))
+    op_filter = data.get("acc_hist_filter") or None
 
     if new_page < 0 or new_page >= total_pages:
         await callback.answer("Страница не существует.")
         return
 
-    user_id: int = kwargs["user_id"]
-    async with async_session() as session:
-        records = await get_records(
-            session,
-            user_id,
-            period,
-            limit=RECORDS_PER_PAGE,
-            offset=new_page * RECORDS_PER_PAGE,
-            account_id=account_id,
-            include_transfers=True,
-        )
-        await _annotate_transfer_direction(session, records, account_id)
-
-    await state.update_data(acc_hist_page=new_page)
-    header = f"📋 <b>{html.escape(acc_name)}</b> — {html.escape(acc_balance)}"
-    text, kb = build_history_page(
-        records,
-        new_page,
-        total_pages,
-        income_sum,
-        expense_sum,
-        period=period,
-        total_count=total_count,
-        header=header,
+    await _render_acc_history(
+        callback, state, kwargs["user_id"], period, new_page, op_filter
     )
-    await get_message(callback).edit_text(
-        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    await callback.answer()
+
+
+@router.callback_query(
+    AccountStates.waiting_for_acc_hist_page, F.data.startswith("acc_hist_filter:")
+)
+@log_exceptions("Ошибка при фильтрации истории счёта")
+async def handle_acc_hist_filter(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Фильтр истории счёта по типу операции (all/expense/income)."""
+    ftype = (callback.data or "").split(":")[1]
+    if ftype not in _HIST_FILTER_OP:
+        await callback.answer()
+        return
+    new_op = _HIST_FILTER_OP[ftype]
+
+    data = await state.get_data()
+    current_op = data.get("acc_hist_filter") or None
+    if new_op == current_op:
+        await callback.answer()
+        return
+    period = data.get("acc_hist_period")
+    if not isinstance(period, str):
+        await callback.answer(
+            "Данные устарели. Откройте историю заново.", show_alert=True
+        )
+        return
+
+    await _render_acc_history(
+        callback, state, kwargs["user_id"], period, page=0, op_filter=new_op
     )
     await callback.answer()
 

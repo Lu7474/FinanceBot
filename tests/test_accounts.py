@@ -485,3 +485,73 @@ async def test_history_annotation_skips_plain_records(session):
     )
     await _annotate_transfer_direction(session, records, acc_id)
     assert [r.category for r in records] == ["Еда"]
+
+
+# ==================== account_history_keyboard ====================
+
+
+def _kb_callbacks(kb) -> list[str]:
+    return [b.callback_data for row in kb.inline_keyboard for b in row]
+
+
+def test_account_history_keyboard_exits_and_filters():
+    """Есть выходы и рабочие фильтры; мёртвых кнопок общей истории нет."""
+    from core.keyboards import account_history_keyboard
+
+    kb = account_history_keyboard(
+        account_id=7, page=0, total_pages=1, operation_filter=None
+    )
+    cbs = _kb_callbacks(kb)
+    # Выходы на два уровня
+    assert "acc_history_select:7" in cbs  # ← К периодам
+    assert "acc_back" in cbs  # ← К счетам
+    # Рабочие фильтры по типу
+    assert {
+        "acc_hist_filter:all",
+        "acc_hist_filter:expense",
+        "acc_hist_filter:income",
+    } <= set(cbs)
+    # Мёртвых кнопок общей истории быть не должно (включая её пагинацию hist_page:)
+    assert not any(c.startswith("hist_filter:") for c in cbs)
+    assert not any(c.startswith("hist_page:") for c in cbs)
+    assert "hist_open_record" not in cbs
+    assert "hist_search:start" not in cbs
+    assert "hist_show_all" not in cbs
+    # Одна страница — без пагинации
+    assert not any(c.startswith("acc_hist_page:") for c in cbs)
+
+
+def test_account_history_keyboard_pagination():
+    """Многостраничная история показывает пагинацию acc_hist_page:*."""
+    from core.keyboards import account_history_keyboard
+
+    kb = account_history_keyboard(
+        account_id=7, page=1, total_pages=3, operation_filter="-"
+    )
+    cbs = _kb_callbacks(kb)
+    assert "acc_hist_page:0" in cbs  # ◀ Назад
+    assert "acc_hist_page:2" in cbs  # Вперёд ▶
+    assert "acc_hist_page:noop" in cbs  # индикатор страницы
+
+
+def test_account_history_keyboard_pagination_edges():
+    """Крайние страницы: на первой нет «◀ Назад», на последней нет «Вперёд ▶»."""
+    from core.keyboards import account_history_keyboard
+
+    first = _kb_callbacks(account_history_keyboard(7, 0, 2, None))
+    assert "acc_hist_page:-1" not in first  # нет «назад» с первой
+    assert "acc_hist_page:1" in first  # есть «вперёд»
+
+    last = _kb_callbacks(account_history_keyboard(7, 1, 2, None))
+    assert "acc_hist_page:0" in last  # есть «назад»
+    assert "acc_hist_page:2" not in last  # нет «вперёд» с последней
+
+
+def test_account_history_keyboard_active_filter_marker():
+    """Активный фильтр помечен галочкой."""
+    from core.keyboards import account_history_keyboard
+
+    kb = account_history_keyboard(7, 0, 1, operation_filter="-")
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert "✓ Расходы" in labels
+    assert "Все" in labels and "✓ Все" not in labels
