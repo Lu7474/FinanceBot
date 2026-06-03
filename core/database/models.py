@@ -80,8 +80,10 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(
         BigInteger, unique=True, nullable=False
     )  # Telegram ID
-    name: Mapped[str] = mapped_column(String, nullable=True)  # Имя пользователя
-    phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
+    name: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )  # Имя пользователя
+    phone: Mapped[Optional[str]] = mapped_column(String, nullable=True, default=None)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
     last_reminded_at: Mapped[Optional[datetime]] = mapped_column(
