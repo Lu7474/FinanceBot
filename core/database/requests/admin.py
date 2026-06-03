@@ -131,19 +131,13 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
         # explicitly first — bulk delete bypasses ORM cascade). Then drop the
         # user's own membership in case they were a member of someone else's family.
         owned_family_ids = list(
-            (
-                await session.execute(
-                    select(Family.id).where(Family.owner_id == uid)
-                )
-            )
+            (await session.execute(select(Family.id).where(Family.owner_id == uid)))
             .scalars()
             .all()
         )
         if owned_family_ids:
             await session.execute(
-                delete(FamilyMember).where(
-                    FamilyMember.family_id.in_(owned_family_ids)
-                )
+                delete(FamilyMember).where(FamilyMember.family_id.in_(owned_family_ids))
             )
             await session.execute(delete(Family).where(Family.owner_id == uid))
         await session.execute(delete(FamilyMember).where(FamilyMember.user_id == uid))
@@ -164,10 +158,14 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
                 )
             )
         )
-        await session.execute(delete(SavingsSnapshot).where(SavingsSnapshot.user_id == uid))
+        await session.execute(
+            delete(SavingsSnapshot).where(SavingsSnapshot.user_id == uid)
+        )
 
         # CategoryKeyword -> UserCategory
-        await session.execute(delete(CategoryKeyword).where(CategoryKeyword.user_id == uid))
+        await session.execute(
+            delete(CategoryKeyword).where(CategoryKeyword.user_id == uid)
+        )
         await session.execute(delete(UserCategory).where(UserCategory.user_id == uid))
 
         # Independent of user-children
@@ -292,6 +290,11 @@ async def get_power_user_tg_ids(
     return list(result.scalars().all())
 
 
+def _csv_safe(s: str) -> str:
+    """Neutralize CSV/formula injection: prefix risky leading chars with '."""
+    return "'" + s if s and s[0] in "=+-@\t\r" else s
+
+
 async def get_user_records_csv(session: AsyncSession, user_id: int) -> bytes:
     result = await session.execute(
         select(Record)
@@ -309,8 +312,8 @@ async def get_user_records_csv(session: AsyncSession, user_id: int) -> bytes:
                 r.created_at.strftime("%d.%m.%Y %H:%M"),
                 "Доход" if r.operation == "+" else "Расход",
                 float(r.amount),
-                r.category,
-                r.account.name if r.account else "—",
+                _csv_safe(r.category or ""),
+                _csv_safe(r.account.name) if r.account else "—",
             ]
         )
     return output.getvalue().encode("utf-8-sig")  # BOM для корректного открытия в Excel
