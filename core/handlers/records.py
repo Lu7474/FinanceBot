@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from config import MAX_AMOUNT, MAX_CATEGORY_LENGTH, TIMEZONE
-from core.database.models import User, async_session
+from core.database.models import User, async_session, moscow_now
 from core.database.requests import (
     check_and_alert_budget,
     get_accounts,
@@ -23,7 +23,6 @@ from core.database.requests import (
     suggest_category,
     update_record,
 )
-from core.database.requests._common import now_moscow
 from core.database.requests.records import count_records
 from core.keyboards import (
     account_select_keyboard,
@@ -281,7 +280,7 @@ def parse_record_line(
         except ValueError:
             return None
 
-        now = now_moscow()
+        now = moscow_now()
         if record_date.date() > (now + timedelta(days=1)).date():
             return None
 

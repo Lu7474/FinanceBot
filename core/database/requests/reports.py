@@ -10,8 +10,7 @@ from sqlalchemy import ColumnElement, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
-from core.database.models import Record
-from core.database.requests._common import now_moscow
+from core.database.models import Record, moscow_now
 from core.utils import parse_search_query
 
 from ._common import SYSTEM_CATEGORIES, apply_period_filter
@@ -54,9 +53,7 @@ async def get_categories_summary(
     result = await session.execute(query)
     rows = result.fetchall()
 
-    return {
-        (row.category or "Без категории"): Decimal(str(row.total)) for row in rows
-    }
+    return {(row.category or "Без категории"): Decimal(str(row.total)) for row in rows}
 
 
 async def get_history_data(
@@ -217,7 +214,7 @@ async def get_monthly_totals(
 
     user_id accepts a single id (personal) or a list (family scope).
     """
-    now = now_moscow()
+    now = moscow_now()
     user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     start_date = (now - relativedelta(months=months_back - 1)).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
@@ -248,9 +245,7 @@ async def get_monthly_totals(
     result = await session.execute(query)
     rows = result.fetchall()
 
-    return [
-        (int(row.year), int(row.month), Decimal(str(row.total))) for row in rows
-    ]
+    return [(int(row.year), int(row.month), Decimal(str(row.total))) for row in rows]
 
 
 async def get_stacked_data(
@@ -265,7 +260,7 @@ async def get_stacked_data(
     Uses func.extract (works on both SQLite and Postgres) — no strftime.
     user_id accepts a single id (personal) or a list (family scope).
     """
-    now = now_moscow()
+    now = moscow_now()
     user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
     start_date = (now - relativedelta(months=months_count - 1)).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0

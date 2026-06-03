@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 sys.path.append(str(Path(__file__).resolve().parent))
 
-from core.database.models import Family, FamilyMember, Record, User
+from core.database.models import Family, FamilyMember, Record, User, moscow_now
 from core.database.requests import (
     MAX_FAMILY_MEMBERS,
     create_family,
@@ -28,7 +28,6 @@ from core.database.requests import (
     rename_family,
 )
 from core.database.requests import family as family_module
-from core.database.requests._common import now_moscow
 
 # ==================== Helpers ====================
 
@@ -49,7 +48,7 @@ async def _mk_record(
             operation=operation,
             amount=Decimal(amount),
             category=category,
-            created_at=now_moscow(),
+            created_at=moscow_now(),
         )
     )
     await session.flush()
@@ -70,9 +69,7 @@ async def test_create_family(session):
     assert all(c in family_module.INVITE_CODE_ALPHABET for c in family.invite_code)
 
     # Owner row exists with role="owner"
-    om = await session.scalar(
-        select(FamilyMember).where(FamilyMember.user_id == owner)
-    )
+    om = await session.scalar(select(FamilyMember).where(FamilyMember.user_id == owner))
     assert om is not None
     assert om.role == "owner"
     assert (await get_family(session, owner)).id == family.id

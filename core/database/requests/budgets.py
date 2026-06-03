@@ -6,8 +6,7 @@ from decimal import Decimal
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import Budget, Record
-from core.database.requests._common import now_moscow
+from core.database.models import Budget, Record, moscow_now
 from core.utils import format_money
 
 
@@ -102,7 +101,7 @@ async def reset_budget_alerts_if_new_month(
     session: AsyncSession, budget: Budget
 ) -> bool:
     """Resets alert flags if current month differs from last_reset_month. Returns True if reset occurred."""
-    now = now_moscow()
+    now = moscow_now()
     current_yyyymm = now.year * 100 + now.month
     if budget.last_reset_month != current_yyyymm:
         budget.alerted_80 = False
@@ -128,7 +127,7 @@ async def check_and_alert_budget(
 
     reset = await reset_budget_alerts_if_new_month(session, budget)
 
-    now = now_moscow()
+    now = moscow_now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     spent = await session.scalar(

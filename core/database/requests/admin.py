@@ -27,8 +27,8 @@ from core.database.models import (
     User,
     UserCategory,
     WealthItem,
+    moscow_now,
 )
-from core.database.requests._common import now_moscow
 
 from ._common import SYSTEM_CATEGORIES
 
@@ -194,7 +194,7 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
 
 
 async def get_bot_stats(session: AsyncSession) -> dict:
-    now = now_moscow()
+    now = moscow_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = (now - timedelta(days=7)).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -277,7 +277,7 @@ async def find_users_by_name(session: AsyncSession, query_str: str) -> List[User
 
 
 async def get_active_user_tg_ids(session: AsyncSession, days: int = 7) -> List[int]:
-    since = now_moscow() - timedelta(days=days)
+    since = moscow_now() - timedelta(days=days)
     result = await session.execute(
         select(User.tg_id)
         .join(Record, Record.user_id == User.id)

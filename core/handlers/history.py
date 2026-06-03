@@ -11,14 +11,13 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE
-from core.database.models import Record, async_session
+from core.database.models import Record, async_session, moscow_now
 from core.database.requests import (
     get_history_data,
     get_records,
     get_top_categories_for_period,
     search_records,
 )
-from core.database.requests._common import now_moscow
 from core.keyboards import (
     history_category_filter_keyboard,
     history_period_keyboard,
@@ -292,7 +291,7 @@ async def menu_history_period(
     """Выбран период — загружаем первую страницу записей."""
     try:
         period = (callback.data or "").split(":")[1]
-    except (IndexError, AttributeError):
+    except IndexError, AttributeError:
         await callback.answer("Некорректные данные.")
         await state.clear()
         return
@@ -365,7 +364,7 @@ async def menu_history_page(
             await callback.answer()
             return
         new_page = int(page_str)
-    except (IndexError, ValueError, AttributeError):
+    except IndexError, ValueError, AttributeError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -536,7 +535,7 @@ async def menu_history_custom_period(
         await message.answer("Начальная дата не может быть позже конечной.")
         return
 
-    now = now_moscow()
+    now = moscow_now()
     if date_from > now:
         await message.answer("Начальная дата не может быть в будущем.")
         return
@@ -834,7 +833,7 @@ async def search_page_nav(callback: CallbackQuery, state: FSMContext, **kwargs) 
             await callback.answer()
             return
         new_page = int(page_str)
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
