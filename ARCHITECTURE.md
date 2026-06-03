@@ -56,7 +56,7 @@ FinanceBot/
 │           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 538 pytest-тестов
+├── tests/                      # 554 pytest-теста
 └── requirements.txt
 ```
 
@@ -106,6 +106,8 @@ operation: str  — "+" (доход) или "-" (расход)
 amount: Decimal(14, 2)
 category: str (max 50 символов)
 created_at: datetime (Moscow TZ)
+description: str (max 255, nullable)  — заметка к записи
+transfer_id: int (nullable, indexed)  — связывает пару записей перевода (expense+income = id расходной строки); NULL для обычных записей
 ```
 
 ### SavingsSnapshot
@@ -487,9 +489,9 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 [Счета]
     → get_account_balances() — балансы всех счетов
     → создать / переименовать / удалить (с переносом записей)
-    → перевод между счетами
+    → перевод между счетами (↔️) + журнал переводов (🔁) с просмотром и отменой
     → установить баланс (через balance_offset)
-    → история конкретного счёта (с пагинацией)
+    → история конкретного счёта (с пагинацией и фильтром по типу: все / расходы / доходы)
 ```
 
 ### Накопления
@@ -668,7 +670,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (538)
+## Тесты (554)
 
 ```bash
 pytest tests/ -v
