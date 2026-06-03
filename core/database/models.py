@@ -48,6 +48,9 @@ def setup_sqlite_engine(target_engine) -> None:
     @event.listens_for(target_engine.sync_engine, "connect")
     def _configure_sqlite(dbapi_conn, _):
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
+        dbapi_conn.execute("PRAGMA busy_timeout=5000")
+        dbapi_conn.execute("PRAGMA synchronous=NORMAL")
         dbapi_conn.create_function(
             "lower", 1, lambda s: s.lower() if s is not None else s, deterministic=True
         )
