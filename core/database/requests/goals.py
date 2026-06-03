@@ -14,6 +14,7 @@ from core.exceptions import (
     GoalNotFoundOrCompleted,
     InsufficientFundsInGoal,
 )
+from core.utils import today_msk
 
 
 async def get_goals(
@@ -27,7 +28,7 @@ async def get_goals(
     if not include_completed:
         q = q.where(Goal.is_completed == False)  # noqa: E712
     goals = list(await session.scalars(q))
-    today = date_type.today()
+    today = today_msk()
 
     def _sort_key(g: Goal) -> tuple:
         # 0=achieved-not-closed (very top, nudge to close), 1=overdue, 2=with deadline (by closeness),
