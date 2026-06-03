@@ -12,6 +12,8 @@ from core.database.models import (
     Account,
     Budget,
     CategoryKeyword,
+    Debt,
+    DebtPayment,
     Goal,
     GoalDeposit,
     Record,
@@ -40,7 +42,9 @@ from tests.conftest import test_session
 # ---------- helpers ----------
 
 
-async def _make_user(session, tg_id: int = 1, name: str = "u", banned: bool = False) -> tuple[int, int]:
+async def _make_user(
+    session, tg_id: int = 1, name: str = "u", banned: bool = False
+) -> tuple[int, int]:
     """Returns (user_pk, tg_id) — pulled before next commit expires the row."""
     user = User(tg_id=tg_id, name=name, is_banned=banned)
     session.add(user)
@@ -50,8 +54,12 @@ async def _make_user(session, tg_id: int = 1, name: str = "u", banned: bool = Fa
 
 
 async def _make_record(
-    session, user_id: int, op: str = "-", amount: str = "100",
-    category: str = "Еда", at: datetime | None = None,
+    session,
+    user_id: int,
+    op: str = "-",
+    amount: str = "100",
+    category: str = "Еда",
+    at: datetime | None = None,
 ) -> None:
     rec = Record(
         user_id=user_id,
@@ -104,8 +112,14 @@ async def test_delete_user_cascade_removes_all_related_data():
         s.add(cat)
         await s.flush()
         s.add(CategoryKeyword(user_id=uid, category_id=cat.id, keyword="хлеб"))
-        s.add(WealthItem(user_id=uid, type="A", name="Квартира", amount=Decimal("1000000")))
-        snap = SavingsSnapshot(user_id=uid, date=datetime.now(ZoneInfo(TIMEZONE)).date())
+        s.add(
+            WealthItem(
+                user_id=uid, type="A", name="Квартира", amount=Decimal("1000000")
+            )
+        )
+        snap = SavingsSnapshot(
+            user_id=uid, date=datetime.now(ZoneInfo(TIMEZONE)).date()
+        )
         s.add(snap)
         await s.flush()
         s.add(SavingsItem(snapshot_id=snap.id, name="Наличные", amount=Decimal("500")))
@@ -113,6 +127,16 @@ async def test_delete_user_cascade_removes_all_related_data():
         s.add(goal)
         await s.flush()
         s.add(GoalDeposit(goal_id=goal.id, amount=Decimal("1000")))
+        debt = Debt(
+            user_id=uid,
+            direction="O",
+            person_name="Иван",
+            amount=Decimal("5000"),
+            remaining=Decimal("5000"),
+        )
+        s.add(debt)
+        await s.flush()
+        s.add(DebtPayment(debt_id=debt.id, amount=Decimal("1000")))
         await s.commit()
 
     # ----- delete session (fresh, empty identity map) -----
@@ -123,14 +147,30 @@ async def test_delete_user_cascade_removes_all_related_data():
 
     # ----- verify session (also fresh) -----
     async with test_session() as s:
-        for model in (Account, Record, Budget, UserCategory, CategoryKeyword,
-                      WealthItem, SavingsSnapshot, Goal):
-            rows = (await s.execute(select(model).where(model.user_id == uid))).scalars().all()
+        for model in (
+            Account,
+            Record,
+            Budget,
+            UserCategory,
+            CategoryKeyword,
+            WealthItem,
+            SavingsSnapshot,
+            Goal,
+            Debt,
+        ):
+            rows = (
+                (await s.execute(select(model).where(model.user_id == uid)))
+                .scalars()
+                .all()
+            )
             assert rows == [], f"{model.__name__} not cleaned"
 
         assert (await s.execute(select(SavingsItem))).scalars().all() == []
         assert (await s.execute(select(GoalDeposit))).scalars().all() == []
-        assert (await s.execute(select(User).where(User.id == uid))).scalar_one_or_none() is None
+        assert (await s.execute(select(DebtPayment))).scalars().all() == []
+        assert (
+            await s.execute(select(User).where(User.id == uid))
+        ).scalar_one_or_none() is None
 
 
 # ---------- ban_user ----------

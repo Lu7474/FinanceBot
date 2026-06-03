@@ -15,6 +15,8 @@ from core.database.models import (
     Account,
     Budget,
     CategoryKeyword,
+    Debt,
+    DebtPayment,
     Family,
     FamilyMember,
     Goal,
@@ -149,6 +151,14 @@ async def delete_user_cascade(session: AsyncSession, tg_id: int) -> bool:
             )
         )
         await session.execute(delete(Goal).where(Goal.user_id == uid))
+
+        # DebtPayment -> Debt
+        await session.execute(
+            delete(DebtPayment).where(
+                DebtPayment.debt_id.in_(select(Debt.id).where(Debt.user_id == uid))
+            )
+        )
+        await session.execute(delete(Debt).where(Debt.user_id == uid))
 
         # SavingsItem -> SavingsSnapshot
         await session.execute(
