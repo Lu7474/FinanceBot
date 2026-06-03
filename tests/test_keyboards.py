@@ -95,7 +95,16 @@ def test_main_menu_keyboard():
 
     # Перенесённых во второй экран кнопок в главном меню быть не должно
     main_texts = {btn.text for row in keyboard.keyboard for btn in row}
-    for moved in ("Накопления", "Категории", "Бюджеты", "Цели", "Долги", "Семья", "Экспорт", "Импорт"):
+    for moved in (
+        "Накопления",
+        "Категории",
+        "Бюджеты",
+        "Цели",
+        "Долги",
+        "Семья",
+        "Экспорт",
+        "Импорт",
+    ):
         assert moved not in main_texts
 
     # Проверяем настройки
@@ -113,7 +122,16 @@ def test_more_menu_keyboard():
     assert isinstance(keyboard, ReplyKeyboardMarkup)
 
     texts = {btn.text for row in keyboard.keyboard for btn in row}
-    for expected in ("Накопления", "Категории", "Бюджеты", "Цели", "Долги", "Семья", "Экспорт", "Импорт"):
+    for expected in (
+        "Накопления",
+        "Категории",
+        "Бюджеты",
+        "Цели",
+        "Долги",
+        "Семья",
+        "Экспорт",
+        "Импорт",
+    ):
         assert expected in texts
     assert "Назад" in texts
 
@@ -393,9 +411,10 @@ def test_report_type_keyboard():
 
 def test_accounts_menu_keyboard():
     kb = accounts_menu_keyboard()
-    assert len(kb.inline_keyboard) == 3
+    assert len(kb.inline_keyboard) == 4
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "acc_create" in callbacks and "acc_rename" in callbacks
+    assert "acc_transfers" in callbacks
 
 
 def test_wealth_menu_keyboard():
