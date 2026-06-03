@@ -8,7 +8,11 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import TIMEZONE
@@ -28,9 +32,18 @@ from core.keyboards import debt_reminder_open_keyboard
 from core.utils import RU_MONTHS, RU_MONTHS_GEN, format_money, today_msk
 
 _RU_MONTHS_SHORT = {
-    1: "Янв", 2: "Фев", 3: "Мар", 4: "Апр",
-    5: "Май", 6: "Июн", 7: "Июл", 8: "Авг",
-    9: "Сен", 10: "Окт", 11: "Ноя", 12: "Дек",
+    1: "Янв",
+    2: "Фев",
+    3: "Мар",
+    4: "Апр",
+    5: "Май",
+    6: "Июн",
+    7: "Июл",
+    8: "Авг",
+    9: "Сен",
+    10: "Окт",
+    11: "Ноя",
+    12: "Дек",
 }
 
 
@@ -90,9 +103,7 @@ def format_weekly_summary(data: dict) -> str:
     if delta > 0:
         lines.append(f"\nК прошлой неделе: +{format_money(float(delta))} расходов")
     elif delta < 0:
-        lines.append(
-            f"\nК прошлой неделе: −{format_money(float(abs(delta)))} расходов"
-        )
+        lines.append(f"\nК прошлой неделе: −{format_money(float(abs(delta)))} расходов")
     else:
         lines.append("\nК прошлой неделе: без изменений")
 
@@ -134,8 +145,12 @@ def format_monthly_summary(
 
         # Dynamic column widths
         nums = [
-            _n(curr_income), _n(curr_expense), _n(abs(curr_bal)),
-            _n(prev_income), _n(prev_expense), _n(abs(prev_bal)),
+            _n(curr_income),
+            _n(curr_expense),
+            _n(abs(curr_bal)),
+            _n(prev_income),
+            _n(prev_expense),
+            _n(abs(prev_bal)),
         ]
         col_w = max(len(v) for v in nums + [prev_sn, curr_sn])
         deltas = [_d(d_inc), _d(d_exp), _d(d_bal)]
@@ -214,9 +229,7 @@ def format_daily_summary(data: dict) -> str:
     if total_income > 0:
         lines.append(f"\nДоходы: {format_money(float(total_income))}")
 
-    lines.append(
-        f"Баланс дня: {balance_sign}{format_money(float(abs(balance)))}"
-    )
+    lines.append(f"Баланс дня: {balance_sign}{format_money(float(abs(balance)))}")
     lines.append(
         f"За {RU_MONTHS_GEN[target_date.month]} потрачено: "
         f"{format_money(float(month_total_expense))}"
@@ -226,6 +239,20 @@ def format_daily_summary(data: dict) -> str:
 
 
 # ==================== Senders ====================
+
+
+async def _send_with_retry(bot: Bot, chat_id: int, text: str, **kwargs) -> None:
+    """send_message with one retry on flood-control (429).
+
+    On a second failure the exception propagates to the caller's existing
+    except blocks. Side effects must stay AFTER the call so they run only on
+    successful delivery.
+    """
+    try:
+        await bot.send_message(chat_id, text, **kwargs)
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(e.retry_after)
+        await bot.send_message(chat_id, text, **kwargs)
 
 
 async def send_weekly_report(bot: Bot, async_session) -> None:
@@ -250,7 +277,7 @@ async def send_weekly_report(bot: Bot, async_session) -> None:
                 )
             text = format_weekly_summary(data)
             if text:
-                await bot.send_message(user.tg_id, text, parse_mode="HTML")
+                await _send_with_retry(bot, user.tg_id, text, parse_mode="HTML")
         except (TelegramForbiddenError, TelegramBadRequest) as e:
             logging.warning(f"Cannot send weekly report to {user.tg_id}: {e}")
         except Exception as e:
@@ -283,7 +310,7 @@ async def send_monthly_report(bot: Bot, async_session) -> None:
                 )
             text = format_monthly_summary(curr_data, prev_data, month, year)
             if text:
-                await bot.send_message(user.tg_id, text, parse_mode="HTML")
+                await _send_with_retry(bot, user.tg_id, text, parse_mode="HTML")
         except (TelegramForbiddenError, TelegramBadRequest) as e:
             logging.warning(f"Cannot send monthly report to {user.tg_id}: {e}")
         except Exception as e:
@@ -309,7 +336,7 @@ async def send_daily_summary(bot: Bot, async_session) -> None:
                 data = await get_daily_summary_data(session, user.id, today)
             text = format_daily_summary(data)
             if text:
-                await bot.send_message(user.tg_id, text, parse_mode="HTML")
+                await _send_with_retry(bot, user.tg_id, text, parse_mode="HTML")
         except (TelegramForbiddenError, TelegramBadRequest) as e:
             logging.warning(f"Cannot send daily summary to {user.tg_id}: {e}")
         except Exception as e:
@@ -344,7 +371,8 @@ async def send_reminders(bot: Bot, async_session) -> None:
                 if user.last_reminded_at.date() >= yesterday:
                     continue
 
-            await bot.send_message(
+            await _send_with_retry(
+                bot,
                 user.tg_id,
                 "👋 Привет! Вы не добавляли записи уже 2 дня.\n"
                 "Не забудьте записать доходы и расходы 📝",
@@ -354,9 +382,7 @@ async def send_reminders(bot: Bot, async_session) -> None:
         except (TelegramForbiddenError, TelegramBadRequest) as e:
             logging.warning(f"Cannot send reminder to {user.tg_id}: {e}")
         except Exception as e:
-            logging.exception(
-                f"Unexpected error sending reminder to {user.tg_id}: {e}"
-            )
+            logging.exception(f"Unexpected error sending reminder to {user.tg_id}: {e}")
         await asyncio.sleep(0.05)
 
 
@@ -376,8 +402,7 @@ def _format_debt_reminder(debt: Debt, today: date) -> str:
         # overdue
         overdue_days = -delta_days
         due_str = (
-            f"Срок истёк {overdue_days} "
-            f"{'день' if overdue_days == 1 else 'дней'} назад"
+            f"Срок истёк {overdue_days} {'день' if overdue_days == 1 else 'дней'} назад"
         )
 
     if debt.direction == "I":
@@ -385,11 +410,7 @@ def _format_debt_reminder(debt: Debt, today: date) -> str:
     else:
         head = f"Ты должен {person} {amount}"
 
-    return (
-        "⏰ <b>Напоминание о долге</b>\n\n"
-        f"{head}\n"
-        f"Срок возврата: {due_str}"
-    )
+    return f"⏰ <b>Напоминание о долге</b>\n\n{head}\nСрок возврата: {due_str}"
 
 
 async def send_debt_reminders(bot: Bot, async_session) -> None:
@@ -402,7 +423,8 @@ async def send_debt_reminders(bot: Bot, async_session) -> None:
     for debt, user in pairs:
         try:
             text = _format_debt_reminder(debt, today)
-            await bot.send_message(
+            await _send_with_retry(
+                bot,
                 user.tg_id,
                 text,
                 parse_mode="HTML",
