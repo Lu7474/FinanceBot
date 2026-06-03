@@ -24,6 +24,7 @@ from core.database.requests import (
     get_account_balances,
     get_account_record_count,
     get_accounts,
+    get_history_data,
     get_records,
     get_totals,
     get_transfer,
@@ -555,3 +556,156 @@ def test_account_history_keyboard_active_filter_marker():
     labels = [b.text for row in kb.inline_keyboard for b in row]
     assert "✓ Расходы" in labels
     assert "Все" in labels and "✓ Все" not in labels
+
+
+# ==================== get_history_data: история счёта ====================
+
+
+@pytest.mark.asyncio
+async def test_acc_history_data_includes_transfers(session):
+    """include_transfers=True показывает переводы в истории счёта; default — нет."""
+    user_id = await _make_user(session)
+    acc1 = await _make_account(session, user_id, "Наличные")
+    acc2 = await _make_account(session, user_id, "Карта")  # приёмник перевода
+    await add_record(
+        session, user_id, "-", Decimal("100"), category="Еда", account_id=acc1
+    )
+    await create_transfer(session, user_id, acc1, acc2, Decimal("500"))
+
+    total_with, *_ = await get_history_data(
+        session, user_id, "all", account_id=acc1, include_transfers=True
+    )
+    total_without, *_ = await get_history_data(session, user_id, "all", account_id=acc1)
+    # С переводами: «Еда» + исходящий перевод = 2; без — только «Еда».
+    assert total_with == 2
+    assert total_without == 1
+
+
+@pytest.mark.asyncio
+async def test_acc_history_data_operation_filter(session):
+    """operation_filter в истории счёта режет по типу, учитывая стороны перевода."""
+    user_id = await _make_user(session)
+    acc1 = await _make_account(session, user_id, "Наличные")
+    acc2 = await _make_account(session, user_id, "Карта")
+    await add_record(
+        session, user_id, "+", Decimal("1000"), category="ЗП", account_id=acc1
+    )
+    await add_record(
+        session, user_id, "-", Decimal("100"), category="Еда", account_id=acc1
+    )
+    await create_transfer(session, user_id, acc1, acc2, Decimal("500"))  # acc1: расход
+    # Шум на другом счёте: не должен попасть в суммы/выборку по acc1.
+    await add_record(
+        session, user_id, "-", Decimal("999"), category="Прочее", account_id=acc2
+    )
+
+    # Только расходы счёта acc1: «Еда» + исходящая сторона перевода (acc2-шум не входит).
+    total_exp, _, expense_exp, recs_exp = await get_history_data(
+        session,
+        user_id,
+        "all",
+        account_id=acc1,
+        include_transfers=True,
+        operation_filter="-",
+    )
+    assert total_exp == 2
+    assert expense_exp == Decimal("600")  # 100 + 500, без 999 с acc2
+    assert all(r.operation == "-" for r in recs_exp)
+
+    # Только доходы счёта acc1: «ЗП» (перевод сюда не входит — он расход acc1).
+    total_inc, income_inc, _, recs_inc = await get_history_data(
+        session,
+        user_id,
+        "all",
+        account_id=acc1,
+        include_transfers=True,
+        operation_filter="+",
+    )
+    assert total_inc == 1
+    assert income_inc == Decimal("1000")
+    assert all(r.operation == "+" for r in recs_inc)
+
+
+@pytest.mark.asyncio
+async def test_acc_history_data_empty_under_filter(session):
+    """Фильтр без совпадений возвращает пустой результат (граничный случай)."""
+    user_id = await _make_user(session)
+    acc1 = await _make_account(session, user_id, "Наличные")
+    acc2 = await _make_account(session, user_id, "Карта")
+    await create_transfer(session, user_id, acc1, acc2, Decimal("500"))
+
+    # У acc2 только входящий перевод (доход). Фильтр «расходы» → пусто.
+    total, income, expense, records = await get_history_data(
+        session,
+        user_id,
+        "all",
+        account_id=acc2,
+        include_transfers=True,
+        operation_filter="-",
+    )
+    assert total == 0
+    assert income == Decimal("0")
+    assert expense == Decimal("0")
+    assert records == []
+
+
+# ==================== клавиатуры переводов ====================
+
+
+def _make_transfer_dict(tid: int = 1):
+    from datetime import datetime
+
+    return {
+        "transfer_id": tid,
+        "amount": Decimal("5000"),
+        "date": datetime(2026, 6, 1, 14, 30),
+        "from_name": "Наличные",
+        "to_name": "Карта",
+    }
+
+
+def test_transfers_list_keyboard_contract():
+    """Каждый перевод — кнопка acc_tr_view:{id}; есть выход; пагинация при >1 стр."""
+    from core.keyboards import transfers_list_keyboard
+
+    transfers = [_make_transfer_dict(11), _make_transfer_dict(22)]
+    kb = transfers_list_keyboard(transfers, page=0, total_pages=2)
+    cbs = _kb_callbacks(kb)
+    assert "acc_tr_view:11" in cbs and "acc_tr_view:22" in cbs
+    assert "acc_back" in cbs  # выход
+    # На первой странице есть «вперёд», но нет «назад».
+    assert "acc_tr_page:1" in cbs
+    assert "acc_tr_page:-1" not in cbs
+    # Label кнопки несёт дату, направление и сумму (защита форматирования).
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert any(
+        "Наличные → Карта" in t and "01.06" in t and "5 000₽" in t for t in labels
+    )
+
+
+def test_transfers_list_keyboard_single_page_no_pagination():
+    from core.keyboards import transfers_list_keyboard
+
+    kb = transfers_list_keyboard([_make_transfer_dict(7)], page=0, total_pages=1)
+    cbs = _kb_callbacks(kb)
+    assert "acc_tr_view:7" in cbs
+    assert not any(c.startswith("acc_tr_page:") for c in cbs)
+    assert "acc_back" in cbs
+
+
+def test_transfer_card_keyboard():
+    """Карточка перевода: отмена + возврат к списку."""
+    from core.keyboards import transfer_card_keyboard
+
+    card = _kb_callbacks(transfer_card_keyboard(42))
+    assert "acc_tr_cancel:42" in card
+    assert "acc_transfers" in card  # ← к списку
+
+
+def test_confirm_transfer_cancel_keyboard():
+    """Подтверждение отмены: да → acc_tr_del, нет → возврат к карточке."""
+    from core.keyboards import confirm_transfer_cancel_keyboard
+
+    confirm = _kb_callbacks(confirm_transfer_cancel_keyboard(42))
+    assert "acc_tr_del:42" in confirm  # да, отменить
+    assert "acc_tr_view:42" in confirm  # нет → назад к карточке
