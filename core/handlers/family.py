@@ -359,6 +359,9 @@ async def _render_history(
 
     async with async_session() as session:
         member_ids = await get_family_member_ids(session, family.id)
+        if filter_uid is not None and filter_uid not in member_ids:
+            await callback.answer("Некорректный фильтр.", show_alert=True)
+            return
         scope = [filter_uid] if filter_uid is not None else member_ids
         total_count, _, _, records = await get_history_data(
             session,
@@ -403,7 +406,7 @@ async def fam_history_page(
 ) -> None:
     try:
         page = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -466,9 +469,9 @@ def _format_report_caption(
     by_cat: dict[str, Decimal] = {}
     by_member: dict[int, Decimal] = {}
     for row in breakdown:
-        by_cat[row["category"]] = by_cat.get(row["category"], Decimal("0")) + row[
-            "total"
-        ]
+        by_cat[row["category"]] = (
+            by_cat.get(row["category"], Decimal("0")) + row["total"]
+        )
         by_member[row["user_id"]] = (
             by_member.get(row["user_id"], Decimal("0")) + row["total"]
         )
@@ -518,9 +521,7 @@ async def _send_report(
     # The message may already be a photo (period switch), so never edit_text it —
     # send a fresh message and drop the previous one.
     if not breakdown:
-        await msg.answer(
-            "Нет данных за выбранный период.", reply_markup=kb
-        )
+        await msg.answer("Нет данных за выбранный период.", reply_markup=kb)
         try:
             await msg.delete()
         except Exception:
@@ -704,7 +705,7 @@ async def fam_rename_name(message: Message, state: FSMContext, **kwargs) -> None
 async def fam_kick_confirm(callback: CallbackQuery, **kwargs) -> None:
     try:
         target = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
     await get_message(callback).edit_text(
@@ -719,7 +720,7 @@ async def fam_kick_confirm(callback: CallbackQuery, **kwargs) -> None:
 async def fam_kick_do(callback: CallbackQuery, **kwargs) -> None:
     try:
         target = int((callback.data or "").split(":")[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
     user_id = await get_user_id_from_event(callback, kwargs)
@@ -793,9 +794,7 @@ async def fam_dissolve_confirm(callback: CallbackQuery, **kwargs) -> None:
 
 @router.callback_query(F.data == "fam:dissolve_yes")
 @log_exceptions("Ошибка при расформировании семьи")
-async def fam_dissolve_do(
-    callback: CallbackQuery, state: FSMContext, **kwargs
-) -> None:
+async def fam_dissolve_do(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
     if not user_id:
         await callback.answer("Ошибка.")
