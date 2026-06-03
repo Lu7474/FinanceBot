@@ -1,4 +1,5 @@
 """Tests for notification formatters and DB query functions."""
+
 import sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -45,8 +46,8 @@ def _rec(user_id: int, op: str, amount, cat: str, dt: datetime) -> Record:
 
 
 _NOW = datetime(2025, 5, 14, 15, 0, 0)  # Wednesday
-_WEEK_START = datetime(2025, 5, 8, 0, 0, 0)   # Monday
-_WEEK_END   = datetime(2025, 5, 14, 23, 59, 59, 999999)  # Sunday
+_WEEK_START = datetime(2025, 5, 8, 0, 0, 0)  # Monday
+_WEEK_END = datetime(2025, 5, 14, 23, 59, 59, 999999)  # Sunday
 
 
 # ==================== format_weekly_summary ====================
@@ -70,7 +71,7 @@ def test_format_weekly_same_month():
     assert "5 000" in text  # income
     assert "3 000" in text  # expense
     assert "Еда" in text
-    assert "+500" in text   # delta vs prev week
+    assert "+500" in text  # delta vs prev week
 
 
 def test_format_weekly_cross_month():
@@ -122,7 +123,11 @@ def test_format_monthly_empty():
 
 
 def test_format_monthly_no_prev_plain_text():
-    curr = {"income": Decimal("10000"), "expense": Decimal("7000"), "top_categories": []}
+    curr = {
+        "income": Decimal("10000"),
+        "expense": Decimal("7000"),
+        "top_categories": [],
+    }
     text = format_monthly_summary(curr, {}, 5, 2025)
     assert "<pre>" not in text
     assert "10 000" in text
@@ -145,8 +150,16 @@ def test_format_monthly_with_prev_html_table():
 
 
 def test_format_monthly_with_prev_markers():
-    curr = {"income": Decimal("12000"), "expense": Decimal("6000"), "top_categories": []}
-    prev = {"income": Decimal("10000"), "expense": Decimal("8000"), "top_categories": []}
+    curr = {
+        "income": Decimal("12000"),
+        "expense": Decimal("6000"),
+        "top_categories": [],
+    }
+    prev = {
+        "income": Decimal("10000"),
+        "expense": Decimal("8000"),
+        "top_categories": [],
+    }
     text = format_monthly_summary(curr, prev, 5, 2025)
     # income up → ✅, expense down → ✅
     assert text.count("✅") >= 2
@@ -382,6 +395,20 @@ async def test_get_notifiable_excludes_banned(session):
 
     users = await get_notifiable_users(session)
     assert users == []
+
+
+@pytest.mark.asyncio
+async def test_get_notifiable_filters_by_flag(session):
+    on_id = await _make_user(session, tg_id=1)
+    off_id = await _make_user(session, tg_id=2)
+    session.add(_rec(on_id, "-", 100, "Еда", datetime(2025, 5, 14, 12, 0, 0)))
+    session.add(_rec(off_id, "-", 100, "Еда", datetime(2025, 5, 14, 12, 0, 0)))
+    on_user = await session.get(User, on_id)
+    on_user.notify_weekly = True
+    await session.commit()
+
+    users = await get_notifiable_users(session, "notify_weekly")
+    assert [u.id for u in users] == [on_id]
 
 
 # ==================== get_last_record_date ====================

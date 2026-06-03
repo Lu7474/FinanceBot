@@ -265,11 +265,9 @@ async def send_weekly_report(bot: Bot, async_session) -> None:
     week_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     async with async_session() as session:
-        users = await get_notifiable_users(session)
+        users = await get_notifiable_users(session, "notify_weekly")
 
     for user in users:
-        if not user.notify_weekly:
-            continue
         try:
             async with async_session() as session:
                 data = await get_weekly_summary_data(
@@ -295,11 +293,9 @@ async def send_monthly_report(bot: Bot, async_session) -> None:
     prev_year = year if month > 1 else year - 1
 
     async with async_session() as session:
-        users = await get_notifiable_users(session)
+        users = await get_notifiable_users(session, "notify_monthly")
 
     for user in users:
-        if not user.notify_monthly:
-            continue
         try:
             async with async_session() as session:
                 curr_data = await get_monthly_summary_data(
@@ -326,11 +322,9 @@ async def send_daily_summary(bot: Bot, async_session) -> None:
     today = now.date()
 
     async with async_session() as session:
-        users = await get_notifiable_users(session)
+        users = await get_notifiable_users(session, "notify_daily")
 
     for user in users:
-        if not user.notify_daily:
-            continue
         try:
             async with async_session() as session:
                 data = await get_daily_summary_data(session, user.id, today)
@@ -353,11 +347,9 @@ async def send_reminders(bot: Bot, async_session) -> None:
     yesterday = today - timedelta(days=1)
 
     async with async_session() as session:
-        users = await get_notifiable_users(session)
+        users = await get_notifiable_users(session, "notify_reminder")
 
     for user in users:
-        if not user.notify_reminder:
-            continue
         try:
             async with async_session() as session:
                 last_record = await get_last_record_date(session, user.id)

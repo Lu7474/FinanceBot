@@ -14,13 +14,22 @@ from core.utils import clean_text
 from .categories import seed_default_categories
 
 
-async def get_notifiable_users(session: AsyncSession) -> list[User]:
-    """Return non-banned users who have at least one record."""
-    result = await session.execute(
+async def get_notifiable_users(
+    session: AsyncSession, flag: str | None = None
+) -> list[User]:
+    """Return non-banned users who have at least one record.
+
+    If `flag` is given (a notify_* column name), filter to users with it enabled
+    so the caller doesn't fetch-then-discard in Python.
+    """
+    q = (
         select(User)
         .where(User.is_banned == False)  # noqa: E712
         .where(exists().where(Record.user_id == User.id))
     )
+    if flag is not None:
+        q = q.where(getattr(User, flag).is_(True))
+    result = await session.execute(q)
     return list(result.scalars().all())
 
 
