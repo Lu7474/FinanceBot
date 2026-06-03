@@ -16,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from dateutil.relativedelta import relativedelta
 
-from config import RECORDS_PER_PAGE, TIMEZONE
+from config import MAX_CAPTION_LENGTH, RECORDS_PER_PAGE, TIMEZONE
 from core.charts import build_family_stacked_chart
 from core.database.models import async_session
 from core.database.requests import (
@@ -496,7 +496,10 @@ def _format_report_caption(
             f"  {marker_by_uid.get(m.id, '▫️')} "
             f"{html.escape(name_by_uid.get(m.id, '—'))}: {format_money(amt)}"
         )
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    if len(result) > MAX_CAPTION_LENGTH:
+        result = result[: MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
+    return result
 
 
 async def _send_report(
