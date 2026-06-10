@@ -10,6 +10,7 @@ from datetime import date as date_type
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
+from math import ceil
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -87,6 +88,23 @@ RU_MONTHS_GEN = {
     10: "октября",
     11: "ноября",
     12: "декабря",
+}
+
+
+# Dative case for "к <месяцу>" in the goal ETA forecast ("достигнешь к ноябрю").
+RU_MONTHS_DAT = {
+    1: "январю",
+    2: "февралю",
+    3: "марту",
+    4: "апрелю",
+    5: "маю",
+    6: "июню",
+    7: "июлю",
+    8: "августу",
+    9: "сентябрю",
+    10: "октябрю",
+    11: "ноябрю",
+    12: "декабрю",
 }
 
 
@@ -469,25 +487,39 @@ def is_goal_overdue(goal) -> bool:
     return goal.deadline < today_msk()
 
 
-def goal_eta(goal) -> date_type | None:
-    """Прогноз даты достижения цели по среднему темпу с момента создания.
+def add_months(d: date_type, months: int) -> date_type:
+    """Adds N months to a date, clamping the day to the target month's length.
 
-    Возвращает None если: завершена / уже достигнута / нет накоплений / нет данных.
+    31 янв + 1 мес → 28/29 фев. Без зависимости от dateutil.
+    """
+    month_index = d.month - 1 + months
+    year = d.year + month_index // 12
+    month = month_index % 12 + 1
+    # Длина целевого месяца: день 1 следующего месяца минус день.
+    if month == 12:
+        last_day = 31
+    else:
+        last_day = (date_type(year, month + 1, 1) - timedelta(days=1)).day
+    return date_type(year, month, min(d.day, last_day))
+
+
+def goal_forecast(goal, rate_per_month: float | None) -> dict | None:
+    """ETA-прогноз достижения цели по честному месячному темпу.
+
+    rate_per_month считается отдельно (по реальным взносам, см. get_goal_monthly_pace).
+    Возвращает {'months': int, 'eta': date, 'rate': float} или None если:
+    завершена / уже достигнута / темпа нет / темп ≤ 0.
     """
     if goal.is_completed:
         return None
     remaining = goal.target_amount - goal.current_amount
     if remaining <= 0:
         return None
-    if goal.current_amount <= 0:
+    if rate_per_month is None or rate_per_month <= 0:
         return None
-    today = today_msk()
-    days_since_creation = max(1, (today - goal.created_at.date()).days)
-    rate_per_day = float(goal.current_amount) / days_since_creation
-    if rate_per_day <= 0:
-        return None
-    days_left = int(float(remaining) / rate_per_day) + 1
-    return today + timedelta(days=days_left)
+    months = ceil(float(remaining) / rate_per_month)
+    eta = add_months(today_msk(), months)
+    return {"months": months, "eta": eta, "rate": rate_per_month}
 
 
 def format_goals_list(goals: list) -> str:
@@ -530,8 +562,14 @@ def format_goals_list(goals: list) -> str:
     return "\n".join(lines)
 
 
-def format_goal_detail(goal, deposits: list) -> str:
-    """Formats the detailed goal card with overdue marker and ETA forecast."""
+def format_goal_detail(
+    goal, deposits: list, pace_per_month: float | None = None
+) -> str:
+    """Formats the detailed goal card with overdue marker and ETA forecast.
+
+    pace_per_month — честный месячный темп (см. get_goal_monthly_pace). None → прогноз
+    не показывается (мало данных / темп не растёт).
+    """
     pct = (
         int(float(goal.current_amount) / float(goal.target_amount) * 100)
         if goal.target_amount
@@ -567,17 +605,19 @@ def format_goal_detail(goal, deposits: list) -> str:
         if month_part:
             lines.append(f"Откладывать: ~{month_part}/мес")
 
-    # ETA-прогноз по среднему темпу с момента создания
-    eta = goal_eta(goal)
-    if eta:
-        eta_str = eta.strftime("%d.%m.%Y")
+    # ETA-прогноз по честному месячному темпу (реальные взносы за окно)
+    forecast = goal_forecast(goal, pace_per_month)
+    if forecast:
+        eta = forecast["eta"]
+        month_part = f"к {RU_MONTHS_DAT[eta.month]}"
+        if eta.year != today_msk().year:
+            month_part += f" {eta.year}"
+        rate_str = format_money(forecast["rate"])
+        eta_line = f"   достигнешь через {forecast['months']} мес — {month_part}"
         if goal.deadline:
-            if eta <= goal.deadline:
-                lines.append(f"📈 Прогноз: {eta_str} ✓ успеваешь")
-            else:
-                lines.append(f"📈 Прогноз: {eta_str} ⚠️ опаздываешь")
-        else:
-            lines.append(f"📈 Прогноз: {eta_str}")
+            eta_line += " ✓" if eta <= goal.deadline else " ⚠️"
+        lines.append(f"📈 При текущем темпе (+{rate_str}/мес)")
+        lines.append(eta_line)
 
     if deposits:
         lines.append("\n<b>Последние операции:</b>")

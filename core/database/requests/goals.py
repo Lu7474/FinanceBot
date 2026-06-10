@@ -1,9 +1,10 @@
 """Financial goals: CRUD, deposit/withdraw with account offset adjustment."""
 
 from datetime import date as date_type
+from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MAX_GOAL_NAME_LENGTH
@@ -255,3 +256,46 @@ async def get_goal_deposits(
             .limit(limit)
         )
     )
+
+
+async def get_goal_monthly_pace(
+    session: AsyncSession,
+    goal_id: int,
+    created_at: datetime,
+    window_days: int = 90,
+) -> tuple[float, int] | None:
+    """Honest monthly saving pace over the recent window, or None if too little data.
+
+    Темп = net (взносы − снятия) за окно / число месяцев окна. Окно ограничено
+    возрастом цели: months = min(window_days, age) / 30. Возвращает None при недостатке
+    истории (< 2 взносов / возраст < 14 дн / нет прошедшего времени) — лучше не показать
+    прогноз, чем соврать. Знак net сохраняется (может быть ≤ 0 — обработка у вызывающего).
+    """
+    today = today_msk()
+    age_days = (today - created_at.date()).days
+    if age_days < 14:
+        return None
+
+    since = datetime.combine(today - timedelta(days=window_days), datetime.min.time())
+    net = await session.scalar(
+        select(func.coalesce(func.sum(GoalDeposit.amount), 0)).where(
+            GoalDeposit.goal_id == goal_id, GoalDeposit.created_at >= since
+        )
+    )
+    deposits_count = await session.scalar(
+        select(func.count()).where(
+            GoalDeposit.goal_id == goal_id,
+            GoalDeposit.created_at >= since,
+            GoalDeposit.amount > 0,
+        )
+    )
+    if (deposits_count or 0) < 2:
+        return None
+
+    effective_days = min(window_days, age_days)
+    months = effective_days / 30
+    if months <= 0:
+        return None
+
+    rate_per_month = float(net or 0) / months
+    return (rate_per_month, int(deposits_count or 0))

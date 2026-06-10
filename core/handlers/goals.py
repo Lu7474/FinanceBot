@@ -17,6 +17,7 @@ from core.database.requests import (
     get_accounts,
     get_goal,
     get_goal_deposits,
+    get_goal_monthly_pace,
     get_goals,
     update_goal,
     withdraw_goal,
@@ -195,7 +196,7 @@ async def goal_amount_entered(message: Message, state: FSMContext, **kwargs) -> 
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
         if amount <= 0 or amount > Decimal(str(MAX_GOAL_AMOUNT)):
             raise ValueError
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         await message.answer(
             f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
                 ",", " "
@@ -321,9 +322,10 @@ async def goal_detail(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
             await callback.answer("Цель не найдена.", show_alert=True)
             return
         deposits = await get_goal_deposits(session, goal_id)
+        pace = await get_goal_monthly_pace(session, goal_id, goal.created_at)
 
     await get_message(callback).edit_text(
-        format_goal_detail(goal, deposits),
+        format_goal_detail(goal, deposits, pace[0] if pace else None),
         reply_markup=goal_detail_keyboard(goal_id, goal.is_completed),
         parse_mode="HTML",
     )
@@ -426,7 +428,7 @@ async def goal_deposit_amount_entered(
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
         if amount <= 0 or amount > Decimal(str(MAX_GOAL_AMOUNT)):
             raise ValueError
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         await message.answer(
             f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
                 ",", " "
@@ -623,7 +625,7 @@ async def goal_withdraw_amount_entered(
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
         if amount <= 0 or amount > Decimal(str(MAX_GOAL_AMOUNT)):
             raise ValueError
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         await message.answer(
             f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
                 ",", " "
@@ -1039,8 +1041,17 @@ async def goal_edit_name_entered(message: Message, state: FSMContext, **kwargs) 
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
         deposits = await get_goal_deposits(session, goal_id) if goal else []
+        pace = (
+            await get_goal_monthly_pace(session, goal_id, goal.created_at)
+            if goal
+            else None
+        )
         is_completed = goal.is_completed if goal else False
-        detail_text = format_goal_detail(goal, deposits) if goal else "Цель не найдена."
+        detail_text = (
+            format_goal_detail(goal, deposits, pace[0] if pace else None)
+            if goal
+            else "Цель не найдена."
+        )
 
     await message.answer(
         detail_text,
@@ -1090,7 +1101,7 @@ async def goal_edit_amount_entered(
         amount = Decimal(text.replace(",", ".").replace(" ", ""))
         if amount <= 0 or amount > Decimal(str(MAX_GOAL_AMOUNT)):
             raise ValueError
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         await message.answer(
             f"Некорректная сумма. Введите число от 1 до {MAX_GOAL_AMOUNT:,}₽:".replace(
                 ",", " "
@@ -1122,8 +1133,17 @@ async def goal_edit_amount_entered(
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
         deposits = await get_goal_deposits(session, goal_id) if goal else []
+        pace = (
+            await get_goal_monthly_pace(session, goal_id, goal.created_at)
+            if goal
+            else None
+        )
         is_completed = goal.is_completed if goal else False
-        detail_text = format_goal_detail(goal, deposits) if goal else "Цель не найдена."
+        detail_text = (
+            format_goal_detail(goal, deposits, pace[0] if pace else None)
+            if goal
+            else "Цель не найдена."
+        )
 
     await message.answer(
         detail_text,
@@ -1195,8 +1215,17 @@ async def goal_edit_deadline_entered(
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
         deposits = await get_goal_deposits(session, goal_id) if goal else []
+        pace = (
+            await get_goal_monthly_pace(session, goal_id, goal.created_at)
+            if goal
+            else None
+        )
         is_completed = goal.is_completed if goal else False
-        detail_text = format_goal_detail(goal, deposits) if goal else "Цель не найдена."
+        detail_text = (
+            format_goal_detail(goal, deposits, pace[0] if pace else None)
+            if goal
+            else "Цель не найдена."
+        )
 
     await message.answer(
         detail_text,
@@ -1223,8 +1252,17 @@ async def goal_clear_deadline(
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
         deposits = await get_goal_deposits(session, goal_id) if goal else []
+        pace = (
+            await get_goal_monthly_pace(session, goal_id, goal.created_at)
+            if goal
+            else None
+        )
         is_completed = goal.is_completed if goal else False
-        detail_text = format_goal_detail(goal, deposits) if goal else "Цель не найдена."
+        detail_text = (
+            format_goal_detail(goal, deposits, pace[0] if pace else None)
+            if goal
+            else "Цель не найдена."
+        )
 
     await get_message(callback).edit_text(
         detail_text,

@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 from conftest import test_session
 
-from core.database.models import Account, GoalDeposit, Record, User
+from core.database.models import Account, Goal, GoalDeposit, Record, User
 from core.database.requests import (
     complete_goal,
     create_goal,
@@ -20,17 +20,19 @@ from core.database.requests import (
     deposit_goal,
     get_goal,
     get_goal_deposits,
+    get_goal_monthly_pace,
     get_goals,
     update_goal,
     withdraw_goal,
 )
 from core.exceptions import GoalNotFoundOrCompleted, InsufficientFundsInGoal
 from core.utils import (
+    add_months,
     format_duration_short,
     format_goal_detail,
     format_goals_list,
     goal_emoji,
-    goal_eta,
+    goal_forecast,
     is_goal_overdue,
     monthly_deposit_amount,
     today_msk,
@@ -618,31 +620,171 @@ def test_is_goal_overdue_completed_ignored():
     assert is_goal_overdue(g) is False
 
 
-# ==================== Tests: goal_eta ====================
+# ==================== Tests: goal_forecast ====================
 
 
-def test_goal_eta_basic_forecast():
-    """30 дней назад создана, 10к накоплено, цель 100к → ETA ~270 дней вперёд."""
-    g = _make_mock_goal("X", 100000, 10000, created_days_ago=30)
-    eta = goal_eta(g)
-    assert eta is not None
-    days = (eta - today_msk()).days
-    assert 260 <= days <= 280  # 90000 remaining / (10000/30) = 270 days
+def test_goal_forecast_basic():
+    """Остаток 90к, темп 10к/мес → ceil(90000/10000) = 9 месяцев вперёд."""
+    g = _make_mock_goal("X", 100000, 10000)
+    fc = goal_forecast(g, rate_per_month=10000)
+    assert fc is not None
+    assert fc["months"] == 9
+    assert fc["eta"] == add_months(today_msk(), 9)
+    assert fc["rate"] == 10000
 
 
-def test_goal_eta_completed_returns_none():
+def test_goal_forecast_completed_returns_none():
     g = _make_mock_goal("X", 100, 50, is_completed=True)
-    assert goal_eta(g) is None
+    assert goal_forecast(g, 10) is None
 
 
-def test_goal_eta_achieved_returns_none():
+def test_goal_forecast_achieved_returns_none():
     g = _make_mock_goal("X", 100, 100)
-    assert goal_eta(g) is None
+    assert goal_forecast(g, 10) is None
 
 
-def test_goal_eta_no_progress_returns_none():
-    g = _make_mock_goal("X", 100, 0, created_days_ago=10)
-    assert goal_eta(g) is None
+def test_goal_forecast_no_pace_returns_none():
+    """Темпа нет (мало данных) → прогноз не показываем."""
+    g = _make_mock_goal("X", 100, 10)
+    assert goal_forecast(g, None) is None
+
+
+def test_goal_forecast_zero_or_negative_pace_returns_none():
+    """Копилка не растёт (снятий ≥ взносов) → прогноз не показываем."""
+    g = _make_mock_goal("X", 100, 10)
+    assert goal_forecast(g, 0) is None
+    assert goal_forecast(g, -500) is None
+
+
+# ==================== Tests: add_months ====================
+
+
+def test_add_months_simple():
+    assert add_months(date(2026, 6, 10), 5) == date(2026, 11, 10)
+
+
+def test_add_months_year_rollover():
+    assert add_months(date(2026, 10, 15), 4) == date(2027, 2, 15)
+
+
+def test_add_months_day_clamp_to_february():
+    assert add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
+    assert add_months(date(2028, 1, 31), 1) == date(2028, 2, 29)  # leap
+
+
+def test_add_months_december_boundary():
+    assert add_months(date(2026, 11, 30), 1) == date(2026, 12, 30)
+    assert add_months(date(2026, 12, 31), 1) == date(2027, 1, 31)
+
+
+# ==================== Tests: get_goal_monthly_pace ====================
+
+
+async def _backdate_goal(goal_id: int, days_ago: int) -> None:
+    """Sets goal.created_at N days in the past (pace needs age >= 14d)."""
+    from datetime import datetime
+
+    async with test_session() as s:
+        goal = await s.get(Goal, goal_id)
+        goal.created_at = datetime.combine(
+            today_msk() - timedelta(days=days_ago), datetime.min.time()
+        )
+        await s.commit()
+
+
+async def _add_deposit_at(goal_id: int, amount: Decimal, days_ago: int) -> None:
+    """Inserts a GoalDeposit with a backdated created_at."""
+    from datetime import datetime
+
+    async with test_session() as s:
+        s.add(
+            GoalDeposit(
+                goal_id=goal_id,
+                amount=amount,
+                created_at=datetime.combine(
+                    today_msk() - timedelta(days=days_ago), datetime.min.time()
+                ),
+            )
+        )
+        await s.commit()
+
+
+async def _pace(goal_id: int):
+    async with test_session() as s:
+        goal = await s.get(Goal, goal_id)
+        return await get_goal_monthly_pace(s, goal_id, goal.created_at)
+
+
+@pytest.mark.asyncio
+async def test_pace_basic(session):
+    """Возраст 60 дн, два взноса по 5к → 10к / (60/30) = 5к/мес."""
+    user_id = await _make_user(950)
+    goal_id = await _make_goal(user_id, "Цель", Decimal("100000"))
+    await _backdate_goal(goal_id, 60)
+    await _add_deposit_at(goal_id, Decimal("5000"), 10)
+    await _add_deposit_at(goal_id, Decimal("5000"), 20)
+
+    result = await _pace(goal_id)
+    assert result is not None
+    rate, cnt = result
+    assert cnt == 2
+    assert rate == pytest.approx(5000)
+
+
+@pytest.mark.asyncio
+async def test_pace_too_few_deposits_returns_none(session):
+    """Один взнос → недостаточно данных."""
+    user_id = await _make_user(951)
+    goal_id = await _make_goal(user_id, "Цель", Decimal("100000"))
+    await _backdate_goal(goal_id, 60)
+    await _add_deposit_at(goal_id, Decimal("5000"), 10)
+    assert await _pace(goal_id) is None
+
+
+@pytest.mark.asyncio
+async def test_pace_young_goal_returns_none(session):
+    """Возраст < 14 дн → прогноз преждевременный."""
+    user_id = await _make_user(952)
+    goal_id = await _make_goal(user_id, "Цель", Decimal("100000"))
+    await _backdate_goal(goal_id, 10)
+    await _add_deposit_at(goal_id, Decimal("5000"), 2)
+    await _add_deposit_at(goal_id, Decimal("5000"), 5)
+    assert await _pace(goal_id) is None
+
+
+@pytest.mark.asyncio
+async def test_pace_net_negative_when_withdrawals_exceed(session):
+    """Снятий больше взносов → темп отрицательный (None отдаст уже forecast)."""
+    user_id = await _make_user(953)
+    goal_id = await _make_goal(user_id, "Цель", Decimal("100000"))
+    await _backdate_goal(goal_id, 60)
+    await _add_deposit_at(goal_id, Decimal("5000"), 20)
+    await _add_deposit_at(goal_id, Decimal("5000"), 15)
+    await _add_deposit_at(goal_id, Decimal("-12000"), 5)  # withdrawal
+
+    result = await _pace(goal_id)
+    assert result is not None
+    rate, cnt = result
+    assert cnt == 2  # отрицательные не считаются взносами
+    assert rate < 0
+
+
+@pytest.mark.asyncio
+async def test_pace_excludes_deposits_outside_window(session):
+    """Взнос старше окна (90 дн) не входит в темп."""
+    user_id = await _make_user(954)
+    goal_id = await _make_goal(user_id, "Цель", Decimal("500000"))
+    await _backdate_goal(goal_id, 120)
+    await _add_deposit_at(goal_id, Decimal("99999"), 100)  # вне окна
+    await _add_deposit_at(goal_id, Decimal("5000"), 10)
+    await _add_deposit_at(goal_id, Decimal("5000"), 30)
+
+    result = await _pace(goal_id)
+    assert result is not None
+    rate, cnt = result
+    assert cnt == 2
+    # net в окне = 10000, months = min(90,120)/30 = 3 → ~3333, старый взнос НЕ задрал темп
+    assert rate == pytest.approx(10000 / 3)
 
 
 # ==================== Tests: monthly_deposit_amount ====================
@@ -800,10 +942,35 @@ def test_format_goal_detail_marks_overdue():
 
 
 def test_format_goal_detail_shows_eta_forecast():
-    """ETA-строка появляется в карточке для активной цели с прогрессом."""
-    g = _make_mock_goal("X", 100000, 10000, created_days_ago=30)
-    text = format_goal_detail(g, [])
-    assert "Прогноз" in text
+    """ETA-строка с темпом появляется, когда передан честный pace."""
+    g = _make_mock_goal("X", 100000, 10000)
+    text = format_goal_detail(g, [], pace_per_month=10000)
+    assert "При текущем темпе" in text
+    assert "достигнешь через 9 мес" in text
+    assert "10 000₽/мес" in text
+
+
+def test_format_goal_detail_no_forecast_without_pace():
+    """Без темпа (мало данных) прогноз не показывается."""
+    g = _make_mock_goal("X", 100000, 10000)
+    text = format_goal_detail(g, [], pace_per_month=None)
+    assert "При текущем темпе" not in text
+
+
+def test_format_goal_detail_forecast_on_time_marker():
+    """С дедлайном в будущем и достаточным темпом — маркер ✓."""
+    deadline = add_months(today_msk(), 24)
+    g = _make_mock_goal("X", 100000, 10000, deadline=deadline)
+    text = format_goal_detail(g, [], pace_per_month=10000)
+    assert "✓" in text
+
+
+def test_format_goal_detail_forecast_late_marker():
+    """С близким дедлайном и слабым темпом — маркер ⚠️."""
+    deadline = add_months(today_msk(), 2)
+    g = _make_mock_goal("X", 100000, 10000, deadline=deadline)
+    text = format_goal_detail(g, [], pace_per_month=10000)
+    assert "⚠️" in text
 
 
 # ==================== Tests: format_duration_short ====================
