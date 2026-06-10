@@ -353,6 +353,7 @@ class GoalStates(StatesGroup):
     entering_name = State()
     entering_amount = State()
     entering_deadline = State()
+    choosing_scope = State()
     selecting_deposit_account = State()
     entering_deposit_amount = State()
     entering_deposit_note = State()

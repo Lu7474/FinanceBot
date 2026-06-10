@@ -4,11 +4,19 @@ from datetime import date as date_type
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MAX_GOAL_NAME_LENGTH
-from core.database.models import Account, Goal, GoalDeposit, Record, moscow_now
+from core.database.models import (
+    Account,
+    FamilyMember,
+    Goal,
+    GoalDeposit,
+    Record,
+    User,
+    moscow_now,
+)
 from core.exceptions import (
     GoalCompleted,
     GoalNotFound,
@@ -23,9 +31,17 @@ async def get_goals(
 ) -> list[Goal]:
     """Returns user's goals with smart sort: overdue → nearest deadline → highest progress.
 
-    Active goals only by default. Smart sort makes most-relevant goals appear first.
+    Includes personal goals plus shared goals of the user's family. Active goals only
+    by default. Smart sort makes most-relevant goals appear first.
     """
-    q = select(Goal).where(Goal.user_id == user_id)
+    family_id = await session.scalar(
+        select(FamilyMember.family_id).where(FamilyMember.user_id == user_id)
+    )
+    if family_id is not None:
+        cond = or_(Goal.user_id == user_id, Goal.family_id == family_id)
+    else:
+        cond = Goal.user_id == user_id
+    q = select(Goal).where(cond)
     if not include_completed:
         q = q.where(Goal.is_completed == False)  # noqa: E712
     goals = list(await session.scalars(q))
@@ -50,7 +66,36 @@ async def get_goals(
 
 
 async def get_goal(session: AsyncSession, goal_id: int, user_id: int) -> Goal | None:
-    """Returns a single goal by id, validates ownership."""
+    """Returns a goal the user may view/deposit/withdraw, or None.
+
+    Access = own personal goal OR a shared goal of a family the user belongs to.
+    For management (edit/complete/delete) use get_owned_goal instead.
+    """
+    goal = await session.scalar(select(Goal).where(Goal.id == goal_id))
+    if goal is None:
+        return None
+    if goal.user_id == user_id:
+        return goal
+    if goal.family_id is not None:
+        is_member = await session.scalar(
+            select(FamilyMember.id).where(
+                FamilyMember.family_id == goal.family_id,
+                FamilyMember.user_id == user_id,
+            )
+        )
+        if is_member:
+            return goal
+    return None
+
+
+async def get_owned_goal(
+    session: AsyncSession, goal_id: int, user_id: int
+) -> Goal | None:
+    """Returns a goal only if user is its owner/creator. Gate for management actions.
+
+    For shared goals goal.user_id == family owner (only owner creates them), so this
+    naturally restricts edit/complete/delete to the family owner.
+    """
     return await session.scalar(
         select(Goal).where(Goal.id == goal_id, Goal.user_id == user_id)
     )
@@ -65,8 +110,8 @@ async def update_goal(
     deadline: date_type | None = None,
     clear_deadline: bool = False,
 ) -> bool:
-    """Updates goal fields (name/target/deadline). Returns True if goal found and updated."""
-    goal = await get_goal(session, goal_id, user_id)
+    """Updates goal fields (name/target/deadline). Owner-only. Returns True if updated."""
+    goal = await get_owned_goal(session, goal_id, user_id)
     if not goal:
         return False
     if name is not None:
@@ -89,11 +134,18 @@ async def create_goal(
     name: str,
     target: Decimal,
     deadline,
+    family_id: int | None = None,
 ) -> Goal:
-    """Creates a new goal."""
+    """Creates a new goal. family_id set → shared family goal (creator = owner)."""
     if not (0 < len(name) <= MAX_GOAL_NAME_LENGTH):
         raise ValueError(f"name must be 1..{MAX_GOAL_NAME_LENGTH} chars")
-    goal = Goal(user_id=user_id, name=name, target_amount=target, deadline=deadline)
+    goal = Goal(
+        user_id=user_id,
+        name=name,
+        target_amount=target,
+        deadline=deadline,
+        family_id=family_id,
+    )
     session.add(goal)
     await session.flush()
     return goal
@@ -114,7 +166,11 @@ async def deposit_goal(
         raise GoalNotFoundOrCompleted()
 
     deposit = GoalDeposit(
-        goal_id=goal_id, account_id=account_id, amount=amount, note=note
+        goal_id=goal_id,
+        user_id=user_id,
+        account_id=account_id,
+        amount=amount,
+        note=note,
     )
     session.add(deposit)
     goal.current_amount += amount
@@ -148,7 +204,11 @@ async def withdraw_goal(
         raise InsufficientFundsInGoal()
 
     deposit = GoalDeposit(
-        goal_id=goal_id, account_id=account_id, amount=-amount, note=note
+        goal_id=goal_id,
+        user_id=user_id,
+        account_id=account_id,
+        amount=-amount,
+        note=note,
     )
     session.add(deposit)
     goal.current_amount -= amount
@@ -165,8 +225,10 @@ async def withdraw_goal(
 
 
 async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
-    """Marks goal as completed. Restores account balance_offsets and creates expense Records."""
-    goal = await get_goal(session, goal_id, user_id)
+    """Marks goal as completed (owner-only). Restores account balance_offsets and
+    creates an expense Record per account, attributed to that account's owner —
+    so each member's contribution to a shared goal lands in their own history."""
+    goal = await get_owned_goal(session, goal_id, user_id)
     if not goal:
         return
     goal.is_completed = True
@@ -189,16 +251,15 @@ async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> No
     for account_id, net in net_by_account.items():
         if net == Decimal("0"):
             continue
-        acc = await session.scalar(
-            select(Account).where(Account.id == account_id, Account.user_id == user_id)
-        )
+        # No user_id filter: shared-goal deposits may sit on other members' accounts.
+        acc = await session.scalar(select(Account).where(Account.id == account_id))
         if not acc:
             continue
         acc.balance_offset = Decimal(str(acc.balance_offset)) + net
         if net > 0:
             session.add(
                 Record(
-                    user_id=user_id,
+                    user_id=acc.user_id,
                     operation="-",
                     amount=net,
                     category="Цели",
@@ -210,8 +271,9 @@ async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> No
 
 
 async def delete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None:
-    """Deletes goal and all its deposits. Restores account balance_offsets."""
-    goal = await get_goal(session, goal_id, user_id)
+    """Deletes goal and all its deposits (owner-only). Restores balance_offset on
+    each account that funded it, including other members' accounts (shared goals)."""
+    goal = await get_owned_goal(session, goal_id, user_id)
     if not goal:
         return
 
@@ -232,9 +294,8 @@ async def delete_goal(session: AsyncSession, goal_id: int, user_id: int) -> None
     for account_id, net in net_by_account.items():
         if net == Decimal("0"):
             continue
-        acc = await session.scalar(
-            select(Account).where(Account.id == account_id, Account.user_id == user_id)
-        )
+        # No user_id filter: shared-goal deposits may sit on other members' accounts.
+        acc = await session.scalar(select(Account).where(Account.id == account_id))
         if acc:
             acc.balance_offset = Decimal(str(acc.balance_offset)) + net
 
@@ -256,6 +317,27 @@ async def get_goal_deposits(
             .limit(limit)
         )
     )
+
+
+async def get_goal_contributions(
+    session: AsyncSession, goal_id: int
+) -> list[tuple[str, Decimal]]:
+    """Net contribution per depositor as (name, net), biggest first.
+
+    For shared-goal cards. Deposits with user_id NULL (legacy) are skipped via the
+    inner join. Members with net 0 (deposited then fully withdrew) are kept.
+    """
+    rows = await session.execute(
+        select(
+            User.name,
+            func.coalesce(func.sum(GoalDeposit.amount), 0).label("net"),
+        )
+        .join(User, User.id == GoalDeposit.user_id)
+        .where(GoalDeposit.goal_id == goal_id)
+        .group_by(User.id, User.name)
+        .order_by(func.sum(GoalDeposit.amount).desc())
+    )
+    return [(name or "—", Decimal(str(net))) for name, net in rows.all()]
 
 
 async def get_goal_monthly_pace(

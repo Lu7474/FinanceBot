@@ -102,9 +102,11 @@ from .goals import (
     delete_goal,
     deposit_goal,
     get_goal,
+    get_goal_contributions,
     get_goal_deposits,
     get_goal_monthly_pace,
     get_goals,
+    get_owned_goal,
     update_goal,
     withdraw_goal,
 )
@@ -242,9 +244,11 @@ __all__ = [
     "delete_goal",
     "deposit_goal",
     "get_goal",
+    "get_goal_contributions",
     "get_goal_deposits",
     "get_goal_monthly_pace",
     "get_goals",
+    "get_owned_goal",
     "update_goal",
     "withdraw_goal",
     # debts

@@ -69,6 +69,7 @@ from .goals import (
     goal_edit_menu_keyboard,
     goal_empty_keyboard,
     goal_quick_amounts_keyboard,
+    goal_scope_keyboard,
     goals_list_keyboard,
 )
 from .history import (
@@ -168,6 +169,7 @@ __all__ = [
     "goal_edit_menu_keyboard",
     "goal_empty_keyboard",
     "goal_quick_amounts_keyboard",
+    "goal_scope_keyboard",
     "goals_list_keyboard",
     "history_category_filter_keyboard",
     "history_filter_keyboard",

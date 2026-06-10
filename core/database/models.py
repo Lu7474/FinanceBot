@@ -328,6 +328,12 @@ class Goal(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    # NULL → личная цель. Задан → общая семейная (goal.user_id = создатель = owner семьи).
+    # ondelete=SET NULL: при роспуске семьи общая цель становится личной у ex-owner,
+    # balance_offset/деньги целы (CASCADE удалил бы цель в обход delete_goal → порча балансов).
+    family_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("families.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     target_amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
     current_amount: Mapped[Decimal] = mapped_column(
@@ -352,6 +358,11 @@ class GoalDeposit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     goal_id: Mapped[int] = mapped_column(
         ForeignKey("goals.id", ondelete="CASCADE"), index=True
+    )
+    # Кто внёс/снял (для семейных целей: атрибуция вклада + запись расхода на нужный счёт).
+    # NULL у старых строк → трактуется как взнос владельца цели.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     account_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
@@ -471,6 +482,10 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE records ADD COLUMN IF NOT EXISTS transfer_id INTEGER",
         "CREATE INDEX IF NOT EXISTS ix_records_transfer_id ON records(transfer_id)",
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS family_id INTEGER REFERENCES families(id) ON DELETE SET NULL",
+        "CREATE INDEX IF NOT EXISTS ix_goals_family_id ON goals(family_id)",
+        "ALTER TABLE goal_deposits ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+        "CREATE INDEX IF NOT EXISTS ix_goal_deposits_user_id ON goal_deposits(user_id)",
     ]
     for stmt in stmts:
         await conn.execute(text(stmt))
@@ -607,12 +622,24 @@ async def _migrate(conn) -> None:
             text("CREATE INDEX ix_goals_user_completed ON goals(user_id, is_completed)")
         )
     else:
-        # Additive: add completed_at to existing goals table if missing
+        # Additive: add completed_at / family_id to existing goals table if missing
         cols = await conn.execute(text("PRAGMA table_info(goals)"))
         col_names = {row[1] for row in cols.fetchall()}
         if "completed_at" not in col_names:
             await conn.execute(
                 text("ALTER TABLE goals ADD COLUMN completed_at DATETIME")
+            )
+        if "family_id" not in col_names:
+            await conn.execute(
+                text(
+                    "ALTER TABLE goals ADD COLUMN family_id INTEGER "
+                    "REFERENCES families(id) ON DELETE SET NULL"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_goals_family_id ON goals(family_id)"
+                )
             )
 
     result = await conn.execute(
@@ -636,6 +663,23 @@ async def _migrate(conn) -> None:
         await conn.execute(
             text("CREATE INDEX ix_goal_deposits_goal_id ON goal_deposits(goal_id)")
         )
+    else:
+        # Additive: add user_id (depositor) to existing goal_deposits table if missing
+        cols = await conn.execute(text("PRAGMA table_info(goal_deposits)"))
+        dep_cols = {row[1] for row in cols.fetchall()}
+        if "user_id" not in dep_cols:
+            await conn.execute(
+                text(
+                    "ALTER TABLE goal_deposits ADD COLUMN user_id INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_goal_deposits_user_id "
+                    "ON goal_deposits(user_id)"
+                )
+            )
 
 
 # Создаёт таблицы в БД и применяет миграции (вызывается при старте бота)

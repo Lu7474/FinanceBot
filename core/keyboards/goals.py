@@ -52,8 +52,11 @@ def goal_archive_list_keyboard(goals: list) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def goal_detail_keyboard(goal_id: int, is_completed: bool) -> InlineKeyboardMarkup:
-    """Goal card actions. For completed goals: reactivate + delete + back."""
+def goal_detail_keyboard(
+    goal_id: int, is_completed: bool, can_manage: bool = True
+) -> InlineKeyboardMarkup:
+    """Goal card actions. can_manage=False (non-owner member of a shared goal) hides
+    edit/complete/delete/reactivate — only deposit/withdraw/back remain."""
     rows = []
     if not is_completed:
         rows.append(
@@ -66,39 +69,58 @@ def goal_detail_keyboard(goal_id: int, is_completed: bool) -> InlineKeyboardMark
                 ),
             ]
         )
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="✏️ Редактировать", callback_data=f"goal:edit:{goal_id}"
-                ),
-            ]
-        )
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="✅ Завершить", callback_data=f"goal:complete:{goal_id}"
-                ),
-                InlineKeyboardButton(
-                    text="🗑 Удалить", callback_data=f"goal:delete:{goal_id}"
-                ),
-            ]
-        )
+        if can_manage:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="✏️ Редактировать", callback_data=f"goal:edit:{goal_id}"
+                    ),
+                ]
+            )
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="✅ Завершить", callback_data=f"goal:complete:{goal_id}"
+                    ),
+                    InlineKeyboardButton(
+                        text="🗑 Удалить", callback_data=f"goal:delete:{goal_id}"
+                    ),
+                ]
+            )
         rows.append([InlineKeyboardButton(text="← Назад", callback_data="goal:list")])
     else:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="↩️ Переоткрыть", callback_data=f"goal:reactivate:{goal_id}"
-                ),
-                InlineKeyboardButton(
-                    text="🗑 Удалить", callback_data=f"goal:delete:{goal_id}"
-                ),
-            ]
-        )
+        if can_manage:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="↩️ Переоткрыть",
+                        callback_data=f"goal:reactivate:{goal_id}",
+                    ),
+                    InlineKeyboardButton(
+                        text="🗑 Удалить", callback_data=f"goal:delete:{goal_id}"
+                    ),
+                ]
+            )
         rows.append(
             [InlineKeyboardButton(text="← В архив", callback_data="goal:archive")]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def goal_scope_keyboard() -> InlineKeyboardMarkup:
+    """Scope choice at goal creation (shown only to a family owner)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👤 Личная", callback_data="goal:scope:personal"
+                ),
+                InlineKeyboardButton(
+                    text="👨‍👩‍👧 Семейная", callback_data="goal:scope:family"
+                ),
+            ]
+        ]
+    )
 
 
 def goal_edit_menu_keyboard(goal_id: int) -> InlineKeyboardMarkup:

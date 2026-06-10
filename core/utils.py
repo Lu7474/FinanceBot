@@ -543,14 +543,15 @@ def format_goals_list(goals: list) -> str:
             emoji = "⚠️"
         else:
             emoji = goal_emoji(goal.name)
+        fam = " 👨‍👩‍👧" if getattr(goal, "family_id", None) else ""
 
         if goal.current_amount >= goal.target_amount:
-            lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>")
+            lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>{fam}")
             lines.append(
                 f"   {current} / {target}  (100%) — <b>Цель достигнута! 🎉</b>\n"
             )
         else:
-            lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>")
+            lines.append(f"{emoji} <b>{html.escape(goal.name)}</b>{fam}")
             line = f"   {current} / {target}  ({pct}%)\n   Осталось: {remaining}"
             if goal.deadline:
                 deadline_str = goal.deadline.strftime("%d.%m.%Y")
@@ -563,12 +564,16 @@ def format_goals_list(goals: list) -> str:
 
 
 def format_goal_detail(
-    goal, deposits: list, pace_per_month: float | None = None
+    goal,
+    deposits: list,
+    pace_per_month: float | None = None,
+    contributions: list[tuple[str, "Decimal"]] | None = None,
 ) -> str:
     """Formats the detailed goal card with overdue marker and ETA forecast.
 
     pace_per_month — честный месячный темп (см. get_goal_monthly_pace). None → прогноз
     не показывается (мало данных / темп не растёт).
+    contributions — для семейной цели: [(имя, net)], показывается блок «Вклады».
     """
     pct = (
         int(float(goal.current_amount) / float(goal.target_amount) * 100)
@@ -584,9 +589,10 @@ def format_goal_detail(
         emoji = "⚠️"
     else:
         emoji = goal_emoji(goal.name)
+    fam = " 👨‍👩‍👧" if getattr(goal, "family_id", None) else ""
 
     lines = [
-        f"{emoji} <b>{html.escape(goal.name)}</b>",
+        f"{emoji} <b>{html.escape(goal.name)}</b>{fam}",
         "─" * 20,
         f"Цель:     {format_money(float(goal.target_amount))}",
         f"Собрано:  {format_money(float(goal.current_amount))}  ({pct}%)",
@@ -618,6 +624,11 @@ def format_goal_detail(
             eta_line += " ✓" if eta <= goal.deadline else " ⚠️"
         lines.append(f"📈 При текущем темпе (+{rate_str}/мес)")
         lines.append(eta_line)
+
+    if contributions:
+        lines.append("\n<b>Вклады:</b>")
+        for name, net in contributions:
+            lines.append(f"  {html.escape(name)}: {format_money(float(net))}")
 
     if deposits:
         lines.append("\n<b>Последние операции:</b>")

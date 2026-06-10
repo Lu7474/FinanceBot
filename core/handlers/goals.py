@@ -1,11 +1,12 @@
 """Handlers for financial goals."""
 
 import html
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from config import MAX_GOAL_AMOUNT, MAX_GOAL_NAME_LENGTH
 from core.database.models import async_session
@@ -15,10 +16,13 @@ from core.database.requests import (
     delete_goal,
     deposit_goal,
     get_accounts,
+    get_family,
     get_goal,
+    get_goal_contributions,
     get_goal_deposits,
     get_goal_monthly_pace,
     get_goals,
+    get_owned_goal,
     update_goal,
     withdraw_goal,
 )
@@ -40,6 +44,7 @@ from core.keyboards import (
     goal_edit_menu_keyboard,
     goal_empty_keyboard,
     goal_quick_amounts_keyboard,
+    goal_scope_keyboard,
     goals_list_keyboard,
     main_menu_keyboard,
 )
@@ -65,6 +70,24 @@ async def _load_goals_view(user_db_id: int) -> tuple[list, int]:
         active = await get_goals(session, user_db_id)
         all_goals = await get_goals(session, user_db_id, include_completed=True)
     return active, len(all_goals) - len(active)
+
+
+async def _build_goal_detail_view(
+    session, goal, user_db_id: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Builds (text, keyboard) for a goal card. For shared goals adds contributions
+    and hides management buttons from non-owner members."""
+    deposits = await get_goal_deposits(session, goal.id)
+    pace = await get_goal_monthly_pace(session, goal.id, goal.created_at)
+    contributions = (
+        await get_goal_contributions(session, goal.id)
+        if goal.family_id is not None
+        else None
+    )
+    can_manage = goal.user_id == user_db_id
+    text = format_goal_detail(goal, deposits, pace[0] if pace else None, contributions)
+    kb = goal_detail_keyboard(goal.id, goal.is_completed, can_manage)
+    return text, kb
 
 
 _GOAL_ERROR_MESSAGES: list[tuple[type, str]] = [
@@ -225,7 +248,7 @@ async def goal_deadline_entered(message: Message, state: FSMContext, **kwargs) -
         await message.answer("Дедлайн должен быть в будущем. Введите дату ДД.ММ.ГГ:")
         return
     user_id = await get_user_id_from_event(message, kwargs)
-    await _create_goal_and_confirm(message, state, deadline, user_id)
+    await _prompt_scope_or_create(message, state, deadline, user_id)
 
 
 @router.callback_query(F.data == "goal:no_deadline")
@@ -234,7 +257,7 @@ async def goal_no_deadline(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
     user_id = await get_user_id_from_event(callback, kwargs)
-    await _create_goal_and_confirm(
+    await _prompt_scope_or_create(
         get_message(callback), state, None, user_id, callback=callback
     )
 
@@ -264,11 +287,89 @@ async def goal_cancel(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     await callback.answer()
 
 
+async def _prompt_scope_or_create(
+    message: Message,
+    state: FSMContext,
+    deadline,
+    user_db_id: int | None,
+    callback: CallbackQuery | None = None,
+) -> None:
+    """Family owner → ask личная/семейная. Otherwise create personal goal directly."""
+    if not user_db_id:
+        if callback:
+            await callback.answer("Ошибка.")
+        else:
+            await message.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        family = await get_family(session, user_db_id)
+    is_owner = bool(family and family.owner_id == user_db_id)
+
+    if not is_owner:
+        await _create_goal_and_confirm(
+            message, state, deadline, user_db_id, None, callback=callback
+        )
+        return
+
+    await state.update_data(
+        goal_deadline_iso=deadline.isoformat() if deadline else None
+    )
+    prompt = "Цель личная или общая для семьи?"
+    if callback:
+        await get_message(callback).edit_text(
+            prompt, reply_markup=goal_scope_keyboard()
+        )
+        await callback.answer()
+    else:
+        await message.answer(prompt, reply_markup=goal_scope_keyboard())
+    await state.set_state(GoalStates.choosing_scope)
+
+
+@router.callback_query(F.data == "goal:scope:personal", GoalStates.choosing_scope)
+@log_exceptions("Ошибка при выборе типа цели")
+async def goal_scope_personal(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    user_id = await get_user_id_from_event(callback, kwargs)
+    data = await state.get_data()
+    iso = data.get("goal_deadline_iso")
+    deadline = date.fromisoformat(iso) if iso else None
+    await _create_goal_and_confirm(
+        get_message(callback), state, deadline, user_id, None, callback=callback
+    )
+
+
+@router.callback_query(F.data == "goal:scope:family", GoalStates.choosing_scope)
+@log_exceptions("Ошибка при создании семейной цели")
+async def goal_scope_family(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+    async with async_session() as session:
+        family = await get_family(session, user_id)
+    if not family or family.owner_id != user_id:
+        await callback.answer(
+            "Только владелец семьи может создать общую цель.", show_alert=True
+        )
+        return
+    data = await state.get_data()
+    iso = data.get("goal_deadline_iso")
+    deadline = date.fromisoformat(iso) if iso else None
+    await _create_goal_and_confirm(
+        get_message(callback), state, deadline, user_id, family.id, callback=callback
+    )
+
+
 async def _create_goal_and_confirm(
     message: Message,
     state: FSMContext,
     deadline,
     user_db_id: int | None,
+    family_id: int | None = None,
     callback: CallbackQuery | None = None,
 ) -> None:
     if not user_db_id:
@@ -283,13 +384,14 @@ async def _create_goal_and_confirm(
     target = Decimal(data.get("goal_target", "0"))
 
     async with async_session() as session:
-        await create_goal(session, user_db_id, name, target, deadline)
+        await create_goal(session, user_db_id, name, target, deadline, family_id)
         await session.commit()
 
     deadline_str = f" до {deadline.strftime('%d.%m.%Y')}" if deadline else ""
+    scope_str = "\n👨‍👩‍👧 Общая для семьи" if family_id else ""
     text = (
         f"✅ Цель <b>{html.escape(name)}</b> создана!\n"
-        f"Сумма: {target:,.0f}₽{deadline_str}".replace(",", " ")
+        f"Сумма: {target:,.0f}₽{deadline_str}{scope_str}".replace(",", " ")
     )
 
     goals, archive_count = await _load_goals_view(user_db_id)
@@ -321,12 +423,11 @@ async def goal_detail(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         if not goal:
             await callback.answer("Цель не найдена.", show_alert=True)
             return
-        deposits = await get_goal_deposits(session, goal_id)
-        pace = await get_goal_monthly_pace(session, goal_id, goal.created_at)
+        detail_text, kb = await _build_goal_detail_view(session, goal, user_id)
 
     await get_message(callback).edit_text(
-        format_goal_detail(goal, deposits, pace[0] if pace else None),
-        reply_markup=goal_detail_keyboard(goal_id, goal.is_completed),
+        detail_text,
+        reply_markup=kb,
         parse_mode="HTML",
     )
     await state.set_state(GoalStates.viewing_detail)
@@ -497,18 +598,25 @@ async def _execute_deposit(
             await deposit_goal(session, goal_id, user_db_id, amount, note, account_id)
             goal = await get_goal(session, goal_id, user_db_id)
             achieved = bool(goal and goal.current_amount >= goal.target_amount)
+            can_manage = bool(goal and goal.user_id == user_db_id)
             await session.commit()
     except ValueError as e:
         await _handle_goal_op_error(message, state, e, user_db_id, callback=callback)
         return
 
     text = f"✅ Добавлено <b>{amount:,.0f}₽</b> к цели.".replace(",", " ")
-    if achieved:
+    if achieved and can_manage:
         text += (
             "\n\n🎉 <b>Цель достигнута!</b>\nЗакрыть её сейчас или оставить открытой?"
         )
         kb = goal_achievement_keyboard(goal_id)
         next_state = GoalStates.viewing_detail
+    elif achieved:
+        # Member hit the target on a shared goal — only the family owner can close it.
+        text += "\n\n🎉 <b>Цель достигнута!</b>\nЗакрыть её может владелец семьи."
+        goals, archive_count = await _load_goals_view(user_db_id)
+        kb = goals_list_keyboard(goals, archive_count)
+        next_state = GoalStates.viewing_list
     else:
         goals, archive_count = await _load_goals_view(user_db_id)
         kb = goals_list_keyboard(goals, archive_count)
@@ -733,6 +841,16 @@ async def _execute_withdraw(
 @log_exceptions("Ошибка при запросе завершения цели")
 async def goal_complete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     goal_id = int((callback.data or "").split(":")[2])
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+    async with async_session() as session:
+        if not await get_owned_goal(session, goal_id, user_id):
+            await callback.answer(
+                "Завершить может только владелец семьи.", show_alert=True
+            )
+            return
     await get_message(callback).edit_text(
         "Отметить цель как завершённую? Это действие нельзя отменить.",
         reply_markup=goal_confirm_complete_keyboard(goal_id),
@@ -775,6 +893,16 @@ async def goal_complete_confirm(
 @log_exceptions("Ошибка при запросе удаления цели")
 async def goal_delete(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     goal_id = int((callback.data or "").split(":")[2])
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+    async with async_session() as session:
+        if not await get_owned_goal(session, goal_id, user_id):
+            await callback.answer(
+                "Удалить может только владелец семьи.", show_alert=True
+            )
+            return
     await get_message(callback).edit_text(
         "Удалить цель и все связанные операции? Это действие нельзя отменить.",
         reply_markup=goal_confirm_delete_keyboard(goal_id),
@@ -977,9 +1105,11 @@ async def goal_edit_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -
         return
 
     async with async_session() as session:
-        goal = await get_goal(session, goal_id, user_id)
+        goal = await get_owned_goal(session, goal_id, user_id)
         if not goal:
-            await callback.answer("Цель не найдена.", show_alert=True)
+            await callback.answer(
+                "Редактировать может только владелец семьи.", show_alert=True
+            )
             return
         goal_name = goal.name
 
@@ -1040,24 +1170,12 @@ async def goal_edit_name_entered(message: Message, state: FSMContext, **kwargs) 
         await update_goal(session, goal_id, user_id, name=name)
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
-        deposits = await get_goal_deposits(session, goal_id) if goal else []
-        pace = (
-            await get_goal_monthly_pace(session, goal_id, goal.created_at)
-            if goal
-            else None
-        )
-        is_completed = goal.is_completed if goal else False
-        detail_text = (
-            format_goal_detail(goal, deposits, pace[0] if pace else None)
-            if goal
-            else "Цель не найдена."
-        )
+        if goal:
+            detail_text, kb = await _build_goal_detail_view(session, goal, user_id)
+        else:
+            detail_text, kb = "Цель не найдена.", None
 
-    await message.answer(
-        detail_text,
-        reply_markup=goal_detail_keyboard(goal_id, is_completed),
-        parse_mode="HTML",
-    )
+    await message.answer(detail_text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(GoalStates.viewing_detail)
 
 
@@ -1132,24 +1250,12 @@ async def goal_edit_amount_entered(
         await update_goal(session, goal_id, user_id, target_amount=amount)
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
-        deposits = await get_goal_deposits(session, goal_id) if goal else []
-        pace = (
-            await get_goal_monthly_pace(session, goal_id, goal.created_at)
-            if goal
-            else None
-        )
-        is_completed = goal.is_completed if goal else False
-        detail_text = (
-            format_goal_detail(goal, deposits, pace[0] if pace else None)
-            if goal
-            else "Цель не найдена."
-        )
+        if goal:
+            detail_text, kb = await _build_goal_detail_view(session, goal, user_id)
+        else:
+            detail_text, kb = "Цель не найдена.", None
 
-    await message.answer(
-        detail_text,
-        reply_markup=goal_detail_keyboard(goal_id, is_completed),
-        parse_mode="HTML",
-    )
+    await message.answer(detail_text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(GoalStates.viewing_detail)
 
 
@@ -1214,24 +1320,12 @@ async def goal_edit_deadline_entered(
         await update_goal(session, goal_id, user_id, deadline=deadline)
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
-        deposits = await get_goal_deposits(session, goal_id) if goal else []
-        pace = (
-            await get_goal_monthly_pace(session, goal_id, goal.created_at)
-            if goal
-            else None
-        )
-        is_completed = goal.is_completed if goal else False
-        detail_text = (
-            format_goal_detail(goal, deposits, pace[0] if pace else None)
-            if goal
-            else "Цель не найдена."
-        )
+        if goal:
+            detail_text, kb = await _build_goal_detail_view(session, goal, user_id)
+        else:
+            detail_text, kb = "Цель не найдена.", None
 
-    await message.answer(
-        detail_text,
-        reply_markup=goal_detail_keyboard(goal_id, is_completed),
-        parse_mode="HTML",
-    )
+    await message.answer(detail_text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(GoalStates.viewing_detail)
 
 
@@ -1251,22 +1345,14 @@ async def goal_clear_deadline(
         await update_goal(session, goal_id, user_id, clear_deadline=True)
         await session.commit()
         goal = await get_goal(session, goal_id, user_id)
-        deposits = await get_goal_deposits(session, goal_id) if goal else []
-        pace = (
-            await get_goal_monthly_pace(session, goal_id, goal.created_at)
-            if goal
-            else None
-        )
-        is_completed = goal.is_completed if goal else False
-        detail_text = (
-            format_goal_detail(goal, deposits, pace[0] if pace else None)
-            if goal
-            else "Цель не найдена."
-        )
+        if goal:
+            detail_text, kb = await _build_goal_detail_view(session, goal, user_id)
+        else:
+            detail_text, kb = "Цель не найдена.", None
 
     await get_message(callback).edit_text(
         detail_text,
-        reply_markup=goal_detail_keyboard(goal_id, is_completed),
+        reply_markup=kb,
         parse_mode="HTML",
     )
     await state.set_state(GoalStates.viewing_detail)
