@@ -35,7 +35,9 @@ FinanceBot/
 │   │   ├── export_import.py    # Экспорт/импорт/бэкап в Excel
 │   │   ├── goals.py            # Финансовые цели: CRUD, пополнение, снятие
 │   │   ├── debts.py            # Долги и займы: создание, частичное погашение, архив
+│   │   ├── payments.py         # Платежи: напоминания о разовых/периодических платежах, отметка оплаты
 │   │   ├── notifications.py    # /notifications, тоггл флагов, онбординг
+│   │   ├── settings.py         # Настройки: режим описания записей + переход к уведомлениям
 │   │   ├── family.py           # Семейный бюджет: создание/вступление, общая история и отчёты, управление
 │   │   ├── admin.py            # Режим администратора
 │   │   └── fallback.py         # Fallback для неизвестных сообщений
@@ -52,11 +54,12 @@ FinanceBot/
 │           ├── budgets.py      # CRUD бюджетов, alert-логика, сброс флагов
 │           ├── goals.py        # CRUD целей, deposit/withdraw, complete
 │           ├── debts.py        # CRUD долгов, частичные платежи, выборка для напоминаний
+│           ├── payments.py     # CRUD платежей, mark_paid (перенос цикла), выборка для напоминаний
 │           ├── notifications.py # weekly/monthly/daily summary-выборки
 │           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 554 pytest-теста
+├── tests/                      # 615 pytest-тестов
 └── requirements.txt
 ```
 
@@ -86,6 +89,8 @@ notify_monthly: bool (default False)  — ежемесячная сводка
 notify_daily: bool (default False)    — ежедневные итоги
 notify_reminder: bool (default False) — напоминание при простое
 notify_debts: bool (default False)    — напоминания о приближении срока долга
+notify_payments: bool (default False) — напоминания о приближении срока платежа
+description_mode: str (default "off") — режим ввода описания записей: off | brackets | button | auto
 ```
 
 ### Account
@@ -153,7 +158,8 @@ last_reset_month: int (nullable)  — месяц последнего сброс
 ### Goal
 ```
 id: int (PK)
-user_id: int (FK → User.id)
+user_id: int (FK → User.id)  — создатель цели; для семейной = owner семьи
+family_id: int (FK → Family.id, nullable, SET NULL)  — NULL = личная цель; задан = общая семейная. SET NULL при роспуске семьи (цель становится личной у ex-owner, деньги целы)
 name: str (max 100 — синхронно со схемой и app-валидацией `MAX_GOAL_NAME_LENGTH`)
 target_amount: Decimal(14, 2)
 current_amount: Decimal(14, 2)  — накоплено (default 0)
@@ -168,6 +174,7 @@ deposits: relationship → GoalDeposit (cascade delete)
 ```
 id: int (PK)
 goal_id: int (FK → Goal.id, CASCADE)
+user_id: int (FK → User.id, nullable, SET NULL)  — кто внёс/снял (атрибуция вклада в семейной цели); NULL у старых строк = взнос владельца
 account_id: int (FK → Account.id, nullable, SET NULL)
 amount: Decimal(14, 2)  — положительный = пополнение, отрицательный = снятие
 note: str (max 200, nullable)
@@ -199,6 +206,21 @@ debt_id: int (FK → Debt.id, CASCADE)
 amount: Decimal(14, 2)  — сумма частичного погашения
 note: str (max 200, nullable)
 paid_at: datetime
+```
+
+### Payment
+Напоминание о платеже (налоги, страховки, ОСАГО, коммуналка, подписки). Изолированная сущность: на баланс/отчёты не влияет, оплата НЕ создаёт Record.
+```
+id: int (PK)
+user_id: int (FK → User.id, CASCADE)
+title: str (max 100 — MAX_PAYMENT_TITLE)
+amount: Decimal(14, 2, nullable)  — NULL = плавающая сумма (напоминаем без точной суммы)
+due_date: date  — дата платежа
+period: str (default "none")  — none (разовый) | month | year (периодический)
+is_active: bool (default True)  — разовый после оплаты → False; периодический остаётся активным
+last_paid_at: datetime (nullable)  — когда последний раз отмечен оплаченным
+last_reminded_at: datetime (nullable)  — антиспам для напоминаний о сроке
+created_at: datetime
 ```
 
 ### UserCategory
@@ -246,13 +268,18 @@ joined_at: datetime
 ix_records_user_created         — (user_id, created_at)           выборка по периоду
 ix_records_user_operation       — (user_id, operation)            отчёты по типу
 ix_records_user_op_cat          — (user_id, operation, category)  GROUP BY категориям
+ix_records_transfer_id          — (transfer_id)                   пара записей перевода
 ix_savings_user_date            — (user_id, date, unique)         один снимок в день
 ix_budgets_user_category          — (user_id, category, unique)     один бюджет на категорию
 ix_goals_user_completed           — (user_id, is_completed)         фильтрация активных целей
+ix_goals_family_id                — (family_id)                      цели семьи
 ix_goal_deposits_goal_id          — (goal_id)                        операции по цели
+ix_goal_deposits_user_id          — (user_id)                        вклады участника в семейной цели
 ix_debts_user_closed              — (user_id, is_closed)             активные / архивные долги
 ix_debts_due_date                 — (due_date)                       выборка для напоминаний о сроке
 ix_debt_payments_debt_id          — (debt_id)                        история платежей по долгу
+ix_payments_user_active           — (user_id, is_active)             активные / закрытые платежи
+ix_payments_due_date              — (due_date)                       выборка для напоминаний о сроке
 ix_user_categories_user_name      — (user_id, name, unique)         дубли категорий
 ix_category_keywords_user_keyword — (user_id, keyword, unique)      дубли ключевых слов
 ix_family_members_family_id       — (family_id)                     состав семьи
@@ -262,8 +289,9 @@ ix_family_members_family_id       — (family_id)                     соста
 
 ### AddRecord
 ```
-waiting_for_amount   — ввод суммы и категории
-waiting_for_account  — выбор счёта (если их несколько)
+waiting_for_amount       — ввод суммы и категории
+waiting_for_account      — выбор счёта (если их несколько)
+waiting_for_description  — ввод описания после сохранения (режим описания «кнопкой»)
 ```
 
 ### MenuStates
@@ -283,6 +311,8 @@ waiting_for_history_category_filter
 waiting_for_yearly_type     — выбор типа (Доходы/Расходы) для годового отчёта
 waiting_for_yearly_year     — выбор года (или «за всё время») для годового отчёта
 waiting_for_yearly_cats     — мультивыбор категорий для годового отчёта
+waiting_for_balance_year    — выбор года для графика динамики баланса
+waiting_for_balance_month   — выбор месяца для графика динамики баланса
 ```
 
 ### BudgetStates
@@ -300,6 +330,7 @@ waiting_for_transfer_amount
 waiting_for_set_balance
 waiting_for_acc_hist_period
 waiting_for_acc_hist_page
+waiting_for_transfers_page  — пагинация журнала переводов
 ```
 
 ### SavingsStates
@@ -333,6 +364,7 @@ choosing_type_for_add         — тип новой категории (+ / - / 
 entering_name_for_add         — название новой категории
 choosing_category_to_rename   — выбор категории для переименования
 entering_new_name
+confirming_merge              — подтверждение слияния при переименовании в существующее имя
 choosing_category_to_delete   — выбор категории для удаления
 confirming_delete
 choosing_category_for_record  — выбор категории при добавлении записи
@@ -363,6 +395,7 @@ viewing_archive            — список завершённых целей
 entering_name              — ввод названия новой цели
 entering_amount            — ввод целевой суммы
 entering_deadline          — ввод дедлайна (или «Без дедлайна»)
+choosing_scope             — личная или общая семейная цель (если юзер в семье)
 selecting_deposit_account  — выбор счёта для пополнения
 entering_deposit_amount    — ввод суммы пополнения
 entering_deposit_note      — ввод заметки к пополнению
@@ -386,6 +419,19 @@ waiting_description      — ввод описания (опционально)
 waiting_due_date        — ввод срока возврата (или «Без срока»)
 waiting_payment_amount  — ввод суммы частичного погашения
 waiting_payment_note    — ввод заметки к погашению
+```
+
+### PaymentStates
+```
+viewing_list      — список активных платежей
+viewing_detail    — карточка конкретного платежа
+waiting_title     — ввод названия платежа
+waiting_amount    — ввод суммы (или «Сумма не задана»)
+waiting_due_date  — ввод даты платежа
+waiting_period    — выбор периодичности (разовый / месяц / год)
+editing_title     — редактирование названия
+editing_amount    — редактирование суммы
+editing_due_date  — редактирование даты
 ```
 
 ### FamilyStates
@@ -428,7 +474,8 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 Подменю «Ещё» (more_menu_keyboard, more.py) — второй экран reply-клавиатуры:
   [Накопления] [Категории]
   [Бюджеты] [Цели]
-  [Долги] [Семья]
+  [Долги] [Платежи]
+  [Семья] [Настройки]
   [Экспорт] [Импорт]
   [Назад]
 
@@ -469,7 +516,7 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 
 ### Отчёт
 ```
-[Отчёт] → report_section_keyboard — три раздела:
+[Отчёт] → report_section_keyboard — четыре раздела:
 
   📊 По категориям → тип (Доход / Расход) → год → месяц
       → get_categories_summary()  — SQL GROUP BY
@@ -482,6 +529,9 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 
   📅 Годовой отчёт → тип → год (или «за всё время») → мультивыбор категорий
       → get_yearly_report() → format_yearly_report() + build_yearly_chart()
+
+  💰 Динамика баланса → год → месяц
+      → линейный график изменения баланса по дням за выбранный месяц
 ```
 
 ### Управление счетами
@@ -533,8 +583,11 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
         → goal_detail_keyboard: [💰 Пополнить] [📤 Снять] [✏️ Редактировать]
                                 [✅ Завершить] [🗑 Удалить]
 
-    Новая цель → название → сумма → дедлайн (опционально)
-        → create_goal()
+    Новая цель → название → сумма → дедлайн (опционально) → scope (личная / общая семейная, если юзер в семье)
+        → create_goal() (family_id задаётся для семейной цели)
+
+    Семейная цель: видна всем участникам, взносы атрибутируются (GoalDeposit.user_id);
+        при роспуске семьи family_id → NULL, цель и деньги остаются у бывшего владельца
 
     Пополнить → выбор счёта → quick-amounts (10%/25%/50%/ежемес/остаток) или ввод суммы → заметка
         → deposit_goal(): GoalDeposit + account.balance_offset -= amount
@@ -630,16 +683,48 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
     ├─ monthly_report  — last 20:00 → send_monthly_report → format_monthly_summary (сравнение с пред. месяцем)
     ├─ daily_summary   — ежедн. 21:00 → send_daily_summary → format_daily_summary
     ├─ reminders       — ежедн. 20:00 → send_reminders (простой 2+ дня, антиспам через last_reminded_at)
-    └─ debt_reminders  — ежедн. 10:00 → send_debt_reminders (приближение/наступление due_date, антиспам через Debt.last_reminded_at)
+    ├─ debt_reminders  — ежедн. 10:00 → send_debt_reminders (приближение/наступление due_date, антиспам через Debt.last_reminded_at)
+    └─ payment_reminders — ежедн. 09:00 → send_payment_reminders (приближение/наступление due_date, антиспам через Payment.last_reminded_at)
 
 Аудитория: get_notifiable_users() — не забаненные, с ≥1 записью; каждый тип фильтруется флагом notify_*.
 Долговые напоминания: get_debts_to_remind() — открытые долги с due_date у пользователей с notify_debts.
+Платёжные напоминания: get_payments_to_remind() — активные платежи с due_date у пользователей с notify_payments.
 Выборки сумм/топ-категорий — core/database/requests/notifications.py (исключает SYSTEM_CATEGORIES).
 
 Настройки (core/handlers/notifications.py)
-    /notifications → notification_settings_keyboard(user): тоггл каждого флага (notify_toggle:<key>, включая notify_toggle:debts)
+    /notifications → notification_settings_keyboard(user): тоггл каждого флага (notify_toggle:<key>, включая notify_toggle:debts и notify_toggle:payments)
+    Также доступно из раздела «Настройки» (settings:notifications) с кнопкой возврата
     Онбординг: после первой записи (_maybe_send_onboarding) → [Включить всё] / [Пропустить]
         notify_enable_all — включает все флаги; notify_skip — закрывает без изменений
+```
+
+### Платежи (`core/handlers/payments.py`)
+```
+[Ещё] → [Платежи]
+    → get_active_payments() → format_payments_list(): название, сумма (или «~»), дата, периодичность, индикатор просрочки
+    → payments_list_keyboard(active): платежи + [➕ Добавить]
+
+    Карточка (payment_view)
+        → format_payment_detail(): сумма, дата, периодичность, история оплат
+        → payment_detail_keyboard: [✅ Оплачено] [✏️ Изменить] [🗑 Удалить]
+
+    Новый платёж → название → сумма (или «Сумма не задана») → дата → периодичность (разовый / месяц / год)
+        → create_payment()
+
+    Оплачено → mark_paid(): разовый → is_active=False; периодический → due_date на следующий цикл
+        → история и отчёты НЕ засоряются (без Record)
+
+    Изменить → название / сумма / дата / периодичность → update_payment()
+    Удалить → delete_payment()
+```
+
+### Настройки (`core/handlers/settings.py`)
+```
+[Ещё] → [Настройки]
+    → settings_menu_keyboard(user): радио-выбор режима описания записей
+        off | brackets (в скобках) | button (кнопкой после записи) | auto (категория + описание)
+        → settings:mode:<mode> → User.description_mode
+    → [🔔 Уведомления] (settings:notifications) → экран уведомлений с кнопкой «Назад»
 ```
 
 ## Оптимизации
@@ -663,6 +748,8 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | MAX_GOAL_NAME_LENGTH | 100 |
 | MAX_DEBT_AMOUNT | 10 000 000 |
 | MAX_DEBT_PERSON_NAME | 100 |
+| MAX_PAYMENT_AMOUNT | 10 000 000 |
+| MAX_PAYMENT_TITLE | 100 |
 | MAX_CATEGORIES_IN_PIE | 5 |
 | MAX_CAPTION_LENGTH | 1024 |
 | MAX_MESSAGE_LENGTH | 4096 |
@@ -670,7 +757,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (554)
+## Тесты (615)
 
 ```bash
 pytest tests/ -v
@@ -699,6 +786,8 @@ pytest tests/ -v
 | test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
 | test_goals_errors.py | Цели: обработка ошибок и граничные случаи |
 | test_debts.py | Долги: CRUD, частичные погашения, выборка для напоминаний, каскадное удаление |
+| test_payments.py | Платежи: CRUD, mark_paid (перенос цикла), выборка для напоминаний, форматтеры |
+| test_family_goals.py | Семейные цели: общая цель, взносы участников, атрибуция, права владельца |
 | test_notifications.py | Уведомления: форматтеры сводок (weekly/monthly/daily), DB-выборки |
 | test_family.py | Семья: membership, инвайт-коды, лимит участников, общие сводки и разбивки, права владельца |
 | test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка |
