@@ -1,4 +1,5 @@
 """Tests for count_records, get_categories_summary, get_monthly_totals."""
+
 import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -13,6 +14,7 @@ from core.database.models import Record
 from core.database.requests import (
     count_records,
     get_categories_summary,
+    get_daily_balance_for_month,
     get_monthly_totals,
     set_user,
 )
@@ -36,6 +38,7 @@ def _rec(user_id: int, op: str, amount, cat: str, dt: datetime) -> Record:
 
 
 # ==================== count_records ====================
+
 
 @pytest.mark.asyncio
 async def test_count_records_empty(session):
@@ -87,6 +90,7 @@ async def test_count_records_isolated_by_user(session):
 
 # ==================== get_categories_summary ====================
 
+
 @pytest.mark.asyncio
 async def test_get_categories_summary_sums_by_category(session):
     user_id = await _make_user(session)
@@ -96,7 +100,9 @@ async def test_get_categories_summary_sums_by_category(session):
     session.add(_rec(user_id, "-", 200, "Транспорт", now))
     await session.commit()
 
-    summary = await get_categories_summary(session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1))
+    summary = await get_categories_summary(
+        session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1)
+    )
     assert summary.get("Еда") == Decimal("800")
     assert summary.get("Транспорт") == Decimal("200")
 
@@ -109,11 +115,15 @@ async def test_get_categories_summary_filters_by_operation(session):
     session.add(_rec(user_id, "-", 200, "Еда", now))
     await session.commit()
 
-    expense_summary = await get_categories_summary(session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1))
+    expense_summary = await get_categories_summary(
+        session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1)
+    )
     assert "Зарплата" not in expense_summary
     assert "Еда" in expense_summary
 
-    income_summary = await get_categories_summary(session, user_id, "+", now - timedelta(minutes=1), now + timedelta(minutes=1))
+    income_summary = await get_categories_summary(
+        session, user_id, "+", now - timedelta(minutes=1), now + timedelta(minutes=1)
+    )
     assert "Зарплата" in income_summary
     assert "Еда" not in income_summary
 
@@ -122,7 +132,9 @@ async def test_get_categories_summary_filters_by_operation(session):
 async def test_get_categories_summary_empty(session):
     user_id = await _make_user(session)
     now = datetime.now(TZ)
-    summary = await get_categories_summary(session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1))
+    summary = await get_categories_summary(
+        session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1)
+    )
     assert summary == {}
 
 
@@ -134,12 +146,15 @@ async def test_get_categories_summary_excludes_system_categories(session):
     session.add(_rec(user_id, "-", 100, "Обычная", now))
     await session.commit()
 
-    summary = await get_categories_summary(session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1))
+    summary = await get_categories_summary(
+        session, user_id, "-", now - timedelta(minutes=1), now + timedelta(minutes=1)
+    )
     assert "Перевод" not in summary
     assert "Обычная" in summary
 
 
 # ==================== get_monthly_totals ====================
+
 
 @pytest.mark.asyncio
 async def test_get_monthly_totals_empty(session):
@@ -169,7 +184,9 @@ async def test_get_monthly_totals_sorted_ascending(session):
     user_id = await _make_user(session)
     now = datetime.now(TZ)
     for offset in [60, 0, 30]:
-        dt = (now - timedelta(days=offset)).replace(day=15, hour=12, minute=0, second=0, microsecond=0)
+        dt = (now - timedelta(days=offset)).replace(
+            day=15, hour=12, minute=0, second=0, microsecond=0
+        )
         session.add(_rec(user_id, "+", 1000, "Доход", dt))
     await session.commit()
 
@@ -205,3 +222,72 @@ async def test_get_monthly_totals_isolated_by_user(session):
 
     result = await get_monthly_totals(session, user2_id, "+")
     assert result == []
+
+
+# ==================== get_daily_balance_for_month ====================
+
+
+@pytest.mark.asyncio
+async def test_get_daily_balance_empty(session):
+    user_id = await _make_user(session)
+    assert await get_daily_balance_for_month(session, user_id, 2025, 5) == []
+
+
+@pytest.mark.asyncio
+async def test_get_daily_balance_net_sign_and_grouping(session):
+    """Income counts +, expense −; same-day rows collapse into one net per day."""
+    user_id = await _make_user(session)
+    d = lambda day: datetime(2025, 5, day, 12, 0, tzinfo=TZ)  # noqa: E731
+    session.add(_rec(user_id, "+", 50000, "Зарплата", d(10)))
+    session.add(_rec(user_id, "-", 2000, "Еда", d(10)))
+    session.add(_rec(user_id, "-", 3000, "Транспорт", d(20)))
+    await session.commit()
+
+    result = await get_daily_balance_for_month(session, user_id, 2025, 5)
+    by_day = dict(result)
+    assert by_day[10] == Decimal("48000")  # 50000 − 2000
+    assert by_day[20] == Decimal("-3000")
+    # ordered ascending by day
+    assert [day for day, _ in result] == sorted(day for day, _ in result)
+
+
+@pytest.mark.asyncio
+async def test_get_daily_balance_excludes_system_categories(session):
+    user_id = await _make_user(session)
+    d = datetime(2025, 5, 10, 12, 0, tzinfo=TZ)
+    session.add(_rec(user_id, "+", 9999, "Перевод", d))
+    session.add(_rec(user_id, "+", 1000, "Зарплата", d))
+    await session.commit()
+
+    result = await get_daily_balance_for_month(session, user_id, 2025, 5)
+    assert dict(result)[10] == Decimal("1000")
+
+
+@pytest.mark.asyncio
+async def test_get_daily_balance_only_target_month(session):
+    user_id = await _make_user(session)
+    session.add(
+        _rec(user_id, "+", 1000, "Доход", datetime(2025, 5, 10, 12, 0, tzinfo=TZ))
+    )
+    session.add(
+        _rec(user_id, "+", 5000, "Доход", datetime(2025, 4, 30, 23, 0, tzinfo=TZ))
+    )
+    session.add(
+        _rec(user_id, "+", 7000, "Доход", datetime(2025, 6, 1, 0, 0, tzinfo=TZ))
+    )
+    await session.commit()
+
+    result = await get_daily_balance_for_month(session, user_id, 2025, 5)
+    assert result == [(10, Decimal("1000"))]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_balance_isolated_by_user(session):
+    user1_id = await _make_user(session, tg_id=1)
+    user2_id = await _make_user(session, tg_id=2)
+    session.add(
+        _rec(user1_id, "+", 5000, "Доход", datetime(2025, 5, 10, 12, 0, tzinfo=TZ))
+    )
+    await session.commit()
+
+    assert await get_daily_balance_for_month(session, user2_id, 2025, 5) == []

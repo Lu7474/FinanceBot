@@ -123,6 +123,7 @@ from .records import (
 from .reports import (
     get_categories_for_year,
     get_categories_summary,
+    get_daily_balance_for_month,
     get_history_data,
     get_monthly_totals,
     get_stacked_data,
@@ -173,6 +174,7 @@ __all__ = [
     # reports
     "get_categories_for_year",
     "get_categories_summary",
+    "get_daily_balance_for_month",
     "get_history_data",
     "get_monthly_totals",
     "get_stacked_data",

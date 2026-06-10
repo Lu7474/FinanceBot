@@ -3,6 +3,7 @@ Chart generation: bar and trend charts using matplotlib.
 """
 
 import asyncio
+import calendar
 import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -138,7 +139,9 @@ def _render_category_bars_sync(
         fig.subplots_adjust(bottom=0.2)
 
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
         return buf
 
@@ -307,7 +310,9 @@ def _build_stacked_bar_chart_sync(
 
         fig.tight_layout()
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
         return buf
 
@@ -381,9 +386,7 @@ def _build_family_stacked_chart_sync(
         cat_index = {c: i for i, c in enumerate(cat_list)}
 
         # matrix[member_pos] = [value per category]
-        matrix: List[List[float]] = [
-            [0.0] * len(cat_list) for _ in member_meta
-        ]
+        matrix: List[List[float]] = [[0.0] * len(cat_list) for _ in member_meta]
         member_totals = [0.0] * len(member_meta)
         for d in data:
             uid = d["user_id"]
@@ -451,7 +454,9 @@ def _build_family_stacked_chart_sync(
 
         fig.tight_layout()
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
         return buf
 
@@ -594,7 +599,9 @@ def _build_yearly_chart_sync(
 
         fig.tight_layout()
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
         return buf
 
@@ -756,12 +763,129 @@ def _build_trend_chart_sync(
         fig.tight_layout()
 
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white")
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
         buf.seek(0)
         return buf
 
     except Exception:
         logging.exception("Ошибка при построении графика тренда")
+        return None
+
+
+def _build_balance_line_chart_sync(
+    daily_data: List[Tuple[int, Decimal]],
+    year: int,
+    month: int,
+) -> Optional[io.BytesIO]:
+    """Cumulative net balance line for a single month (starts at 0).
+
+    daily_data: [(day, net), ...] — only days with operations. Missing days
+    contribute 0; the line is the running sum across every day of the month.
+    """
+    if not daily_data:
+        return None
+
+    try:
+        days_in_month = calendar.monthrange(year, month)[1]
+        net_by_day = {d: float(v) for d, v in daily_data}
+
+        days = list(range(1, days_in_month + 1))
+        cum: List[float] = []
+        running = 0.0
+        for d in days:
+            running += net_by_day.get(d, 0.0)
+            cum.append(running)
+
+        final = cum[-1]
+        line_color = INCOME_COLORS[0] if final >= 0 else EXPENSE_COLORS[0]
+
+        fig = Figure(figsize=(8, 4))
+        ax = fig.subplots()
+
+        ax.plot(days, cum, color=line_color, linewidth=2.5)
+        ax.fill_between(days, cum, alpha=0.18, color=line_color)
+        ax.axhline(y=0, color="#95a5a6", linestyle="--", linewidth=1, alpha=0.7)
+
+        # Mark the final point + annotate cumulative balance.
+        ax.scatter(
+            [days[-1]],
+            [final],
+            color=line_color,
+            s=120,
+            zorder=5,
+            edgecolor="white",
+            linewidth=2,
+        )
+        ax.annotate(
+            format_money(final),
+            (days[-1], final),
+            textcoords="offset points",
+            xytext=(0, 12),
+            ha="right",
+            fontsize=10,
+            fontweight="bold",
+            color=line_color,
+        )
+
+        # X ticks every 5 days (plus the last day) to avoid clutter.
+        ticks = [d for d in days if d == 1 or d % 5 == 0]
+        if days[-1] not in ticks:
+            ticks.append(days[-1])
+        ax.set_xticks(ticks)
+        ax.set_xlim(1, days_in_month)
+        ax.set_ylabel("")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        ax.set_title(
+            f"Динамика баланса — {RU_MONTHS[month]} {year}",
+            fontsize=13,
+            fontweight="bold",
+            pad=15,
+        )
+
+        fig.tight_layout()
+
+        buf = io.BytesIO()
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
+        buf.seek(0)
+        return buf
+
+    except Exception:
+        logging.exception("Ошибка при построении графика баланса")
+        return None
+
+
+async def build_balance_line_chart(
+    daily_data: List[Tuple[int, Decimal]],
+    year: int,
+    month: int,
+) -> Optional[io.BytesIO]:
+    """Async wrapper for the monthly balance line chart with timeout."""
+    if not daily_data:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_balance_line_chart_sync,
+                daily_data,
+                year,
+                month,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут balance line chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении balance line chart")
         return None
 
 

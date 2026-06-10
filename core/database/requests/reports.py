@@ -248,6 +248,50 @@ async def get_monthly_totals(
     return [(int(row.year), int(row.month), Decimal(str(row.total))) for row in rows]
 
 
+async def get_daily_balance_for_month(
+    session: AsyncSession,
+    user_id: int | list[int],
+    year: int,
+    month: int,
+) -> list[tuple[int, Decimal]]:
+    """Daily net (income − expense) for a single month. For the balance line chart.
+
+    Returns [(day, net), ...] ordered by day — only days that had operations.
+    SYSTEM_CATEGORIES excluded (transfers between own accounts don't change net).
+    user_id accepts a single id (personal) or a list (family scope).
+    """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
+    date_from = datetime(year, month, 1)
+    if month == 12:
+        date_to = datetime(year + 1, 1, 1)
+    else:
+        date_to = datetime(year, month + 1, 1)
+
+    net_expr = func.sum(
+        case((Record.operation == "+", Record.amount), else_=-Record.amount)
+    ).label("net")
+
+    query = (
+        select(
+            func.extract("day", Record.created_at).label("day"),
+            net_expr,
+        )
+        .where(
+            Record.user_id.in_(user_ids),
+            Record.category.not_in(SYSTEM_CATEGORIES),
+            Record.created_at >= date_from,
+            Record.created_at < date_to,
+        )
+        .group_by(func.extract("day", Record.created_at))
+        .order_by(func.extract("day", Record.created_at))
+    )
+
+    result = await session.execute(query)
+    rows = result.fetchall()
+
+    return [(int(row.day), Decimal(str(row.net))) for row in rows]
+
+
 async def get_stacked_data(
     session: AsyncSession,
     user_id: int | list[int],

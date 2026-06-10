@@ -149,9 +149,48 @@ def format_stacked_caption(data: list[dict], operation: str) -> str:
     return result
 
 
-def format_yearly_report(
-    data: list[dict], year: Optional[int], operation: str
+def format_balance_caption(
+    daily_data: list[tuple[int, Decimal]], year: int, month: int
 ) -> str:
+    """Caption for the monthly balance line chart.
+
+    Income = Σ positive net contributions, expense = Σ negative, итог = net.
+    Also reports the lowest/highest cumulative balance during the month.
+    """
+    month_name = RU_MONTHS[month]
+    if not daily_data:
+        return (
+            f"📈 <b>Динамика баланса</b> • {month_name} {year}\n\nНет данных за месяц."
+        )
+
+    income = sum((v for _, v in daily_data if v > 0), Decimal("0"))
+    expense = sum((-v for _, v in daily_data if v < 0), Decimal("0"))
+    net = income - expense
+
+    running = Decimal("0")
+    low = high = Decimal("0")
+    for _, v in sorted(daily_data):
+        running += v
+        low = min(low, running)
+        high = max(high, running)
+
+    sign = "🟢" if net >= 0 else "🔴"
+    lines = [
+        f"📈 <b>Динамика баланса</b> • {month_name} {year}\n",
+        f"  💵 Доходы — {format_money(income)}",
+        f"  🛒 Расходы — {format_money(expense)}",
+        f"  {sign} <b>Итог за месяц:</b> {format_money(net)}",
+        f"\n  📈 Максимум: {format_money(high)}",
+        f"  📉 Минимум: {format_money(low)}",
+    ]
+
+    result = "\n".join(lines)
+    if len(result) > MAX_CAPTION_LENGTH:
+        result = result[: MAX_CAPTION_LENGTH - 20] + "\n\n... (обрезано)"
+    return result
+
+
+def format_yearly_report(data: list[dict], year: Optional[int], operation: str) -> str:
     """Text for the yearly report.
 
     Specific year → per-month totals (aligned <pre> table) + per-year category block.
@@ -188,9 +227,7 @@ def format_yearly_report(
 
     money_strs = [format_money(bucket[k]) for k in keys]
     width = max((len(s) for s in money_strs), default=0)
-    table = "\n".join(
-        f"{lab}  {ms:>{width}}" for lab, ms in zip(labels, money_strs)
-    )
+    table = "\n".join(f"{lab}  {ms:>{width}}" for lab, ms in zip(labels, money_strs))
     if table:
         lines.append("<pre>" + html.escape(table) + "</pre>")
 
@@ -210,8 +247,7 @@ def format_yearly_report(
 
     avg = grand / divisor if divisor else Decimal("0")
     lines.append(
-        f"\n💰 <b>Итого:</b> {format_money(grand)}  |  "
-        f"{avg_label}: {format_money(avg)}"
+        f"\n💰 <b>Итого:</b> {format_money(grand)}  |  {avg_label}: {format_money(avg)}"
     )
 
     result = "\n".join(lines)

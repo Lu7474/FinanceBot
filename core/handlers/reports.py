@@ -18,6 +18,7 @@ from dateutil.relativedelta import relativedelta
 
 from config import MAX_CAPTION_LENGTH, TIMEZONE
 from core.charts import (
+    build_balance_line_chart,
     build_category_chart,
     build_report_pie,
     build_stacked_bar_chart,
@@ -28,6 +29,7 @@ from core.database.models import async_session
 from core.database.requests import (
     get_categories_for_year,
     get_categories_summary,
+    get_daily_balance_for_month,
     get_monthly_totals,
     get_records,
     get_stacked_data,
@@ -46,6 +48,7 @@ from core.keyboards import (
     yearly_report_year_keyboard,
 )
 from core.reports import (
+    format_balance_caption,
     format_period_caption,
     format_stacked_caption,
     format_yearly_report,
@@ -76,9 +79,7 @@ async def menu_report(message: Message, state: FSMContext, **kwargs) -> None:
         return
 
     await state.update_data(report_years_months=years_months)
-    await message.answer(
-        "Выберите тип отчёта:", reply_markup=report_section_keyboard()
-    )
+    await message.answer("Выберите тип отчёта:", reply_markup=report_section_keyboard())
 
 
 @router.callback_query(F.data == "report_section:categories")
@@ -116,6 +117,147 @@ async def report_section_back(callback: CallbackQuery, **kwargs) -> None:
     await callback.answer()
 
 
+# ==================== Динамика баланса по дням ====================
+
+
+@router.callback_query(F.data == "report_section:balance")
+@log_exceptions("Ошибка при выборе раздела отчёта")
+async def report_section_balance(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Раздел «Динамика баланса» — выбор года (без выбора типа: баланс = net)."""
+    data = await state.get_data()
+    years_months = data.get("report_years_months", {})
+    if not years_months:
+        await callback.answer("Сессия истекла, откройте отчёт заново.", show_alert=True)
+        return
+    keyboard = get_years_keyboard(list(years_months.keys()), prefix="bal")
+    await get_message(callback).edit_text(
+        "Динамика баланса — выберите год:", reply_markup=keyboard
+    )
+    await state.set_state(MenuStates.waiting_for_balance_year)
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_balance_year, F.data.startswith("bal_year:")
+)
+@log_exceptions("Ошибка при выборе года для баланса")
+async def balance_year(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Выбран год — показываем доступные месяцы."""
+    try:
+        year = int((callback.data or "").split(":")[1])
+    except IndexError, ValueError, AttributeError:
+        await callback.answer("Некорректные данные.")
+        await state.clear()
+        return
+
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    data = await state.get_data()
+    years_months = data.get("report_years_months", {})
+
+    if year not in years_months:
+        await callback.answer("Нет записей за этот год.")
+        await state.clear()
+        return
+
+    available_months = [
+        month
+        for month in years_months[year]
+        if year < now.year or (year == now.year and month <= now.month)
+    ]
+    if not available_months:
+        await callback.answer("Нет доступных месяцев.")
+        await state.clear()
+        return
+
+    keyboard = get_months_keyboard(year, available_months, prefix="bal")
+    await get_message(callback).edit_text(
+        f"Баланс за {year} — выберите месяц:", reply_markup=keyboard
+    )
+    await state.update_data(report_year=year)
+    await state.set_state(MenuStates.waiting_for_balance_month)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "bal_back_years")
+@log_exceptions("Ошибка при возврате к выбору года")
+async def balance_back_to_years(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Шаг назад: с выбора месяца обратно к выбору года."""
+    data = await state.get_data()
+    years_months = data.get("report_years_months", {})
+    if not years_months:
+        await callback.answer("Сессия истекла.", show_alert=True)
+        await state.clear()
+        return
+    keyboard = get_years_keyboard(list(years_months.keys()), prefix="bal")
+    await get_message(callback).edit_text("Выберите год:", reply_markup=keyboard)
+    await state.set_state(MenuStates.waiting_for_balance_year)
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_balance_month, F.data.startswith("bal_month:")
+)
+@log_exceptions("Ошибка при построении графика баланса")
+async def balance_month(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Выбран месяц — строим линейный график динамики баланса по дням."""
+    try:
+        parts = (callback.data or "").split(":")
+        year = int(parts[1])
+        month = int(parts[2])
+    except IndexError, ValueError, AttributeError:
+        await callback.answer("Некорректные данные.")
+        await state.clear()
+        return
+
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    if year > now.year or (year == now.year and month > now.month):
+        await get_message(callback).edit_text("Нельзя получить отчёт за будущий месяц.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    await get_message(callback).edit_text("⏳ Генерация графика...")
+    await callback.answer()
+
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        await get_message(callback).edit_text("Пользователь не найден.")
+        await state.clear()
+        return
+
+    async with async_session() as session:
+        daily_data = await get_daily_balance_for_month(session, user_id, year, month)
+
+    if not daily_data:
+        await get_message(callback).edit_text(
+            f"Нет данных за {RU_MONTHS[month]} {year}."
+        )
+        await state.clear()
+        return
+
+    buf = await build_balance_line_chart(daily_data, year, month)
+    caption = format_balance_caption(daily_data, year, month)
+
+    if buf:
+        await get_message(callback).answer_photo(
+            photo=BufferedInputFile(buf.read(), filename="balance.png"),
+            caption=caption,
+            parse_mode="HTML",
+        )
+        try:
+            await get_message(callback).delete()
+        except Exception:
+            pass
+    else:
+        await get_message(callback).edit_text(caption, parse_mode="HTML")
+
+    await state.clear()
+
+
 @router.callback_query(F.data.startswith("stacked_type:"))
 @log_exceptions("Ошибка при выборе типа структуры")
 async def stacked_type_handler(callback: CallbackQuery, **kwargs) -> None:
@@ -136,7 +278,7 @@ async def stacked_build_handler(callback: CallbackQuery, **kwargs) -> None:
         parts = (callback.data or "").split(":")
         op = parts[1]
         months_count = int(parts[2])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -231,7 +373,7 @@ async def menu_report_year(
     """Выбран год — показываем доступные месяцы."""
     try:
         year = int((callback.data or "").split(":")[1])
-    except (IndexError, ValueError, AttributeError):
+    except IndexError, ValueError, AttributeError:
         await callback.answer("Некорректные данные.")
         await state.clear()
         return
@@ -296,7 +438,7 @@ async def menu_report_month(
         parts = (callback.data or "").split(":")
         year = int(parts[1])
         month = int(parts[2])
-    except (IndexError, ValueError, AttributeError):
+    except IndexError, ValueError, AttributeError:
         await callback.answer("Некорректные данные.")
         await state.clear()
         return
@@ -349,7 +491,9 @@ async def menu_report_month(
         )
         total = sum(categories.values()) if categories else Decimal("0.0")
 
-        records = await get_records(session, user_id, "range", date_from, date_to, limit=30)
+        records = await get_records(
+            session, user_id, "range", date_from, date_to, limit=30
+        )
 
         if categories:
             buf, caption = await build_report_pie(
@@ -391,7 +535,7 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
         report_type = parts[1]
         year = int(parts[2])
         month = int(parts[3])
-    except (IndexError, ValueError, AttributeError):
+    except IndexError, ValueError, AttributeError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -450,7 +594,9 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
 
     avg_monthly: Decimal | None = None
     if monthly_data:
-        avg_monthly = sum((v for _, _, v in monthly_data), Decimal(0)) / len(monthly_data)
+        avg_monthly = sum((v for _, _, v in monthly_data), Decimal(0)) / len(
+            monthly_data
+        )
 
     comparison_text = make_comparison_text(
         current_categories=cur_categories,
@@ -486,9 +632,7 @@ async def handle_compare_periods(callback: CallbackQuery, **kwargs) -> None:
 # ==================== Feature 1: interactive period switch ====================
 
 
-def _period_dates(
-    period: str, year: int, month: int
-) -> tuple[datetime, datetime]:
+def _period_dates(period: str, year: int, month: int) -> tuple[datetime, datetime]:
     """Returns (date_from, date_to) for a period anchored at (year, month).
 
     month   → the given calendar month.
@@ -594,7 +738,7 @@ async def chart_period_handler(callback: CallbackQuery, **kwargs) -> None:
         parts = (callback.data or "").split(":")
         period, op = parts[1], parts[2]
         year, month = int(parts[3]), int(parts[4])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -614,7 +758,7 @@ async def chart_nav_handler(callback: CallbackQuery, **kwargs) -> None:
         parts = (callback.data or "").split(":")
         direction, op = parts[1], parts[2]
         year, month = int(parts[3]), int(parts[4])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         await callback.answer("Некорректные данные.")
         return
 
@@ -684,9 +828,7 @@ async def yearly_type(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
         return
 
     async with async_session() as session:
-        years_months = await get_available_years_and_months(
-            session, user_id, operation
-        )
+        years_months = await get_available_years_and_months(session, user_id, operation)
     years = sorted(years_months.keys())
 
     if not years:
@@ -760,9 +902,7 @@ async def yearly_year(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     async with async_session() as session:
         cats = await get_categories_for_year(session, user_id, operation, year)
 
-    await state.update_data(
-        yearly_year=year, yearly_cats_list=cats, yearly_selected=[]
-    )
+    await state.update_data(yearly_year=year, yearly_cats_list=cats, yearly_selected=[])
     subtitle = "за всё время" if year is None else str(year)
     await get_message(callback).edit_text(
         f"Год: <b>{subtitle}</b>\n\nВыберите категории (можно несколько).\n"
@@ -774,9 +914,7 @@ async def yearly_year(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     await callback.answer()
 
 
-@router.callback_query(
-    MenuStates.waiting_for_yearly_cats, F.data.startswith("yr_cat:")
-)
+@router.callback_query(MenuStates.waiting_for_yearly_cats, F.data.startswith("yr_cat:"))
 @log_exceptions("Ошибка при выборе категории годового отчёта")
 async def yearly_cat_toggle(
     callback: CallbackQuery, state: FSMContext, **kwargs
@@ -833,9 +971,7 @@ async def yearly_done(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
     await callback.answer()
 
     async with async_session() as session:
-        report = await get_yearly_report(
-            session, user_id, operation, year, categories
-        )
+        report = await get_yearly_report(session, user_id, operation, year, categories)
 
     if not report:
         await get_message(callback).edit_text("Нет данных за выбранный период.")

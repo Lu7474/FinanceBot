@@ -267,6 +267,8 @@ class MenuStates(StatesGroup):
     waiting_for_yearly_type = State()
     waiting_for_yearly_year = State()
     waiting_for_yearly_cats = State()
+    waiting_for_balance_year = State()
+    waiting_for_balance_month = State()
 
 
 class AccountStates(StatesGroup):

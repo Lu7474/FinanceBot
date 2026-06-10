@@ -9,10 +9,13 @@ from core.utils import RU_MONTHS
 from .common import CANCEL_BUTTON
 
 
-# Inline-клавиатура с доступными годами для отчёта
-def get_years_keyboard(years: list[int]) -> InlineKeyboardMarkup:
+# Inline-клавиатура с доступными годами для отчёта.
+# prefix разделяет флоу: "report" → report_year:, "bal" → bal_year: и т.д.
+def get_years_keyboard(
+    years: list[int], prefix: str = "report"
+) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text=str(year), callback_data=f"report_year:{year}")]
+        [InlineKeyboardButton(text=str(year), callback_data=f"{prefix}_year:{year}")]
         for year in sorted(years)
     ]
     buttons.append([CANCEL_BUTTON])
@@ -20,18 +23,20 @@ def get_years_keyboard(years: list[int]) -> InlineKeyboardMarkup:
 
 
 # Inline-клавиатура с месяцами для выбранного года
-def get_months_keyboard(year: int, months: list[int]) -> InlineKeyboardMarkup:
+def get_months_keyboard(
+    year: int, months: list[int], prefix: str = "report"
+) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
                 text=RU_MONTHS[month],
-                callback_data=f"report_month:{year}:{month}",
+                callback_data=f"{prefix}_month:{year}:{month}",
             )
         ]
         for month in sorted(months)
     ]
     buttons.append(
-        [InlineKeyboardButton(text="← Назад", callback_data="report_back_years")]
+        [InlineKeyboardButton(text="← Назад", callback_data=f"{prefix}_back_years")]
     )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -72,6 +77,12 @@ def report_section_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="📅 Годовой отчёт",
                     callback_data="report_section:yearly",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💰 Динамика баланса",
+                    callback_data="report_section:balance",
                 )
             ],
             [CANCEL_BUTTON],
@@ -136,9 +147,7 @@ def stacked_type_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="Доход", callback_data="stacked_type:income"
-                ),
+                InlineKeyboardButton(text="Доход", callback_data="stacked_type:income"),
                 InlineKeyboardButton(
                     text="Расход", callback_data="stacked_type:expense"
                 ),
