@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from io import BytesIO
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -59,7 +60,7 @@ def _resolve_date_range(period: str) -> tuple[date | None, date | None]:
     return None, None  # "all"
 
 
-def _build_summary(records) -> dict:
+def build_summary(records) -> dict:
     total_income = Decimal("0")
     total_expense = Decimal("0")
     count_income = 0
@@ -115,7 +116,7 @@ def _build_summary(records) -> dict:
     }
 
 
-def _records_to_rows(records) -> list[dict]:
+def records_to_rows(records) -> list[dict]:
     return [
         {
             "Дата": r.created_at.strftime("%d.%m.%Y"),
@@ -127,6 +128,18 @@ def _records_to_rows(records) -> list[dict]:
         }
         for r in records
     ]
+
+
+async def build_export_buffer(records) -> tuple[BytesIO, dict]:
+    """records → (xlsx BytesIO, summary). Wraps executor + CHART_TIMEOUT."""
+    rows = records_to_rows(records)
+    summary = build_summary(records)
+    loop = asyncio.get_running_loop()
+    buf = await asyncio.wait_for(
+        loop.run_in_executor(_chart_executor, _build_export_sync, rows, summary),
+        timeout=CHART_TIMEOUT_SECONDS,
+    )
+    return buf, summary
 
 
 # ==================== Экспорт ====================
@@ -197,14 +210,7 @@ async def handle_export_type(
                 date_to=date_to,
             )
 
-        rows = _records_to_rows(records)
-        summary = _build_summary(records)
-
-        loop = asyncio.get_running_loop()
-        buf = await asyncio.wait_for(
-            loop.run_in_executor(_chart_executor, _build_export_sync, rows, summary),
-            timeout=CHART_TIMEOUT_SECONDS,
-        )
+        buf, summary = await build_export_buffer(records)
 
         if date_from and date_to:
             fn_from = date_from.strftime("%d-%m-%Y")
@@ -250,7 +256,7 @@ async def handle_backup(message: Message, user_id: int) -> None:
             snapshot = await get_latest_snapshot_for_backup(session, user_id)
             wealth_db = await get_wealth_items_for_backup(session, user_id)
 
-        records_rows = _records_to_rows(records)
+        records_rows = records_to_rows(records)
         budgets_rows = [
             {
                 "Категория": b.category,

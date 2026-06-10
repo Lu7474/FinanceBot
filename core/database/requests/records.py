@@ -51,8 +51,13 @@ async def get_records(
     include_transfers: bool = False,
     operation_filter: Optional[str] = None,
     category_filter: Optional[str] = None,
+    load_account: bool = False,
 ) -> List[Record]:
-    """Fetch user records filtered by period with optional pagination/filters."""
+    """Fetch user records filtered by period with optional pagination/filters.
+
+    load_account eager-loads Record.account (needed when reading account.name,
+    e.g. for export); off by default to keep the history listing query lean.
+    """
     now = datetime.now(ZoneInfo(TIMEZONE))
     conditions = [Record.user_id == user_id]
     if not include_transfers:
@@ -64,6 +69,8 @@ async def get_records(
     if category_filter is not None:
         conditions.append(Record.category == category_filter)
     query = select(Record).where(*conditions)
+    if load_account:
+        query = query.options(selectinload(Record.account))
     query = apply_period_filter(query, within, date_from, date_to, now=now)
     query = query.order_by(Record.created_at.asc())
 

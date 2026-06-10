@@ -1,13 +1,14 @@
 """Handlers for operation history (with filter and search support)."""
 
 import html
+import logging
 import re
 from datetime import datetime
 from decimal import Decimal
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE
@@ -27,6 +28,7 @@ from core.keyboards import (
 from core.utils import RU_WEEKDAYS, format_money, log_exceptions
 
 from .common import MenuStates, get_message, is_history, is_main_menu_button
+from .export_import import build_export_buffer
 
 router = Router()
 
@@ -39,6 +41,7 @@ PERIOD_NAMES = {
     "prev_month": "прошлый месяц",
     "year": "этот год",
     "range": "выбранный период",
+    "all": "всё время",
 }
 
 
@@ -129,7 +132,8 @@ def build_history_page(
             row_sizes.append(1)
 
     kb.button(text="📋 Открыть запись", callback_data="hist_open_record")
-    row_sizes.append(1)
+    kb.button(text="📥 Скачать в Excel", callback_data="hist_export")
+    row_sizes.append(2)
 
     # Filter rows
     all_text = "✓ Все" if operation_filter is None else "Все"
@@ -490,6 +494,80 @@ async def menu_history_show_all(
     await get_message(callback).edit_text(text, parse_mode="HTML")
     await state.clear()
     await callback.answer()
+
+
+@router.callback_query(MenuStates.waiting_for_history_page, F.data == "hist_export")
+@log_exceptions("Ошибка при экспорте истории")
+async def menu_history_export(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Выгрузка текущего отфильтрованного списка истории в Excel."""
+    data = await state.get_data()
+    period = data.get("history_period") or "all"
+    period_label = data.get("history_period_label", "")
+    date_from, date_to = _extract_date_range(data)
+    history_filter = data.get("history_filter", {})
+    operation_filter = history_filter.get("operation")
+    category_filter = history_filter.get("category")
+
+    user_id = kwargs["user_id"]
+    async with async_session() as session:
+        records = await get_records(
+            session,
+            user_id,
+            period,
+            date_from,
+            date_to,
+            limit=None,
+            offset=0,
+            operation_filter=operation_filter,
+            category_filter=category_filter,
+            load_account=True,
+        )
+
+    if not records:
+        await callback.answer("Нет записей для экспорта.", show_alert=True)
+        return
+
+    await callback.answer()
+    status_msg = await get_message(callback).answer("⏳ Генерирую файл...")
+    try:
+        buf, summary = await build_export_buffer(records)
+
+        if summary["first_date"] and summary["last_date"]:
+            fn_from = summary["first_date"].replace(".", "-")
+            fn_to = summary["last_date"].replace(".", "-")
+        else:
+            fn_from = fn_to = moscow_now().strftime("%d-%m-%Y")
+        filename = f"history_{fn_from}_{fn_to}.xlsx"
+
+        period_name = period_label or PERIOD_NAMES.get(period, "")
+        filter_parts = []
+        if operation_filter == "+":
+            filter_parts.append("Доходы")
+        elif operation_filter == "-":
+            filter_parts.append("Расходы")
+        if category_filter:
+            filter_parts.append(category_filter)
+        scope = " • ".join(p for p in [period_name, *filter_parts] if p)
+
+        inc, exp, bal = (
+            summary["total_income"],
+            summary["total_expense"],
+            summary["balance"],
+        )
+        caption = (
+            f"📊 История{(' — ' + scope) if scope else ''}: {len(records)} записей\n"
+            f"📈 Доходы: {inc:.0f} ₽  |  📉 Расходы: {exp:.0f} ₽  |  💰 Баланс: {bal:+.0f} ₽"
+        )
+        await get_message(callback).answer_document(
+            BufferedInputFile(buf.read(), filename=filename),
+            caption=caption,
+        )
+        await status_msg.delete()
+    except Exception:
+        logging.exception("Ошибка при экспорте истории")
+        await status_msg.edit_text("❌ Ошибка при создании файла. Попробуйте позже.")
 
 
 @router.message(MenuStates.waiting_for_custom_period, ~F.func(is_main_menu_button))
