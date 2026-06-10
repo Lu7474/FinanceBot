@@ -1,4 +1,5 @@
 """Tests for user category CRUD and smart category suggestion."""
+
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,7 @@ from core.database.requests import (
     delete_user_category,
     get_user_categories,
     learn_keyword,
+    merge_user_categories,
     rename_user_category,
     seed_default_categories,
     suggest_category,
@@ -250,6 +252,63 @@ async def test_learn_keyword(session):
     for kw in keywords:
         assert len(kw.keyword) >= 3
         assert not kw.keyword.isdigit()
+
+
+@pytest.mark.asyncio
+async def test_merge_user_categories(session):
+    user_id = await _make_user()
+
+    async with test_session() as s:
+        source = await add_user_category(s, user_id, "Кофе", "-")
+        target = await add_user_category(s, user_id, "Кафе", "-")
+        source_id, target_id = source.id, target.id
+        await s.commit()
+
+    async with test_session() as s:
+        await add_record(s, user_id, "-", Decimal("250"), "Кофе")
+        await add_record(s, user_id, "-", Decimal("180"), "Кофе")
+        await add_record(s, user_id, "-", Decimal("900"), "Кафе")
+        await learn_keyword(s, user_id, "старбакс кофе утром", source_id)
+        await s.commit()
+
+    async with test_session() as s:
+        moved = await merge_user_categories(s, source_id, target_id, user_id)
+        await s.commit()
+    assert moved == 2  # only the two "Кофе" records
+
+    async with test_session() as s:
+        cats = await get_user_categories(s, user_id)
+    assert not any(c.name == "Кофе" for c in cats)  # source removed
+    assert any(c.name == "Кафе" for c in cats)
+
+    async with test_session() as s:
+        kofe = await count_records_with_category(s, user_id, "Кофе")
+        kafe = await count_records_with_category(s, user_id, "Кафе")
+    assert kofe == 0
+    assert kafe == 3  # 2 moved + 1 original
+
+    # Source keywords re-pointed to target, not orphaned
+    async with test_session() as s:
+        result = await s.execute(
+            select(CategoryKeyword).where(CategoryKeyword.user_id == user_id)
+        )
+        keywords = result.scalars().all()
+    assert keywords  # not deleted
+    assert all(kw.category_id == target_id for kw in keywords)
+
+
+@pytest.mark.asyncio
+async def test_merge_missing_category_returns_none(session):
+    user_id = await _make_user()
+
+    async with test_session() as s:
+        target = await add_user_category(s, user_id, "Кафе", "-")
+        target_id = target.id
+        await s.commit()
+
+    async with test_session() as s:
+        moved = await merge_user_categories(s, 999999, target_id, user_id)
+    assert moved is None
 
 
 @pytest.mark.asyncio

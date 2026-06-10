@@ -324,6 +324,7 @@ class CategoryStates(StatesGroup):
     entering_name_for_add = State()
     choosing_category_to_rename = State()
     entering_new_name = State()
+    confirming_merge = State()
     choosing_category_to_delete = State()
     confirming_delete = State()
     # Record-adding flow

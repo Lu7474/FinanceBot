@@ -151,6 +151,69 @@ async def rename_user_category(
         return False
 
 
+async def get_user_category_by_name(
+    session: AsyncSession,
+    user_id: int,
+    name: str,
+) -> UserCategory | None:
+    """Returns the user's category with this exact name, or None."""
+    return await session.scalar(
+        select(UserCategory).where(
+            UserCategory.user_id == user_id,
+            UserCategory.name == name,
+        )
+    )
+
+
+async def merge_user_categories(
+    session: AsyncSession,
+    source_id: int,
+    target_id: int,
+    user_id: int,
+) -> int | None:
+    """Merges source category into target: reassigns its records and keywords,
+    then deletes the source category.
+
+    The keyword unique index (user_id, keyword) guarantees a keyword text belongs
+    to only one category per user, so re-pointing source keywords to the target
+    can never collide. Caller must validate cat_type compatibility.
+
+    Returns the number of records moved, or None on error / missing category.
+    """
+    try:
+        source = await session.scalar(
+            select(UserCategory).where(
+                UserCategory.id == source_id, UserCategory.user_id == user_id
+            )
+        )
+        target = await session.scalar(
+            select(UserCategory).where(
+                UserCategory.id == target_id, UserCategory.user_id == user_id
+            )
+        )
+        if not source or not target:
+            return None
+
+        moved = await count_records_with_category(session, user_id, source.name)
+        await session.execute(
+            update(Record)
+            .where(Record.user_id == user_id, Record.category == source.name)
+            .values(category=target.name)
+        )
+        await session.execute(
+            update(CategoryKeyword)
+            .where(CategoryKeyword.category_id == source_id)
+            .values(category_id=target_id)
+        )
+        await session.delete(source)
+        await session.flush()
+        return moved
+    except Exception as e:
+        await session.rollback()
+        logging.exception(f"Ошибка при слиянии категории {source_id}→{target_id}: {e}")
+        return None
+
+
 async def delete_user_category(
     session: AsyncSession,
     cat_id: int,

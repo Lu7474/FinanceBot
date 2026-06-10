@@ -20,7 +20,9 @@ from core.database.requests import (
     delete_user_category,
     get_accounts,
     get_user_categories,
+    get_user_category_by_name,
     learn_keyword,
+    merge_user_categories,
     rename_user_category,
     seed_default_categories,
 )
@@ -168,7 +170,9 @@ async def handle_cat_add_start(
             [InlineKeyboardButton(text="← Назад", callback_data="cat_type_back")],
         ]
     )
-    await get_message(callback).edit_text("Выберите тип новой категории:", reply_markup=kb)
+    await get_message(callback).edit_text(
+        "Выберите тип новой категории:", reply_markup=kb
+    )
     await state.set_state(CategoryStates.choosing_type_for_add)
     await callback.answer()
 
@@ -316,6 +320,11 @@ async def handle_cat_rename_select(
     await callback.answer()
 
 
+def _cat_types_compatible(a: str, b: str) -> bool:
+    """Merge allowed unless one side is income-only and the other expense-only."""
+    return a == "*" or b == "*" or a == b
+
+
 @router.message(CategoryStates.entering_new_name)
 @log_exceptions("Ошибка при переименовании")
 async def handle_cat_new_name_input(
@@ -336,7 +345,59 @@ async def handle_cat_new_name_input(
         user_id = await get_user_id_from_event(message, kwargs)
     assert isinstance(user_id, int)
 
+    old_name = data.get("rename_cat_old", "")
+
     async with async_session() as session:
+        source = await session.scalar(
+            select(UserCategory).where(
+                UserCategory.id == cat_id, UserCategory.user_id == user_id
+            )
+        )
+        if not source:
+            await message.answer("Категория не найдена.")
+            await state.clear()
+            return
+
+        target = await get_user_category_by_name(session, user_id, new_name)
+        # Name clashes with a different category → offer a merge instead of failing.
+        if target and target.id != cat_id:
+            if not _cat_types_compatible(source.cat_type, target.cat_type):
+                await message.answer(
+                    f"Нельзя объединить: <b>{html.escape(old_name)}</b> и "
+                    f"<b>{html.escape(target.name)}</b> разных типов (доход/расход).",
+                    parse_mode="HTML",
+                )
+                return
+            cnt = await count_records_with_category(session, user_id, source.name)
+            await state.update_data(
+                merge_source_id=cat_id,
+                merge_target_id=target.id,
+                merge_target_name=target.name,
+                user_id=user_id,
+            )
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Объединить", callback_data="cat_merge:confirm"
+                        ),
+                        InlineKeyboardButton(
+                            text="Отмена", callback_data="cat_merge:cancel"
+                        ),
+                    ]
+                ]
+            )
+            await message.answer(
+                f"Категория <b>{html.escape(target.name)}</b> уже существует.\n"
+                f"Объединить <b>{html.escape(old_name)}</b> → "
+                f"<b>{html.escape(target.name)}</b>?\n"
+                f"Записей перейдёт: <b>{cnt}</b>, «{html.escape(old_name)}» удалится.",
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+            await state.set_state(CategoryStates.confirming_merge)
+            return
+
         ok = await rename_user_category(session, cat_id, user_id, new_name)
         if ok:
             await session.commit()
@@ -348,12 +409,64 @@ async def handle_cat_new_name_input(
         )
         return
 
-    old_name = data.get("rename_cat_old", "")
     await message.answer(
         f"✅ <b>{html.escape(old_name)}</b> → <b>{html.escape(new_name)}</b>",
         parse_mode="HTML",
     )
     await _show_categories_menu(message, user_id, state)
+
+
+@router.callback_query(CategoryStates.confirming_merge, F.data == "cat_merge:confirm")
+@log_exceptions("Ошибка при объединении категорий")
+async def handle_cat_merge_confirm(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    data = await state.get_data()
+    source_id = data.get("merge_source_id")
+    target_id = data.get("merge_target_id")
+    user_id = data.get("user_id") or kwargs.get("user_id")
+    if not (
+        isinstance(source_id, int)
+        and isinstance(target_id, int)
+        and isinstance(user_id, int)
+    ):
+        await callback.answer("Сессия истекла.")
+        await state.clear()
+        return
+
+    async with async_session() as session:
+        moved = await merge_user_categories(session, source_id, target_id, user_id)
+        if moved is not None:
+            await session.commit()
+
+    if moved is None:
+        await get_message(callback).edit_text("Не удалось объединить категории.")
+        await callback.answer()
+        await state.clear()
+        return
+
+    old_name = data.get("rename_cat_old", "")
+    target_name = data.get("merge_target_name", "")
+    await get_message(callback).edit_text(
+        f"✅ Объединено: <b>{html.escape(old_name)}</b> → "
+        f"<b>{html.escape(target_name)}</b>\nЗаписей перенесено: <b>{moved}</b>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+    await _show_categories_menu(get_message(callback), user_id, state)
+
+
+@router.callback_query(CategoryStates.confirming_merge, F.data == "cat_merge:cancel")
+@log_exceptions("Ошибка при отмене объединения")
+async def handle_cat_merge_cancel(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    user_id = (await state.get_data()).get("user_id") or kwargs.get("user_id")
+    if not user_id:
+        user_id = await get_user_id_from_event(callback, kwargs)
+    assert isinstance(user_id, int)
+    await callback.answer("Отменено")
+    await _show_categories_menu(callback, user_id, state)
 
 
 # ==================== Delete category ====================
