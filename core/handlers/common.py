@@ -177,6 +177,13 @@ def is_debts(message: Message) -> bool:
     return (message.text or "").strip().lower() == "долги"
 
 
+def is_payments(message: Message) -> bool:
+    """Checks if message is the 'Платежи' menu command."""
+    if not message.text:
+        return False
+    return (message.text or "").strip().lower() == "платежи"
+
+
 def is_family(message: Message) -> bool:
     """Checks if message is the 'Семья' menu command."""
     if not message.text:
@@ -222,6 +229,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_import(message),
             is_goals(message),
             is_debts(message),
+            is_payments(message),
             is_family(message),
             is_more(message),
             is_settings(message),
@@ -378,6 +386,20 @@ class DebtStates(StatesGroup):
     waiting_due_date = State()
     waiting_payment_amount = State()
     waiting_payment_note = State()
+
+
+class PaymentStates(StatesGroup):
+    """States for payment-reminder workflow."""
+
+    viewing_list = State()
+    viewing_detail = State()
+    waiting_title = State()
+    waiting_amount = State()
+    waiting_due_date = State()
+    waiting_period = State()
+    editing_title = State()
+    editing_amount = State()
+    editing_due_date = State()
 
 
 class FamilyStates(StatesGroup):

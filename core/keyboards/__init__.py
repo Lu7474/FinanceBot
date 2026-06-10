@@ -80,6 +80,18 @@ from .history import (
     search_result_keyboard,
 )
 from .notifications import notification_settings_keyboard, notify_onboarding_keyboard
+from .payments import (
+    payment_amount_skip_keyboard,
+    payment_cancel_keyboard,
+    payment_delete_confirm_keyboard,
+    payment_detail_keyboard,
+    payment_edit_amount_skip_keyboard,
+    payment_edit_menu_keyboard,
+    payment_edit_period_keyboard,
+    payment_period_keyboard,
+    payment_reminder_keyboard,
+    payments_list_keyboard,
+)
 from .records import (
     description_prompt_keyboard,
     record_account_select_keyboard,
@@ -180,6 +192,16 @@ __all__ = [
     "more_menu_keyboard",
     "notification_settings_keyboard",
     "notify_onboarding_keyboard",
+    "payment_amount_skip_keyboard",
+    "payment_cancel_keyboard",
+    "payment_delete_confirm_keyboard",
+    "payment_detail_keyboard",
+    "payment_edit_amount_skip_keyboard",
+    "payment_edit_menu_keyboard",
+    "payment_edit_period_keyboard",
+    "payment_period_keyboard",
+    "payment_reminder_keyboard",
+    "payments_list_keyboard",
     "record_account_select_keyboard",
     "record_delete_confirm_keyboard",
     "record_detail_keyboard",

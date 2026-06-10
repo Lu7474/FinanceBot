@@ -35,3 +35,11 @@ class DebtAlreadyClosed(DebtError):
 
 class PaymentExceedsRemaining(DebtError):
     """Raised when payment amount exceeds debt's remaining balance."""
+
+
+class PaymentError(ValueError):
+    """Base class for payment-reminder operation errors."""
+
+
+class PaymentNotFound(PaymentError):
+    """Raised when a payment does not exist or does not belong to user."""

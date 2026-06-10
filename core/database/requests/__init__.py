@@ -110,6 +110,15 @@ from .goals import (
     update_goal,
     withdraw_goal,
 )
+from .payments import (
+    create_payment,
+    delete_payment,
+    get_active_payments,
+    get_payment,
+    get_payments_to_remind,
+    mark_paid,
+    update_payment,
+)
 from .records import (
     add_record,
     check_duplicate_record,
@@ -261,6 +270,14 @@ __all__ = [
     "get_debt",
     "get_debt_payments",
     "get_debts_to_remind",
+    # payments
+    "create_payment",
+    "delete_payment",
+    "get_active_payments",
+    "get_payment",
+    "get_payments_to_remind",
+    "mark_paid",
+    "update_payment",
     # family
     "MAX_FAMILY_MEMBERS",
     "create_family",

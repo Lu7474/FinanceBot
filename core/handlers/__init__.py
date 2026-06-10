@@ -16,6 +16,7 @@ from .history import router as history_router
 from .menu import router as menu_router
 from .more import router as more_router
 from .notifications import router as notifications_router
+from .payments import router as payments_router
 from .records import parse_record_line as parse_record_line
 from .records import router as records_router
 from .records_edit import router as records_edit_router
@@ -41,6 +42,7 @@ router.include_router(savings_router)
 router.include_router(wealth_router)
 router.include_router(goals_router)
 router.include_router(debts_router)
+router.include_router(payments_router)
 router.include_router(notifications_router)
 router.include_router(family_router)
 router.include_router(settings_router)

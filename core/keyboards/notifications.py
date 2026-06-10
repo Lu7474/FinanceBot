@@ -46,6 +46,12 @@ def notification_settings_keyboard(
                 callback_data="notify_toggle:debts",
             )
         ],
+        [
+            InlineKeyboardButton(
+                text=f"{flag(user.notify_payments)} Напоминания о платежах (9:00)",
+                callback_data="notify_toggle:payments",
+            )
+        ],
     ]
     if back_to_settings:
         rows.append(

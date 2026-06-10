@@ -26,9 +26,9 @@ def more_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Накопления"), KeyboardButton(text="Категории")],
             [KeyboardButton(text="Бюджеты"), KeyboardButton(text="Цели")],
-            [KeyboardButton(text="Долги"), KeyboardButton(text="Семья")],
+            [KeyboardButton(text="Долги"), KeyboardButton(text="Платежи")],
+            [KeyboardButton(text="Семья"), KeyboardButton(text="Настройки")],
             [KeyboardButton(text="Экспорт"), KeyboardButton(text="Импорт")],
-            [KeyboardButton(text="Настройки")],
             [KeyboardButton(text="Назад")],
         ],
         resize_keyboard=True,

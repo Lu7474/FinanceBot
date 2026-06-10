@@ -2,6 +2,7 @@
 Common utilities: money formatting, locale constants, exception decorator.
 """
 
+import calendar
 import html
 import logging
 import re
@@ -760,6 +761,96 @@ def format_debt_detail(debt, payments: list, today: date_type) -> str:
             total_paid += p.amount
         lines.append(f"  <i>Итого выплачено: {format_money(float(total_paid))}</i>")
 
+    return "\n".join(lines)
+
+
+# ==================== Платежи (напоминания) ====================
+
+PAYMENT_PERIOD_LABELS = {
+    "none": "разовый",
+    "month": "ежемесячно",
+    "year": "ежегодно",
+}
+
+
+def next_due_date(due: date_type, period: str) -> date_type:
+    """Next occurrence of a recurring payment. Clamps day to month length.
+
+    'month': +1 month (31 Jan → 28/29 Feb). 'year': +1 year (29 Feb → 28 Feb).
+    Raises ValueError for non-recurring periods.
+    """
+    if period == "month":
+        month = due.month + 1
+        year = due.year + (month - 1) // 12
+        month = (month - 1) % 12 + 1
+    elif period == "year":
+        year = due.year + 1
+        month = due.month
+    else:
+        raise ValueError(f"period must be 'month' or 'year', got {period!r}")
+    last_day = calendar.monthrange(year, month)[1]
+    return date_type(year, month, min(due.day, last_day))
+
+
+def _payment_icon(due: date_type, today: date_type) -> str:
+    """Urgency marker: overdue 🔴, due today/tomorrow 🟡, later ⚪."""
+    delta = (due - today).days
+    if delta < 0:
+        return "🔴"
+    if delta <= 1:
+        return "🟡"
+    return "⚪"
+
+
+def _payment_due_str(due: date_type, today: date_type) -> str:
+    """Human due line: '1 июля (завтра)' / '1 июня (просрочено на 3 дн.)'."""
+    delta = (due - today).days
+    base = f"{due.day} {RU_MONTHS_GEN[due.month]}"
+    if delta < 0:
+        return f"{base} (просрочено на {-delta} дн.)"
+    if delta == 0:
+        return f"{base} (сегодня)"
+    if delta == 1:
+        return f"{base} (завтра)"
+    return f"{base} (через {delta} дн.)"
+
+
+def _payment_amount_str(amount: Decimal | None) -> str:
+    """Amount or 'по факту' for floating-sum payments (amount is None)."""
+    return format_money(float(amount)) if amount is not None else "по факту"
+
+
+def format_payments_list(payments: list, today: date_type) -> str:
+    """Renders the '💳 Платежи' block: two lines per payment, sorted by caller."""
+    lines: list[str] = ["💳 <b>Платежи</b>", ""]
+    for p in payments:
+        icon = _payment_icon(p.due_date, today)
+        lines.append(
+            f"{icon} {html.escape(p.title)} — <b>{_payment_amount_str(p.amount)}</b>"
+        )
+        period = PAYMENT_PERIOD_LABELS.get(p.period, "")
+        lines.append(f"  {_payment_due_str(p.due_date, today)} · {period}")
+    return "\n".join(lines)
+
+
+def format_payment_detail(payment, today: date_type) -> str:
+    """Renders a single payment card."""
+    lines = [f"💳 <b>{html.escape(payment.title)}</b>", ""]
+    lines.append(f"Сумма:    {_payment_amount_str(payment.amount)}")
+
+    days_left = (payment.due_date - today).days
+    if days_left < 0:
+        tail = f"<b>просрочено на {-days_left} дн.</b>"
+    elif days_left == 0:
+        tail = "<b>сегодня</b>"
+    elif days_left == 1:
+        tail = "завтра"
+    else:
+        tail = f"через {days_left} дн."
+    lines.append(f"Срок:     {format_date_ru(payment.due_date)} ({tail})")
+    lines.append(f"Период:   {PAYMENT_PERIOD_LABELS.get(payment.period, '')}")
+    if payment.last_paid_at:
+        lines.append(f"Оплачен:  {format_date_ru(payment.last_paid_at.date())}")
     return "\n".join(lines)
 
 

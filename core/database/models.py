@@ -1,7 +1,7 @@
 """
 SQLAlchemy модели: User, Account, Record, SavingsSnapshot, SavingsItem, WealthItem,
 Budget, UserCategory, CategoryKeyword, Goal, GoalDeposit, Debt, DebtPayment,
-Family, FamilyMember.
+Payment, Family, FamilyMember.
 """
 
 from datetime import date, datetime
@@ -104,6 +104,9 @@ class User(Base):
     notify_debts: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
+    notify_payments: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     description_mode: Mapped[str] = mapped_column(
         String(10), default="off", server_default="off"
     )  # off | brackets | button | auto
@@ -130,6 +133,9 @@ class User(Base):
     )
     goals = relationship("Goal", back_populates="user", cascade="all, delete-orphan")
     debts = relationship("Debt", back_populates="user", cascade="all, delete-orphan")
+    payments = relationship(
+        "Payment", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 # Счёт пользователя (Наличные, Карта и т.д.)
@@ -420,6 +426,38 @@ class DebtPayment(Base):
     debt = relationship("Debt", back_populates="payments")
 
 
+# Напоминание о платеже (налоги, страховки, ОСАГО, коммуналка, подписки).
+# Изолированная сущность: на баланс/отчёты не влияет, оплата НЕ создаёт Record.
+# Разовый (period='none') после оплаты → is_active=False; периодический → due_date
+# переезжает на следующий цикл.
+class Payment(Base):
+    __tablename__ = "payments"
+    __table_args__ = (
+        Index("ix_payments_user_active", "user_id", "is_active"),
+        Index("ix_payments_due_date", "due_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    # NULL → плавающая сумма («~», коммуналка): напоминаем без точной суммы.
+    amount: Mapped[Optional[Decimal]] = mapped_column(DECIMAL(14, 2), nullable=True)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    period: Mapped[str] = mapped_column(
+        String(10), default="none", server_default="none"
+    )  # none | month | year
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    last_paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_reminded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=moscow_now)
+
+    user = relationship("User", back_populates="payments")
+
+
 # Семья — группа пользователей с общим доступом к истории и отчётам.
 # Записи остаются личными (Record.user_id), семья только агрегирует их в scope.
 class Family(Base):
@@ -477,6 +515,7 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_daily BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_reminder BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_debts BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_payments BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS description_mode VARCHAR(10) NOT NULL DEFAULT 'off'",
         "ALTER TABLE records ADD COLUMN IF NOT EXISTS description VARCHAR(255)",
         "ALTER TABLE records ADD COLUMN IF NOT EXISTS transfer_id INTEGER",
@@ -591,6 +630,12 @@ async def _migrate(conn) -> None:
     if "notify_debts" not in user_columns:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN notify_debts INTEGER NOT NULL DEFAULT 0")
+        )
+    if "notify_payments" not in user_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN notify_payments INTEGER NOT NULL DEFAULT 0"
+            )
         )
     if "description_mode" not in user_columns:
         await conn.execute(
