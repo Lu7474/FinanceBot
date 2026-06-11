@@ -12,8 +12,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Доход"), KeyboardButton(text="Расход")],
             [KeyboardButton(text="История"), KeyboardButton(text="Отчёт")],
-            [KeyboardButton(text="Счета"), KeyboardButton(text="Удалить запись")],
-            [KeyboardButton(text="Ещё")],
+            [KeyboardButton(text="Счета"), KeyboardButton(text="Ещё")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -29,6 +28,7 @@ def more_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Долги"), KeyboardButton(text="Платежи")],
             [KeyboardButton(text="Семья"), KeyboardButton(text="Настройки")],
             [KeyboardButton(text="Экспорт"), KeyboardButton(text="Импорт")],
+            [KeyboardButton(text="Удалить запись")],
             [KeyboardButton(text="Назад")],
         ],
         resize_keyboard=True,

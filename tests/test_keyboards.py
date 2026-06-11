@@ -69,9 +69,9 @@ def test_main_menu_keyboard():
 
     keyboard = _mkb()
 
-    # Проверяем структуру: 4 ряда (3 ряда по 2 + ряд «Ещё»)
+    # Проверяем структуру: 3 ряда (2 ряда по 2 + ряд «Счета»/«Ещё»)
     assert keyboard.keyboard is not None
-    assert len(keyboard.keyboard) == 4
+    assert len(keyboard.keyboard) == 3
 
     # Проверяем кнопки
     first_row = keyboard.keyboard[0]
@@ -87,11 +87,7 @@ def test_main_menu_keyboard():
     third_row = keyboard.keyboard[2]
     assert len(third_row) == 2
     assert third_row[0].text == "Счета"
-    assert third_row[1].text == "Удалить запись"
-
-    fourth_row = keyboard.keyboard[3]
-    assert len(fourth_row) == 1
-    assert fourth_row[0].text == "Ещё"
+    assert third_row[1].text == "Ещё"
 
     # Перенесённых во второй экран кнопок в главном меню быть не должно
     main_texts = {btn.text for row in keyboard.keyboard for btn in row}
@@ -104,6 +100,7 @@ def test_main_menu_keyboard():
         "Семья",
         "Экспорт",
         "Импорт",
+        "Удалить запись",
     ):
         assert moved not in main_texts
 
@@ -131,6 +128,7 @@ def test_more_menu_keyboard():
         "Семья",
         "Экспорт",
         "Импорт",
+        "Удалить запись",
     ):
         assert expected in texts
     assert "Назад" in texts
