@@ -706,7 +706,8 @@ async def bc_text_received(message: Message, state: FSMContext) -> None:
         ]
     )
     await message.answer(
-        f"📢 <b>Рассылка {labels.get(target, '')} ({len(tg_ids)} чел.):</b>\n\n{text}\n\nОтправить?",
+        f"📢 <b>Рассылка {labels.get(target, '')} ({len(tg_ids)} чел.):</b>\n\n"
+        f"{html.escape(text or '')}\n\nОтправить?",
         parse_mode="HTML",
         reply_markup=kb,
     )
