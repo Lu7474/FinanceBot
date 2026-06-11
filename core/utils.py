@@ -849,6 +849,8 @@ def format_payment_detail(payment, today: date_type) -> str:
         tail = f"через {days_left} дн."
     lines.append(f"Срок:     {format_date_ru(payment.due_date)} ({tail})")
     lines.append(f"Период:   {PAYMENT_PERIOD_LABELS.get(payment.period, '')}")
+    if payment.category:
+        lines.append(f"Категория: {html.escape(payment.category)}")
     if payment.last_paid_at:
         lines.append(f"Оплачен:  {format_date_ru(payment.last_paid_at.date())}")
     return "\n".join(lines)

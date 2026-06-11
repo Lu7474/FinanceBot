@@ -1,11 +1,12 @@
 """Keyboards for payment reminders: list, creation steps, card, edit."""
 
+from decimal import Decimal
 from functools import lru_cache
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from core.utils import _payment_icon, today_msk
+from core.utils import _payment_icon, format_money, today_msk
 
 
 def payments_list_keyboard(payments: list) -> InlineKeyboardMarkup:
@@ -30,9 +31,7 @@ def payment_reminder_keyboard(payment_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="✅ Оплатил", callback_data=f"pay:done:{payment_id}"
                 ),
-                InlineKeyboardButton(
-                    text="Открыть платежи", callback_data="pay:open"
-                ),
+                InlineKeyboardButton(text="Открыть платежи", callback_data="pay:open"),
             ]
         ]
     )
@@ -95,9 +94,7 @@ def payment_period_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="Ежемесячно", callback_data="pay:period:month"
                 ),
-                InlineKeyboardButton(
-                    text="Ежегодно", callback_data="pay:period:year"
-                ),
+                InlineKeyboardButton(text="Ежегодно", callback_data="pay:period:year"),
             ],
             [InlineKeyboardButton(text="Отмена", callback_data="pay:cancel")],
         ]
@@ -126,11 +123,95 @@ def payment_edit_menu_keyboard(payment_id: int) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    text="Категория", callback_data=f"pay:edit:category:{payment_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="← Назад", callback_data=f"pay:view:{payment_id}"
                 )
             ],
         ]
     )
+
+
+def payment_category_keyboard(
+    categories: list, back_cb: str = "pay:cancel"
+) -> InlineKeyboardMarkup:
+    """Pick an expense category for a payment (creation or edit).
+
+    callback_data: pay:setcat:<cat_id>, «Без категории» → pay:setcat:0.
+    """
+    builder = InlineKeyboardBuilder()
+    for cat in categories:
+        builder.button(text=cat.name, callback_data=f"pay:setcat:{cat.id}")
+    builder.adjust(4)
+    builder.row(
+        InlineKeyboardButton(text="Без категории", callback_data="pay:setcat:0"),
+        InlineKeyboardButton(text="Отмена", callback_data=back_cb),
+    )
+    return builder.as_markup()
+
+
+def payment_confirm_record_keyboard(
+    payment_id: int, amount: Decimal, due: str
+) -> InlineKeyboardMarkup:
+    """Pay flow, fixed amount: confirm writing the expense to balance.
+
+    `due` is the idempotency token (ISO due_date the buttons were built for):
+    mark_paid rejects the tap when the payment was already paid meanwhile.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✅ Да, −{format_money(amount)}",
+                    callback_data=f"pay:rec_yes:{payment_id}:{due}",
+                ),
+                InlineKeyboardButton(
+                    text="✏️ Другая сумма",
+                    callback_data=f"pay:rec_amt:{payment_id}:{due}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Нет, только отметить",
+                    callback_data=f"pay:rec_no:{payment_id}:{due}",
+                )
+            ],
+        ]
+    )
+
+
+def payment_pay_amount_keyboard(payment_id: int, due: str) -> InlineKeyboardMarkup:
+    """Pay flow, floating amount: skip writing the record."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пропустить запись",
+                    callback_data=f"pay:rec_no:{payment_id}:{due}",
+                )
+            ]
+        ]
+    )
+
+
+def payment_pay_account_keyboard(
+    payment_id: int, accounts: list, due: str
+) -> InlineKeyboardMarkup:
+    """Pay flow: pick the account for the expense record.
+
+    Dedicated callback (pay:acc:<pay_id>:<acc_id>:<due>) — acc_select:* is
+    taken by the regular record flow; <due> is the idempotency token.
+    """
+    builder = InlineKeyboardBuilder()
+    for acc in accounts:
+        builder.button(
+            text=acc.name, callback_data=f"pay:acc:{payment_id}:{acc.id}:{due}"
+        )
+    builder.adjust(2)
+    return builder.as_markup()
 
 
 def payment_edit_period_keyboard(payment_id: int) -> InlineKeyboardMarkup:

@@ -397,9 +397,13 @@ class PaymentStates(StatesGroup):
     waiting_amount = State()
     waiting_due_date = State()
     waiting_period = State()
+    waiting_category = State()  # creation: pick expense category
     editing_title = State()
     editing_amount = State()
     editing_due_date = State()
+    editing_category = State()  # edit: pick a new category
+    waiting_pay_amount = State()  # pay flow: enter actual paid amount
+    choosing_pay_account = State()  # pay flow: pick account for the record
 
 
 class FamilyStates(StatesGroup):

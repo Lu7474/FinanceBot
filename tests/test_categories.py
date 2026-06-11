@@ -18,11 +18,13 @@ from core.database.requests import (
     add_user_category,
     count_records_with_category,
     delete_user_category,
+    get_budgets,
     get_user_categories,
     learn_keyword,
     merge_user_categories,
     rename_user_category,
     seed_default_categories,
+    set_budget,
     suggest_category,
 )
 
@@ -113,6 +115,76 @@ async def test_rename_user_category(session):
         old_count = await count_records_with_category(s, user_id, "Старое")
     assert new_count == 1
     assert old_count == 0
+
+
+@pytest.mark.asyncio
+async def test_rename_category_updates_budget(session):
+    """Rename must keep Budget.category in sync — otherwise the budget
+    silently stops tracking the renamed category."""
+    user_id = await _make_user()
+
+    async with test_session() as s:
+        cat = await add_user_category(s, user_id, "Старое", "-")
+        cat_id = cat.id
+        await set_budget(s, user_id, "Старое", Decimal("5000"))
+        await s.commit()
+
+    async with test_session() as s:
+        ok = await rename_user_category(s, cat_id, user_id, "Новое")
+        await s.commit()
+    assert ok
+
+    async with test_session() as s:
+        budgets = await get_budgets(s, user_id)
+    assert len(budgets) == 1
+    assert budgets[0].category == "Новое"
+    assert budgets[0].amount == Decimal("5000")
+
+
+@pytest.mark.asyncio
+async def test_rename_category_budget_collision_keeps_both(session):
+    """Orphaned budget already exists under the new name: rename succeeds,
+    the old budget is left untouched (unique user_id+category index)."""
+    user_id = await _make_user()
+
+    async with test_session() as s:
+        cat = await add_user_category(s, user_id, "Старое", "-")
+        cat_id = cat.id
+        await set_budget(s, user_id, "Старое", Decimal("5000"))
+        await set_budget(s, user_id, "Новое", Decimal("9000"))  # orphan
+        await s.commit()
+
+    async with test_session() as s:
+        ok = await rename_user_category(s, cat_id, user_id, "Новое")
+        await s.commit()
+    assert ok
+
+    async with test_session() as s:
+        budgets = {b.category: b.amount for b in await get_budgets(s, user_id)}
+    assert budgets == {"Старое": Decimal("5000"), "Новое": Decimal("9000")}
+
+
+@pytest.mark.asyncio
+async def test_merge_categories_moves_budget(session):
+    user_id = await _make_user()
+
+    async with test_session() as s:
+        src = await add_user_category(s, user_id, "Кафе", "-")
+        dst = await add_user_category(s, user_id, "Еда", "-")
+        src_id, dst_id = src.id, dst.id
+        await set_budget(s, user_id, "Кафе", Decimal("3000"))
+        await s.commit()
+
+    async with test_session() as s:
+        moved = await merge_user_categories(s, src_id, dst_id, user_id)
+        await s.commit()
+    assert moved is not None
+
+    async with test_session() as s:
+        budgets = await get_budgets(s, user_id)
+    assert len(budgets) == 1
+    assert budgets[0].category == "Еда"
+    assert budgets[0].amount == Decimal("3000")
 
 
 @pytest.mark.asyncio

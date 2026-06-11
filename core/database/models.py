@@ -427,7 +427,8 @@ class DebtPayment(Base):
 
 
 # Напоминание о платеже (налоги, страховки, ОСАГО, коммуналка, подписки).
-# Изолированная сущность: на баланс/отчёты не влияет, оплата НЕ создаёт Record.
+# При оплате бот предлагает записать расход (Record) на сумму платежа в category;
+# пользователь может отказаться — тогда баланс не трогаем.
 # Разовый (period='none') после оплаты → is_active=False; периодический → due_date
 # переезжает на следующий цикл.
 class Payment(Base):
@@ -444,6 +445,8 @@ class Payment(Base):
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     # NULL → плавающая сумма («~», коммуналка): напоминаем без точной суммы.
     amount: Mapped[Optional[Decimal]] = mapped_column(DECIMAL(14, 2), nullable=True)
+    # Категория расхода для записи в баланс при оплате. NULL → «не указано».
+    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
     period: Mapped[str] = mapped_column(
         String(10), default="none", server_default="none"
@@ -525,6 +528,7 @@ async def _migrate_postgres(conn) -> None:
         "CREATE INDEX IF NOT EXISTS ix_goals_family_id ON goals(family_id)",
         "ALTER TABLE goal_deposits ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
         "CREATE INDEX IF NOT EXISTS ix_goal_deposits_user_id ON goal_deposits(user_id)",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS category VARCHAR(50)",
     ]
     for stmt in stmts:
         await conn.execute(text(stmt))
@@ -643,6 +647,11 @@ async def _migrate(conn) -> None:
                 "ALTER TABLE users ADD COLUMN description_mode VARCHAR(10) NOT NULL DEFAULT 'off'"
             )
         )
+
+    result = await conn.execute(text("PRAGMA table_info(payments)"))
+    pay_columns = {row[1] for row in result.fetchall()}
+    if "category" not in pay_columns:
+        await conn.execute(text("ALTER TABLE payments ADD COLUMN category VARCHAR(50)"))
 
     result = await conn.execute(
         text("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'")

@@ -43,3 +43,8 @@ class PaymentError(ValueError):
 
 class PaymentNotFound(PaymentError):
     """Raised when a payment does not exist or does not belong to user."""
+
+
+class PaymentAlreadyPaid(PaymentError):
+    """Raised by mark_paid when the expected_due token does not match: the
+    payment was already paid (double tap / stale keyboard)."""

@@ -1,6 +1,7 @@
 """Payment reminders CRUD: create, edit, mark paid (with recurrence), reminders.
 
-Isolated from balance/reports — paying a reminder never creates a Record.
+mark_paid only rolls/closes the reminder; the optional expense Record is created
+by the handler layer in the same transaction (see handlers/payments.py).
 """
 
 from datetime import date as date_type
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MAX_PAYMENT_AMOUNT, MAX_PAYMENT_TITLE
 from core.database.models import Payment, User, moscow_now
-from core.exceptions import PaymentNotFound
+from core.exceptions import PaymentAlreadyPaid, PaymentNotFound
 from core.utils import next_due_date
 
 VALID_PERIODS = ("none", "month", "year")
@@ -44,9 +45,7 @@ async def get_active_payments(session: AsyncSession, user_id: int) -> list[Payme
     return rows
 
 
-async def get_payment(
-    session: AsyncSession, payment_id: int, user_id: int
-) -> Payment:
+async def get_payment(session: AsyncSession, payment_id: int, user_id: int) -> Payment:
     """Returns payment by id with ownership check. Raises PaymentNotFound."""
     payment = await session.scalar(
         select(Payment).where(Payment.id == payment_id, Payment.user_id == user_id)
@@ -63,6 +62,7 @@ async def create_payment(
     amount: Decimal | None,
     due_date: date_type,
     period: str,
+    category: str | None = None,
 ) -> Payment:
     """Creates a new payment reminder."""
     _validate_title(title)
@@ -76,6 +76,7 @@ async def create_payment(
         amount=amount,
         due_date=due_date,
         period=period,
+        category=category,
     )
     session.add(payment)
     await session.flush()
@@ -92,9 +93,11 @@ async def update_payment(
     clear_amount: bool = False,
     due_date: date_type | None = None,
     period: str | None = None,
+    category: str | None = None,
+    clear_category: bool = False,
 ) -> Payment:
     """Updates given fields of a payment. `clear_amount` sets amount to NULL
-    (floating sum). Raises PaymentNotFound."""
+    (floating sum), `clear_category` sets category to NULL. Raises PaymentNotFound."""
     payment = await get_payment(session, payment_id, user_id)
     if title is not None:
         _validate_title(title)
@@ -110,20 +113,36 @@ async def update_payment(
         if period not in VALID_PERIODS:
             raise ValueError(f"period must be one of {VALID_PERIODS}")
         payment.period = period
+    if clear_category:
+        payment.category = None
+    elif category is not None:
+        payment.category = category
     await session.flush()
     return payment
 
 
 async def mark_paid(
-    session: AsyncSession, payment_id: int, user_id: int
+    session: AsyncSession,
+    payment_id: int,
+    user_id: int,
+    expected_due: date_type | None = None,
 ) -> tuple[Payment, date_type | None]:
     """Marks a payment as paid.
 
     Recurring → due_date rolls to the next cycle, reminder counter reset,
     returns (payment, next_due). One-time → is_active=False, returns (payment, None).
+
+    `expected_due` is an idempotency token (the due_date the button was built
+    for): when it no longer matches — or the payment is already closed — the
+    payment was paid in the meantime (double tap / stale keyboard), raises
+    PaymentAlreadyPaid instead of rolling the cycle twice.
     Raises PaymentNotFound.
     """
     payment = await get_payment(session, payment_id, user_id)
+    if expected_due is not None and (
+        not payment.is_active or payment.due_date != expected_due
+    ):
+        raise PaymentAlreadyPaid()
     now = moscow_now()
     payment.last_paid_at = now
 
@@ -139,9 +158,7 @@ async def mark_paid(
     return payment, next_due
 
 
-async def delete_payment(
-    session: AsyncSession, payment_id: int, user_id: int
-) -> None:
+async def delete_payment(session: AsyncSession, payment_id: int, user_id: int) -> None:
     """Hard delete of a payment. Raises PaymentNotFound."""
     payment = await get_payment(session, payment_id, user_id)
     await session.delete(payment)

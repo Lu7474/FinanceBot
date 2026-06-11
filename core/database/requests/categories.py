@@ -6,7 +6,13 @@ import re
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database.models import CategoryKeyword, Record, UserCategory
+from core.database.models import (
+    Budget,
+    CategoryKeyword,
+    Payment,
+    Record,
+    UserCategory,
+)
 from core.utils import SYSTEM_KEYWORDS
 
 _STOP_WORDS = frozenset(
@@ -107,13 +113,45 @@ async def add_user_category(
         return None
 
 
+async def _retarget_category_name(
+    session: AsyncSession, user_id: int, old_name: str, new_name: str
+) -> None:
+    """Re-points every entity that stores a category as a free string
+    (Record, Payment, Budget) from old_name to new_name.
+
+    Budget is skipped when a budget for new_name already exists (orphaned
+    leftover): the unique (user_id, category) index forbids the update, and
+    the existing budget keeps tracking the category going forward.
+    """
+    await session.execute(
+        update(Record)
+        .where(Record.user_id == user_id, Record.category == old_name)
+        .values(category=new_name)
+    )
+    await session.execute(
+        update(Payment)
+        .where(Payment.user_id == user_id, Payment.category == old_name)
+        .values(category=new_name)
+    )
+    dup_budget = await session.scalar(
+        select(Budget).where(Budget.user_id == user_id, Budget.category == new_name)
+    )
+    if not dup_budget:
+        await session.execute(
+            update(Budget)
+            .where(Budget.user_id == user_id, Budget.category == old_name)
+            .values(category=new_name)
+        )
+
+
 async def rename_user_category(
     session: AsyncSession,
     cat_id: int,
     user_id: int,
     new_name: str,
 ) -> bool:
-    """Renames category and updates all records with old name in one transaction.
+    """Renames category and updates all records, payment reminders and budgets
+    with the old name in one transaction.
 
     Returns False if new_name already exists for this user.
     """
@@ -137,11 +175,7 @@ async def rename_user_category(
             return False
 
         old_name = cat.name
-        await session.execute(
-            update(Record)
-            .where(Record.user_id == user_id, Record.category == old_name)
-            .values(category=new_name)
-        )
+        await _retarget_category_name(session, user_id, old_name, new_name)
         cat.name = new_name
         await session.flush()
         return True
@@ -171,8 +205,8 @@ async def merge_user_categories(
     target_id: int,
     user_id: int,
 ) -> int | None:
-    """Merges source category into target: reassigns its records and keywords,
-    then deletes the source category.
+    """Merges source category into target: reassigns its records, payment
+    reminders, budget and keywords, then deletes the source category.
 
     The keyword unique index (user_id, keyword) guarantees a keyword text belongs
     to only one category per user, so re-pointing source keywords to the target
@@ -195,11 +229,7 @@ async def merge_user_categories(
             return None
 
         moved = await count_records_with_category(session, user_id, source.name)
-        await session.execute(
-            update(Record)
-            .where(Record.user_id == user_id, Record.category == source.name)
-            .values(category=target.name)
-        )
+        await _retarget_category_name(session, user_id, source.name, target.name)
         await session.execute(
             update(CategoryKeyword)
             .where(CategoryKeyword.category_id == source_id)
