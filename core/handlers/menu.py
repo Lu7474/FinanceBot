@@ -123,7 +123,7 @@ async def handle_help(message: Message, state: FSMContext, **kwargs) -> None:
 <b>Удалить запись</b> — удалить операцию
 
 <b>Поиск в истории:</b>
-<code>кофе</code> — по тексту категории
+<code>кофе</code> — по категории или описанию
 <code>&gt;1000</code> — сумма больше 1000
 <code>&lt;500</code> — сумма меньше 500
 <code>=350</code> — точная сумма

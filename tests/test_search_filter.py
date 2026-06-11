@@ -240,6 +240,65 @@ async def test_search_records_text_case_insensitive(session):
     assert records_upper[0].category == records_lower[0].category
 
 
+@pytest.mark.asyncio
+async def test_search_records_matches_description(session):
+    uid = await _make_user(session, tg_id=130)
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("450"),
+        category="Транспорт", description="такси до аэропорта",
+    ))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("200"), category="Еда"))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, "аэропорт")
+    assert total == 1
+    assert records[0].description == "такси до аэропорта"
+
+
+@pytest.mark.asyncio
+async def test_search_records_description_case_insensitive(session):
+    uid = await _make_user(session, tg_id=131)
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("300"),
+        category="Подарки", description="Цветы Маме",
+    ))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, "цветы")
+    assert total == 1
+    assert records[0].description == "Цветы Маме"
+
+
+@pytest.mark.asyncio
+async def test_search_records_matches_category_or_description(session):
+    uid = await _make_user(session, tg_id=132)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"), category="Кафе"))
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("250"),
+        category="Развлечения", description="кафе с друзьями",
+    ))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("500"), category="Еда"))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, "кафе")
+    assert total == 2
+    found = {(r.category, r.description) for r in records}
+    assert found == {("Кафе", None), ("Развлечения", "кафе с друзьями")}
+
+
+@pytest.mark.asyncio
+async def test_search_records_null_description_not_matched(session):
+    uid = await _make_user(session, tg_id=133)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"), category="Еда"))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, "Еда")
+    assert total == 1, "NULL description must not break category match"
+
+    total_miss, _, _, _ = await search_records(session, uid, "такси")
+    assert total_miss == 0
+
+
 # ==================== get_history_data with filters ====================
 
 

@@ -6,7 +6,7 @@ from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import ColumnElement, case, func, select
+from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
@@ -147,7 +147,12 @@ async def search_records(
         conditions.append(Record.amount == parsed["value"])
     elif parsed["type"] == "text" and parsed["value"]:
         needle = parsed["value"].lower()
-        conditions.append(func.lower(Record.category).contains(needle))
+        conditions.append(
+            or_(
+                func.lower(Record.category).contains(needle),
+                func.lower(Record.description).contains(needle),
+            )
+        )
 
     count_sum_q = select(
         func.count(Record.id).label("cnt"),
