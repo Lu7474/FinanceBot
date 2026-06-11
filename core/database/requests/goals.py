@@ -256,16 +256,18 @@ async def complete_goal(session: AsyncSession, goal_id: int, user_id: int) -> No
         if not acc:
             continue
         acc.balance_offset = Decimal(str(acc.balance_offset)) + net
-        if net > 0:
-            session.add(
-                Record(
-                    user_id=acc.user_id,
-                    operation="-",
-                    amount=net,
-                    category="Цели",
-                    account_id=account_id,
-                )
+        # net>0: money spent from this account → expense.
+        # net<0: more was withdrawn here than deposited (cross-account withdraw) →
+        # income, else restoring offset would silently erase the withdrawn funds.
+        session.add(
+            Record(
+                user_id=acc.user_id,
+                operation="-" if net > 0 else "+",
+                amount=abs(net),
+                category="Цели",
+                account_id=account_id,
             )
+        )
 
     await session.flush()
 

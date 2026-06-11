@@ -1154,3 +1154,51 @@ async def test_complete_goal_creates_expense_record(session):
     )
     assert records[0].operation == "-"
     assert Decimal(str(records[0].amount)) == Decimal("10000")
+
+
+@pytest.mark.asyncio
+async def test_complete_goal_cross_account_withdraw_no_money_loss(session):
+    """Deposit from A, withdraw to B, complete: B keeps the withdrawn money and
+    total expense equals what was actually spent (current_amount), not raw per-account net."""
+    from sqlalchemy import select
+
+    user_id = await _make_user(973)
+    acc_a = await _make_account(user_id, "Счёт A")
+    acc_b = await _make_account(user_id, "Счёт B")
+    goal_id = await _make_goal(user_id, "Конверт", Decimal("10000"))
+
+    async with test_session() as s:
+        await deposit_goal(s, goal_id, user_id, Decimal("1000"), None, acc_a)
+        await withdraw_goal(s, goal_id, user_id, Decimal("600"), None, acc_b)
+        await s.commit()
+
+    async with test_session() as s:
+        await complete_goal(s, goal_id, user_id)
+        await s.commit()
+
+    async with test_session() as s:
+        a = await s.scalar(select(Account).where(Account.id == acc_a))
+        b = await s.scalar(select(Account).where(Account.id == acc_b))
+        records = list(
+            await s.scalars(
+                select(Record).where(
+                    Record.user_id == user_id, Record.category == "Цели"
+                )
+            )
+        )
+
+    # offsets fully restored on both accounts
+    assert Decimal(str(a.balance_offset)) == Decimal("0")
+    assert Decimal(str(b.balance_offset)) == Decimal("0")
+
+    # A: expense 1000; B: compensating income 600 — so the 600 withdrawn to B is not lost
+    by_op = {r.operation: Decimal(str(r.amount)) for r in records}
+    assert by_op.get("-") == Decimal("1000"), "счёт A — расход 1000"
+    assert by_op.get("+") == Decimal("600"), (
+        "счёт B — компенсирующий доход 600: снятые на другой счёт деньги не должны "
+        "молча испаряться при завершении цели"
+    )
+
+    # net spent from history == current_amount that was really in the envelope (400)
+    net_spent = by_op.get("-", Decimal("0")) - by_op.get("+", Decimal("0"))
+    assert net_spent == Decimal("400")
