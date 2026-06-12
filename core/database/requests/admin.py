@@ -270,8 +270,12 @@ async def get_top_users(session: AsyncSession, limit: int = 5) -> list:
 
 
 async def find_users_by_name(session: AsyncSession, query_str: str) -> List[User]:
+    # ilike has no autoescape kwarg — escape LIKE wildcards manually
+    escaped = (
+        query_str.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
     result = await session.execute(
-        select(User).where(User.name.ilike(f"%{query_str}%")).limit(10)
+        select(User).where(User.name.ilike(f"%{escaped}%", escape="\\")).limit(10)
     )
     return list(result.scalars().all())
 

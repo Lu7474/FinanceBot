@@ -149,8 +149,8 @@ async def search_records(
         needle = parsed["value"].lower()
         conditions.append(
             or_(
-                func.lower(Record.category).contains(needle),
-                func.lower(Record.description).contains(needle),
+                func.lower(Record.category).contains(needle, autoescape=True),
+                func.lower(Record.description).contains(needle, autoescape=True),
             )
         )
 
