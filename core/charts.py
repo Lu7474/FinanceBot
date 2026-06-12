@@ -7,7 +7,7 @@ import calendar
 import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -886,6 +886,123 @@ async def build_balance_line_chart(
         return None
     except Exception:
         logging.exception("Ошибка при построении balance line chart")
+        return None
+
+
+def _build_admin_growth_chart_sync(
+    reg: List[Tuple[str, int]],
+    dau: List[Tuple[str, int]],
+    days: int,
+) -> Optional[io.BytesIO]:
+    """Admin growth chart: new registrations (bars) + DAU (line) over `days`.
+
+    reg/dau: [(date_str 'YYYY-MM-DD', count), ...] — only days with data.
+    Missing days are filled with 0 to keep a continuous daily axis.
+    """
+    if not reg and not dau:
+        return None
+
+    try:
+        reg_by_day = {date.fromisoformat(d): n for d, n in reg}
+        dau_by_day = {date.fromisoformat(d): n for d, n in dau}
+
+        today = date.today()
+        axis = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+        reg_vals = [reg_by_day.get(d, 0) for d in axis]
+        dau_vals = [dau_by_day.get(d, 0) for d in axis]
+
+        x = list(range(len(axis)))
+        fig = Figure(figsize=(max(8, days * 0.3), 4.5))
+        ax = fig.subplots()
+
+        ax.bar(
+            x,
+            reg_vals,
+            color="#3498db",
+            width=0.7,
+            label="Регистрации",
+            zorder=2,
+        )
+        ax.set_ylabel("Регистрации", color="#3498db", fontsize=10)
+        ax.tick_params(axis="y", labelcolor="#3498db")
+        ax.set_ylim(0, max(reg_vals) * 1.2 if any(reg_vals) else 1)
+
+        ax2 = ax.twinx()
+        ax2.plot(
+            x,
+            dau_vals,
+            color="#e74c3c",
+            linewidth=2.2,
+            marker="o",
+            markersize=4,
+            label="DAU",
+            zorder=3,
+        )
+        ax2.set_ylabel("DAU", color="#e74c3c", fontsize=10)
+        ax2.tick_params(axis="y", labelcolor="#e74c3c")
+        ax2.set_ylim(0, max(dau_vals) * 1.2 if any(dau_vals) else 1)
+
+        # X ticks every 5th day to avoid clutter.
+        ticks = [i for i in x if i % 5 == 0]
+        if x and x[-1] not in ticks:
+            ticks.append(x[-1])
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([axis[i].strftime("%d.%m") for i in ticks], fontsize=9)
+        ax.set_xlim(-0.5, len(axis) - 0.5)
+
+        ax.spines["top"].set_visible(False)
+        ax.set_title(
+            f"Рост и активность за {days} дней",
+            fontsize=13,
+            fontweight="bold",
+            pad=15,
+        )
+
+        # Combined legend from both axes.
+        lines1, labels1 = ax.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left", fontsize=9)
+
+        fig.tight_layout()
+
+        buf = io.BytesIO()
+        fig.savefig(
+            buf, format="png", dpi=CHART_DPI, bbox_inches="tight", facecolor="white"
+        )
+        buf.seek(0)
+        return buf
+
+    except Exception:
+        logging.exception("Ошибка при построении admin growth chart")
+        return None
+
+
+async def build_admin_growth_chart(
+    reg: List[Tuple[str, int]],
+    dau: List[Tuple[str, int]],
+    days: int = 30,
+) -> Optional[io.BytesIO]:
+    """Async wrapper for the admin growth chart with timeout."""
+    if not reg and not dau:
+        return None
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                _chart_executor,
+                _build_admin_growth_chart_sync,
+                reg,
+                dau,
+                days,
+            ),
+            timeout=CHART_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logging.error(f"Таймаут admin growth chart ({CHART_TIMEOUT_SECONDS}s)")
+        return None
+    except Exception:
+        logging.exception("Ошибка при построении admin growth chart")
         return None
 
 

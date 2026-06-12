@@ -32,7 +32,10 @@ from core.database.requests.admin import (
     get_all_tg_ids,
     get_all_users,
     get_bot_stats,
+    get_daily_active_users,
+    get_daily_registrations,
     get_power_user_tg_ids,
+    get_retention_stats,
     get_top_users,
     get_user_records_csv,
     get_user_stats,
@@ -229,6 +232,92 @@ async def test_get_bot_stats_counts_correctly(session):
     assert stats["total_records"] == 1  # 'Перевод' excluded
     assert stats["new_today"] == 2
     assert stats["active_week"] == 1
+    assert stats["dau_today"] == 1  # u1 made a non-system record today
+
+
+# ---------- get_retention_stats ----------
+
+
+async def _make_user_at(session, tg_id: int, created_at: datetime) -> int:
+    """Create a user with explicit created_at. Returns user_pk."""
+    user = User(tg_id=tg_id, name=f"u{tg_id}", created_at=created_at)
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user.id
+
+
+@pytest.mark.asyncio
+async def test_get_retention_stats_empty(session):
+    stats = await get_retention_stats(session)
+    assert stats["cohort_7d"] == 0
+    assert stats["retained_7d"] == 0
+    assert stats["churned"] == 0
+    assert stats["retention_pct"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_get_retention_stats_cohort_retained_churned(session):
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    # registered 10d ago + recent record → retained
+    u_ret = await _make_user_at(session, tg_id=1, created_at=now - timedelta(days=10))
+    await _make_record(session, u_ret, at=now - timedelta(days=2))
+    # registered 10d ago, no records → churned
+    await _make_user_at(session, tg_id=2, created_at=now - timedelta(days=10))
+    # registered yesterday → not in 7d+ cohort
+    await _make_user_at(session, tg_id=3, created_at=now - timedelta(days=1))
+
+    stats = await get_retention_stats(session)
+    assert stats["cohort_7d"] == 2
+    assert stats["retained_7d"] == 1
+    assert stats["churned"] == 1
+    assert stats["retention_pct"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_get_retention_stats_excludes_system_records(session):
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    uid = await _make_user_at(session, tg_id=1, created_at=now - timedelta(days=10))
+    await _make_record(session, uid, category="Перевод", at=now - timedelta(days=1))
+
+    stats = await get_retention_stats(session)
+    assert stats["cohort_7d"] == 1
+    assert stats["retained_7d"] == 0  # only a system record → not retained
+    assert stats["churned"] == 1
+
+
+# ---------- get_daily_registrations / get_daily_active_users ----------
+
+
+@pytest.mark.asyncio
+async def test_get_daily_registrations(session):
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    await _make_user_at(session, tg_id=1, created_at=now)
+    await _make_user_at(session, tg_id=2, created_at=now)
+    await _make_user_at(session, tg_id=3, created_at=now - timedelta(days=3))
+
+    rows = await get_daily_registrations(session, days=30)
+    counts = {d: n for d, n in rows}
+    assert counts[now.date().isoformat()] == 2
+    assert counts[(now - timedelta(days=3)).date().isoformat()] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_daily_active_users(session):
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    u1 = await _make_user_at(session, tg_id=1, created_at=now)
+    u2 = await _make_user_at(session, tg_id=2, created_at=now)
+    # two records same user today → DAU counts the user once
+    await _make_record(session, u1, at=now)
+    await _make_record(session, u1, at=now)
+    await _make_record(session, u2, at=now)
+    await _make_record(session, u1, category="Перевод", at=now)  # system, excluded
+    await _make_record(session, u1, at=now - timedelta(days=2))
+
+    rows = await get_daily_active_users(session, days=30)
+    dau = {d: n for d, n in rows}
+    assert dau[now.date().isoformat()] == 2
+    assert dau[(now - timedelta(days=2)).date().isoformat()] == 1
 
 
 # ---------- get_top_users ----------

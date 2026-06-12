@@ -20,8 +20,10 @@ from aiogram.types import (
 )
 
 from config import ADMIN_ID
+from core.charts import build_admin_growth_chart
 from core.database import requests as db
 from core.database.models import async_session
+from core.error_tracker import get_error_count_24h
 from core.handlers.common import AdminStates, get_message, is_main_menu_button
 from core.utils import format_money
 
@@ -170,6 +172,13 @@ async def cb_noop(query: CallbackQuery) -> None:
 async def cb_stats(query: CallbackQuery) -> None:
     async with async_session() as session:
         stats = await db.get_bot_stats(session)
+        retention = await db.get_retention_stats(session)
+    errors_24h = get_error_count_24h()
+    err_line = (
+        f"🔴 Ошибок за 24ч: <b>{errors_24h}</b>"
+        if errors_24h
+        else "✅ Ошибок за 24ч: <b>0</b>"
+    )
     text = (
         f"📊 <b>Статистика бота</b>\n\n"
         f"👥 Пользователей: <b>{stats['total_users']}</b>\n"
@@ -178,20 +187,49 @@ async def cb_stats(query: CallbackQuery) -> None:
         f"📝 Записей: <b>{stats['total_records']}</b>\n"
         f"📅 Новых сегодня: <b>{stats['new_today']}</b>\n"
         f"📅 Новых за неделю: <b>{stats['new_week']}</b>\n"
-        f"🔥 Активных за неделю: <b>{stats['active_week']}</b>"
+        f"🔥 Активных за неделю: <b>{stats['active_week']}</b>\n"
+        f"🔥 Активных сегодня: <b>{stats['dau_today']}</b>\n\n"
+        f"📉 Прижились (7д+): <b>{retention['retained_7d']}/{retention['cohort_7d']}"
+        f" ({retention['retention_pct']:.0f}%)</b>\n"
+        f"😴 Отвалились: <b>{retention['churned']}</b>\n\n"
+        f"{err_line}"
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="📈 Динамика", callback_data="adm_growth")],
             [
                 InlineKeyboardButton(
                     text="🔄 Обновить", callback_data="adm_stats_refresh"
                 ),
                 InlineKeyboardButton(text="↩ Главное меню", callback_data="adm_menu"),
-            ]
+            ],
         ]
     )
     await _safe_edit(get_message(query), text, parse_mode="HTML", reply_markup=kb)
     await query.answer("Обновлено ✓" if query.data == "adm_stats_refresh" else "")
+
+
+@router.callback_query(AdminStates.in_admin, F.data == "adm_growth")
+async def cb_growth(query: CallbackQuery) -> None:
+    await query.answer("Строю график…")
+    async with async_session() as session:
+        reg = await db.get_daily_registrations(session, days=30)
+        dau = await db.get_daily_active_users(session, days=30)
+    buf = await build_admin_growth_chart(reg, dau, days=30)
+    back_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="↩ К статистике", callback_data="adm_stats")]
+        ]
+    )
+    msg = get_message(query)
+    if buf is None:
+        await msg.answer("Недостаточно данных для графика.", reply_markup=back_kb)
+        return
+    await msg.answer_photo(
+        BufferedInputFile(buf.getvalue(), filename="growth.png"),
+        caption="📈 Рост и активность за 30 дней",
+        reply_markup=back_kb,
+    )
 
 
 # ==================== Список пользователей ====================

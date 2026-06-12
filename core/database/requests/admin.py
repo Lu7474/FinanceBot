@@ -236,6 +236,15 @@ async def get_bot_stats(session: AsyncSession) -> dict:
         )
         or 0
     )
+    dau_today = (
+        await session.scalar(
+            select(func.count(func.distinct(Record.user_id))).where(
+                Record.created_at >= today_start,
+                Record.category.not_in(SYSTEM_CATEGORIES),
+            )
+        )
+        or 0
+    )
 
     return {
         "total_users": total_users,
@@ -245,7 +254,92 @@ async def get_bot_stats(session: AsyncSession) -> dict:
         "new_today": new_today,
         "new_week": new_week,
         "active_week": active_week,
+        "dau_today": dau_today,
     }
+
+
+async def get_retention_stats(session: AsyncSession) -> dict:
+    """Retention proxy by registration cohort, no classic cohort tables.
+
+    cohort_7d  — users registered >= 7 days ago (had time to stick or leave).
+    retained_7d — of those, made >= 1 non-system record in the last 7 days.
+    churned    — cohort_7d - retained_7d.
+    """
+    now = moscow_now()
+    week_ago = now - timedelta(days=7)
+
+    cohort_7d = (
+        await session.scalar(
+            select(func.count(User.id)).where(User.created_at <= week_ago)
+        )
+        or 0
+    )
+    retained_7d = (
+        await session.scalar(
+            select(func.count(func.distinct(Record.user_id)))
+            .join(User, User.id == Record.user_id)
+            .where(
+                User.created_at <= week_ago,
+                Record.created_at >= week_ago,
+                Record.category.not_in(SYSTEM_CATEGORIES),
+            )
+        )
+        or 0
+    )
+    churned = cohort_7d - retained_7d
+    pct = (retained_7d / cohort_7d * 100) if cohort_7d else 0.0
+
+    return {
+        "cohort_7d": cohort_7d,
+        "retained_7d": retained_7d,
+        "churned": churned,
+        "retention_pct": pct,
+    }
+
+
+async def get_daily_registrations(
+    session: AsyncSession, days: int = 30
+) -> List[tuple]:
+    """[(date_str 'YYYY-MM-DD', count), ...] of new users per day, last `days`.
+
+    TZ note: created_at is stored as MSK-naive (moscow_now()); func.date()
+    buckets by the stored string, i.e. MSK day boundaries — intentional.
+    """
+    since = (moscow_now() - timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    day = func.date(User.created_at)
+    result = await session.execute(
+        select(day.label("d"), func.count(User.id))
+        .where(User.created_at >= since)
+        .group_by(day)
+        .order_by(day)
+    )
+    return [(row[0], row[1]) for row in result.fetchall()]
+
+
+async def get_daily_active_users(
+    session: AsyncSession, days: int = 30
+) -> List[tuple]:
+    """[(date_str 'YYYY-MM-DD', DAU), ...] per day, last `days`.
+
+    DAU = distinct non-system record authors that day. Same MSK-day bucketing
+    as get_daily_registrations.
+    """
+    since = (moscow_now() - timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    day = func.date(Record.created_at)
+    result = await session.execute(
+        select(day.label("d"), func.count(func.distinct(Record.user_id)))
+        .where(
+            Record.created_at >= since,
+            Record.category.not_in(SYSTEM_CATEGORIES),
+        )
+        .group_by(day)
+        .order_by(day)
+    )
+    return [(row[0], row[1]) for row in result.fetchall()]
 
 
 async def get_all_tg_ids(session: AsyncSession, skip_banned: bool = True) -> List[int]:

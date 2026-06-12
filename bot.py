@@ -13,6 +13,7 @@ from aiogram.client.telegram import TelegramAPIServer
 from config import BOT_API_BASE_URL, BOT_TOKEN, PROXY_URL
 from core.charts import shutdown_executor
 from core.database.models import async_main, async_session, engine
+from core.error_tracker import get_tracker
 from core.handlers import router
 from core.middleware import RateLimitMiddleware, UserMiddleware
 from core.scheduler import setup_scheduler
@@ -85,6 +86,8 @@ if __name__ == "__main__":
                 ),
             ],
         )
+        # In-memory ERROR/CRITICAL counter for the admin stats panel.
+        logging.getLogger().addHandler(get_tracker())
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Bot off")
