@@ -12,6 +12,12 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# Покрытие тестами (coverage.py)
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Логи
 bot.log
 
