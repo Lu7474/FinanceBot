@@ -17,7 +17,18 @@ def budget_menu_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🗑 Удалить", callback_data="budget_delete"),
+                InlineKeyboardButton(text="📈 Тренд", callback_data="budget_trend"),
             ],
+        ]
+    )
+
+
+@lru_cache(maxsize=1)
+def budget_trend_keyboard() -> InlineKeyboardMarkup:
+    """Back button for the trend view."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="← Назад", callback_data="budget_back_status")]
         ]
     )
 

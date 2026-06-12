@@ -97,6 +97,71 @@ async def get_budget_status(
     return result
 
 
+async def get_budget_trend(
+    session: AsyncSession, user_id: int, months_back: int = 6
+) -> dict:
+    """Per-month fact vs current limit for active budgets over last `months_back` months.
+
+    Returns {"months": [(year, month), ...] ascending,
+             "rows": [{"category", "limit", "spent": [Decimal per month], "over_count"}]}.
+    Limit is the current budget.amount (no historical limits stored).
+    """
+    budgets = await get_budgets(session, user_id)
+    if not budgets:
+        return {"months": [], "rows": []}
+
+    # Build month list ending at current month (ascending).
+    now = moscow_now()
+    months: list[tuple[int, int]] = []
+    y, m = now.year, now.month
+    for _ in range(months_back):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    months.reverse()
+
+    date_from = datetime(months[0][0], months[0][1], 1)
+    categories = [b.category for b in budgets]
+
+    year_col = func.extract("year", Record.created_at)
+    month_col = func.extract("month", Record.created_at)
+    rows = await session.execute(
+        select(
+            Record.category,
+            year_col.label("y"),
+            month_col.label("m"),
+            func.sum(Record.amount).label("total"),
+        )
+        .where(
+            Record.user_id == user_id,
+            Record.operation == "-",
+            Record.category.in_(categories),
+            Record.created_at >= date_from,
+        )
+        .group_by(Record.category, year_col, month_col)
+    )
+    spent_map: dict[tuple[str, int, int], Decimal] = {
+        (row.category, int(row.y), int(row.m)): Decimal(str(row.total)) for row in rows
+    }
+
+    result_rows = []
+    for budget in budgets:
+        spent = [
+            spent_map.get((budget.category, yr, mo), Decimal("0")) for yr, mo in months
+        ]
+        over_count = sum(1 for s in spent if s > budget.amount)
+        result_rows.append(
+            {
+                "category": budget.category,
+                "limit": budget.amount,
+                "spent": spent,
+                "over_count": over_count,
+            }
+        )
+    return {"months": months, "rows": result_rows}
+
+
 async def reset_budget_alerts_if_new_month(
     session: AsyncSession, budget: Budget
 ) -> bool:

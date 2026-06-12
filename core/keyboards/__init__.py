@@ -15,7 +15,11 @@ from .accounts import (
     transfer_card_keyboard,
     transfers_list_keyboard,
 )
-from .budgets import budget_category_keyboard, budget_menu_keyboard
+from .budgets import (
+    budget_category_keyboard,
+    budget_menu_keyboard,
+    budget_trend_keyboard,
+)
 from .categories import (
     category_manage_keyboard,
     category_select_keyboard,
@@ -148,6 +152,7 @@ __all__ = [
     "accounts_menu_keyboard",
     "budget_category_keyboard",
     "budget_menu_keyboard",
+    "budget_trend_keyboard",
     "category_manage_keyboard",
     "category_select_keyboard",
     "category_suggest_keyboard",

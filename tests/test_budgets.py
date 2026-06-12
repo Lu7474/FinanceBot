@@ -20,10 +20,12 @@ from core.database.requests import (
     check_and_alert_budget,
     delete_budget,
     get_budget_status,
+    get_budget_trend,
     get_budgets,
     reset_budget_alerts_if_new_month,
     set_budget,
 )
+from core.reports import format_budget_trend
 
 # ==================== Helpers ====================
 
@@ -253,6 +255,152 @@ async def test_reset_alerts_new_month(session):
         budget = await s.scalar(select(Budget).where(Budget.user_id == user_id))
     assert budget.alerted_80 is False
     assert budget.alerted_100 is False
+
+
+# ==================== Tests: get_budget_trend ====================
+
+
+def _ym_back(ref: datetime, n: int) -> tuple[int, int]:
+    """Returns (year, month) n months before ref."""
+    y, m = ref.year, ref.month
+    for _ in range(n):
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    return y, m
+
+
+def _dt(year: int, month: int) -> datetime:
+    return datetime(year, month, 15, 12, 0, tzinfo=ZoneInfo(TIMEZONE))
+
+
+@pytest.mark.asyncio
+async def test_get_budget_trend_empty(session):
+    user_id = await _make_user(220)
+    async with test_session() as s:
+        trend = await get_budget_trend(s, user_id)
+    assert trend == {"months": [], "rows": []}
+
+
+@pytest.mark.asyncio
+async def test_get_budget_trend_partial_months(session):
+    user_id = await _make_user(221)
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    async with test_session() as s:
+        await set_budget(s, user_id, "Еда", Decimal("5000"))
+        await s.commit()
+
+    # Current month: 3000; two months back: 6000 (over limit).
+    await _add_expense(user_id, "Еда", Decimal("3000"), _dt(now.year, now.month))
+    y2, m2 = _ym_back(now, 2)
+    await _add_expense(user_id, "Еда", Decimal("6000"), _dt(y2, m2))
+
+    async with test_session() as s:
+        trend = await get_budget_trend(s, user_id)
+
+    assert len(trend["months"]) == 6
+    assert trend["months"][-1] == (now.year, now.month)
+    row = trend["rows"][0]
+    assert row["category"] == "Еда"
+    assert row["limit"] == Decimal("5000")
+    assert row["spent"][-1] == Decimal("3000")  # current month
+    assert row["spent"][3] == Decimal("6000")  # two months back (index 5-2)
+    # Remaining months have no spending.
+    assert row["spent"][0] == Decimal("0")
+    assert row["over_count"] == 1  # only the 6000 month
+
+
+@pytest.mark.asyncio
+async def test_get_budget_trend_excludes_out_of_window(session):
+    user_id = await _make_user(222)
+    now = datetime.now(ZoneInfo(TIMEZONE))
+    async with test_session() as s:
+        await set_budget(s, user_id, "Транспорт", Decimal("4000"))
+        await s.commit()
+
+    # 6 months back is older than the 6-month window (oldest included = 5 back).
+    y_old, m_old = _ym_back(now, 6)
+    await _add_expense(user_id, "Транспорт", Decimal("9999"), _dt(y_old, m_old))
+
+    async with test_session() as s:
+        trend = await get_budget_trend(s, user_id)
+
+    row = trend["rows"][0]
+    assert all(s == Decimal("0") for s in row["spent"])
+    assert row["over_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_budget_trend_year_transition(session, monkeypatch):
+    """December→January: window spans previous year correctly."""
+    import core.database.requests.budgets as budgets_mod
+
+    fake_now = datetime(2026, 1, 15, 12, 0, tzinfo=ZoneInfo(TIMEZONE))
+    monkeypatch.setattr(budgets_mod, "moscow_now", lambda: fake_now)
+
+    user_id = await _make_user(223)
+    async with test_session() as s:
+        await set_budget(s, user_id, "Еда", Decimal("5000"))
+        await s.commit()
+
+    # Expense in December 2025 (one month back from Jan 2026).
+    await _add_expense(user_id, "Еда", Decimal("2000"), _dt(2025, 12))
+
+    async with test_session() as s:
+        trend = await get_budget_trend(s, user_id)
+
+    assert trend["months"] == [
+        (2025, 8),
+        (2025, 9),
+        (2025, 10),
+        (2025, 11),
+        (2025, 12),
+        (2026, 1),
+    ]
+    row = trend["rows"][0]
+    assert row["spent"][4] == Decimal("2000")  # December 2025
+
+
+# ==================== Tests: format_budget_trend ====================
+
+
+def test_format_budget_trend_empty():
+    text = format_budget_trend({"months": [], "rows": []})
+    assert "Нет активных бюджетов" in text
+
+
+def test_format_budget_trend_warn_marker():
+    trend = {
+        "months": [(2026, 5), (2026, 6)],
+        "rows": [
+            {
+                "category": "Еда",
+                "limit": Decimal("5000"),
+                "spent": [Decimal("3000"), Decimal("6000")],
+                "over_count": 1,
+            }
+        ],
+    }
+    text = format_budget_trend(trend)
+    assert "⚠️" in text
+    assert "перерасход: 1/2 мес" in text
+    assert "пробои в 1/2 мес" in text
+
+
+def test_format_budget_trend_escapes_category():
+    trend = {
+        "months": [(2026, 6)],
+        "rows": [
+            {
+                "category": "<b>x</b>",
+                "limit": Decimal("1000"),
+                "spent": [Decimal("0")],
+                "over_count": 0,
+            }
+        ],
+    }
+    text = format_budget_trend(trend)
+    assert "&lt;b&gt;x&lt;/b&gt;" in text
 
 
 # ==================== Tests: N+1 query prevention ====================

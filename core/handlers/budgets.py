@@ -16,14 +16,16 @@ from core.database.requests import (
     SYSTEM_CATEGORIES,
     delete_budget,
     get_budget_status,
+    get_budget_trend,
     get_budgets,
     set_budget,
 )
 from core.keyboards import (
     budget_category_keyboard,
     budget_menu_keyboard,
+    budget_trend_keyboard,
 )
-from core.reports import format_budget_status
+from core.reports import format_budget_status, format_budget_trend
 from core.utils import RU_MONTHS, log_exceptions
 
 from .common import BudgetStates, get_message, get_user_id_from_event, is_budgets
@@ -59,6 +61,38 @@ async def show_budgets(message: Message, state: FSMContext, **kwargs) -> None:
         await message.answer("Ошибка. Отправьте /start для регистрации.")
         return
     await _show_budget_status(message, user_id, state)
+
+
+@router.callback_query(F.data == "budget_trend", BudgetStates.choosing_action)
+@log_exceptions("Ошибка при открытии тренда бюджетов")
+async def budget_trend(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+
+    async with async_session() as session:
+        trend = await get_budget_trend(session, user_id)
+
+    await get_message(callback).edit_text(
+        format_budget_trend(trend),
+        reply_markup=budget_trend_keyboard(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "budget_back_status", BudgetStates.choosing_action)
+@log_exceptions("Ошибка при возврате к бюджетам")
+async def budget_back_status(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer("Ошибка.")
+        return
+    await _show_budget_status(callback, user_id, state)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "budget_add", BudgetStates.choosing_action)

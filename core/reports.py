@@ -18,7 +18,7 @@ from config import (
     TIMEZONE,
 )
 from core.database.models import Record
-from core.utils import RU_MONTHS, format_money
+from core.utils import RU_MONTHS, RU_MONTHS_SHORT, format_money
 
 
 def format_budget_status(budgets: list[dict]) -> str:
@@ -35,6 +35,66 @@ def format_budget_status(budgets: list[dict]) -> str:
             f"└ {format_money(float(b['spent']))} / {format_money(float(b['limit']))}"
         )
     return "\n\n".join(lines)
+
+
+def _compact_amount(v: Decimal) -> str:
+    """Compact rouble amount: 28000 -> '28k', 950 -> '950'."""
+    n = int(v)
+    if n >= 1000:
+        return f"{round(n / 1000)}k"
+    return str(n)
+
+
+def format_budget_trend(trend: dict) -> str:
+    """Formats per-month fact vs current limit for active budgets (trend view)."""
+    rows = trend["rows"]
+    months = trend["months"]
+    if not rows:
+        return "Нет активных бюджетов.\n\nНажмите ➕ Добавить, чтобы установить лимит."
+
+    first, last = months[0], months[-1]
+    period = (
+        f"{RU_MONTHS_SHORT[first[1]]} {first[0]} — {RU_MONTHS_SHORT[last[1]]} {last[0]}"
+    )
+    header = f"📈 <b>Тренд бюджетов</b> · {period}"
+
+    cat_lines = []
+    for r in rows:
+        cat = html.escape(r["category"])
+        parts = []
+        for (_yr, mo), s in zip(months, r["spent"]):
+            warn = "⚠️" if s > r["limit"] else ""
+            parts.append(f"{RU_MONTHS_SHORT[mo]} {_compact_amount(s)}{warn}")
+        cat_lines.append(
+            f"<b>{cat}</b> · лимит {format_money(r['limit'])}\n"
+            f"└ {' · '.join(parts)}   (перерасход: {r['over_count']}/{len(months)} мес)"
+        )
+
+    total_over = sum(
+        (s - r["limit"]) for r in rows for s in r["spent"] if s > r["limit"]
+    )
+    months_with_breach = sum(
+        1 for i in range(len(months)) if any(r["spent"][i] > r["limit"] for r in rows)
+    )
+    footer = (
+        f"<b>Итого:</b> перерасход {format_money(total_over)} · "
+        f"пробои в {months_with_breach}/{len(months)} мес"
+    )
+
+    # Trim category lines if total exceeds Telegram message limit.
+    hidden = 0
+    while cat_lines:
+        note = (
+            f"\n…ещё {hidden} категори{'я' if hidden == 1 else 'и' if 2 <= hidden <= 4 else 'й'}"
+            if hidden
+            else ""
+        )
+        text = "\n\n".join([header, *cat_lines]) + note + "\n\n" + footer
+        if len(text) <= MAX_MESSAGE_LENGTH:
+            return text
+        cat_lines.pop()
+        hidden += 1
+    return header + "\n\n" + footer
 
 
 def make_report_text(
