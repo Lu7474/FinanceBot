@@ -499,3 +499,159 @@ async def test_create_snapshot_from_wealth_overwrites(session):
     fetched = await get_snapshot(session, user_id, d)
     assert len(fetched.items) == 1
     assert fetched.items[0].amount == Decimal("999")
+
+
+# ==================== Handler view builders ====================
+#
+# _build_capital_view / _build_history_view open their own async_session
+# internally. We point that at the shared in-memory test engine and seed data
+# through test_session() so the builder's fresh session sees it.
+
+from conftest import test_session  # noqa: E402
+
+import core.handlers.capital as cap_handlers  # noqa: E402
+from core.handlers.capital import (  # noqa: E402
+    _build_capital_view,
+    _build_history_view,
+)
+
+
+@pytest.fixture
+def capital_db(monkeypatch):
+    monkeypatch.setattr(cap_handlers, "async_session", test_session)
+
+
+def _cbs(kb) -> set:
+    return {b.callback_data for row in kb.inline_keyboard for b in row}
+
+
+async def _seed_user(tg_id: int = 1) -> int:
+    async with test_session() as s:
+        user = User(tg_id=tg_id, name="Test")
+        s.add(user)
+        await s.commit()
+        await s.refresh(user)
+        return user.id
+
+
+async def _seed_account(user_id: int, name: str, balance) -> None:
+    async with test_session() as s:
+        acc = await create_account(s, user_id, name)
+        acc.balance_offset = Decimal(str(balance))
+        await s.commit()
+
+
+# --- _build_capital_view ---
+
+@pytest.mark.asyncio
+async def test_build_capital_view_empty(capital_db):
+    user_id = await _seed_user()
+    text, kb = await _build_capital_view(user_id)
+    assert "Капитал" in text
+    assert "Нет данных" in text
+    # no manual items → edit/delete hidden
+    assert "cap_wealth_edit" not in _cbs(kb)
+    assert "cap_wealth_delete" not in _cbs(kb)
+    assert {"cap_add", "cap_snapshot", "cap_history"} <= _cbs(kb)
+
+
+@pytest.mark.asyncio
+async def test_build_capital_view_with_manual_shows_edit(capital_db):
+    user_id = await _seed_user()
+    async with test_session() as s:
+        await add_wealth_item(s, user_id, "A", "Квартира", Decimal("5000000"))
+        await s.commit()
+    text, kb = await _build_capital_view(user_id)
+    assert "Квартира" in text
+    assert {"cap_wealth_edit", "cap_wealth_delete"} <= _cbs(kb)
+
+
+@pytest.mark.asyncio
+async def test_build_capital_view_virtual_rows_and_net(capital_db):
+    user_id = await _seed_user()
+    await _seed_account(user_id, "Наличка", "45000")
+    await _seed_account(user_id, "Кредитка", "-5000")
+    async with test_session() as s:
+        await create_debt(s, user_id, "I", "Андрей", Decimal("15000"), None, None)
+        await create_debt(s, user_id, "O", "Банк", Decimal("28000"), None, None)
+        await s.commit()
+    text, kb = await _build_capital_view(user_id)
+    assert "💳 Наличка" in text
+    assert "Мне должны: Андрей" in text
+    assert "Долг: Банк" in text
+    # net = 45000 + 15000 - 5000 - 28000 = 27000
+    assert "27 000" in text
+    # only virtual rows → edit/delete still hidden
+    assert "cap_wealth_edit" not in _cbs(kb)
+
+
+@pytest.mark.asyncio
+async def test_build_capital_view_last_snapshot_diff_line(capital_db):
+    user_id = await _seed_user()
+    async with test_session() as s:
+        await add_wealth_item(s, user_id, "A", "Деньги", Decimal("100000"))
+        await create_snapshot_from_wealth(s, user_id, date(2025, 1, 1))
+        await s.commit()
+    text, _ = await _build_capital_view(user_id)
+    assert "Последний снимок" in text
+
+
+# --- _build_history_view ---
+
+@pytest.mark.asyncio
+async def test_build_history_view_empty(capital_db):
+    user_id = await _seed_user()
+    text, kb = await _build_history_view(user_id)
+    assert "Снимков пока нет" in text
+    assert "cap_to_capital" in _cbs(kb)
+    assert not any(c.startswith("cap_date:") for c in _cbs(kb))
+
+
+@pytest.mark.asyncio
+async def test_build_history_view_single_snapshot_no_nav(capital_db):
+    user_id = await _seed_user()
+    async with test_session() as s:
+        await upsert_snapshot(
+            s, user_id, date(2025, 6, 1), [("A", "Карта", Decimal("5000"))]
+        )
+        await s.commit()
+    text, kb = await _build_history_view(user_id)
+    assert "Карта" in text
+    cbs = _cbs(kb)
+    assert any(c.startswith("cap_edit:") for c in cbs)
+    assert any(c.startswith("cap_delete:") for c in cbs)
+    assert not any(c.startswith("cap_date:") for c in cbs)  # single → no nav
+
+
+@pytest.mark.asyncio
+async def test_build_history_view_two_snapshots_nav_and_diff(capital_db):
+    user_id = await _seed_user()
+    async with test_session() as s:
+        await upsert_snapshot(
+            s, user_id, date(2025, 5, 1), [("A", "Карта", Decimal("5000"))]
+        )
+        await upsert_snapshot(
+            s, user_id, date(2025, 6, 1), [("A", "Карта", Decimal("6000"))]
+        )
+        await s.commit()
+    # latest (June) compared to May → +1000 diff, prev-nav present
+    text, kb = await _build_history_view(user_id)
+    assert "+1 000" in text
+    assert any(c == "cap_date:2025-05-01" for c in _cbs(kb))
+
+
+@pytest.mark.asyncio
+async def test_build_history_view_targets_specific_date(capital_db):
+    user_id = await _seed_user()
+    async with test_session() as s:
+        await upsert_snapshot(
+            s, user_id, date(2025, 5, 1), [("A", "Карта", Decimal("5000"))]
+        )
+        await upsert_snapshot(
+            s, user_id, date(2025, 6, 1), [("A", "Карта", Decimal("6000"))]
+        )
+        await s.commit()
+    # viewing May (oldest) → next-nav to June, no diff markers (no prev)
+    text, kb = await _build_history_view(user_id, date(2025, 5, 1))
+    assert any(c == "cap_date:2025-06-01" for c in _cbs(kb))
+    assert "(+" not in text and "(−" not in text
