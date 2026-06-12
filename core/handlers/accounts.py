@@ -9,7 +9,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
-from config import MAX_ACCOUNT_NAME_LENGTH, MAX_AMOUNT, RECORDS_PER_PAGE
+from config import (
+    MAX_ACCOUNT_NAME_LENGTH,
+    MAX_AMOUNT,
+    MAX_MESSAGE_LENGTH,
+    RECORDS_PER_PAGE,
+)
 from core.database.models import Account, Record, async_session
 from core.database.requests import (
     MAX_ACCOUNTS_PER_USER,
@@ -959,6 +964,9 @@ async def _render_acc_history(
             header=header,
             operation_filter=op_filter,
         )
+
+    if len(text) > MAX_MESSAGE_LENGTH - 100:
+        text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
 
     await state.update_data(
         acc_hist_period=period,
