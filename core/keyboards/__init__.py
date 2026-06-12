@@ -20,6 +20,16 @@ from .budgets import (
     budget_menu_keyboard,
     budget_trend_keyboard,
 )
+from .capital import (
+    capital_back_keyboard,
+    capital_confirm_snapshot_keyboard,
+    capital_history_keyboard,
+    capital_menu_keyboard,
+    capital_snapshot_back_keyboard,
+    capital_snapshot_items_keyboard,
+    capital_type_keyboard,
+    capital_wealth_items_keyboard,
+)
 from .categories import (
     category_manage_keyboard,
     category_select_keyboard,
@@ -119,22 +129,19 @@ from .reports import (
     yearly_report_type_keyboard,
     yearly_report_year_keyboard,
 )
-from .savings import (
-    savings_confirm_keyboard,
-    savings_items_keyboard,
-    savings_view_keyboard,
-)
 from .settings import settings_menu_keyboard
-from .wealth import (
-    wealth_back_keyboard,
-    wealth_items_keyboard,
-    wealth_menu_keyboard,
-    wealth_type_keyboard,
-)
 
 __all__ = [
     "CANCEL_BUTTON",
     "MEMBER_MARKERS",
+    "capital_back_keyboard",
+    "capital_confirm_snapshot_keyboard",
+    "capital_history_keyboard",
+    "capital_menu_keyboard",
+    "capital_snapshot_back_keyboard",
+    "capital_snapshot_items_keyboard",
+    "capital_type_keyboard",
+    "capital_wealth_items_keyboard",
     "family_confirm_keyboard",
     "family_history_filter_keyboard",
     "family_join_or_create_keyboard",
@@ -221,18 +228,11 @@ __all__ = [
     "record_edit_field_keyboard",
     "report_section_keyboard",
     "report_type_keyboard",
-    "savings_confirm_keyboard",
-    "savings_items_keyboard",
-    "savings_view_keyboard",
     "search_result_keyboard",
     "settings_menu_keyboard",
     "stacked_period_keyboard",
     "stacked_type_keyboard",
     "user_categories_menu_keyboard",
-    "wealth_back_keyboard",
-    "wealth_items_keyboard",
-    "wealth_menu_keyboard",
-    "wealth_type_keyboard",
     "yearly_report_cats_keyboard",
     "yearly_report_type_keyboard",
     "yearly_report_year_keyboard",

@@ -237,7 +237,10 @@ class SavingsItem(Base):
     snapshot_id: Mapped[int] = mapped_column(
         ForeignKey("savings_snapshots.id", ondelete="CASCADE"), index=True
     )
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    type: Mapped[str] = mapped_column(
+        String(1), nullable=False, server_default="A"
+    )  # "A" = актив, "P" = пассив
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
     amount: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
 
     snapshot = relationship("SavingsSnapshot", back_populates="items")
@@ -529,6 +532,21 @@ async def _migrate_postgres(conn) -> None:
         "ALTER TABLE goal_deposits ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
         "CREATE INDEX IF NOT EXISTS ix_goal_deposits_user_id ON goal_deposits(user_id)",
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS category VARCHAR(50)",
+        "ALTER TABLE savings_items ADD COLUMN IF NOT EXISTS type VARCHAR(1) NOT NULL DEFAULT 'A'",
+        # Widen name 50→120 only if still narrower (idempotent across restarts).
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'savings_items'
+                  AND column_name = 'name'
+                  AND character_maximum_length < 120
+            ) THEN
+                ALTER TABLE savings_items ALTER COLUMN name TYPE VARCHAR(120);
+            END IF;
+        END $$;
+        """,
     ]
     for stmt in stmts:
         await conn.execute(text(stmt))
@@ -652,6 +670,15 @@ async def _migrate(conn) -> None:
     pay_columns = {row[1] for row in result.fetchall()}
     if "category" not in pay_columns:
         await conn.execute(text("ALTER TABLE payments ADD COLUMN category VARCHAR(50)"))
+
+    # savings_items.type — 'A' asset / 'P' liability (SQLite ignores VARCHAR length,
+    # so widening name 50→120 needs no migration here)
+    result = await conn.execute(text("PRAGMA table_info(savings_items)"))
+    sav_columns = {row[1] for row in result.fetchall()}
+    if "type" not in sav_columns:
+        await conn.execute(
+            text("ALTER TABLE savings_items ADD COLUMN type VARCHAR(1) NOT NULL DEFAULT 'A'")
+        )
 
     result = await conn.execute(
         text("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'")

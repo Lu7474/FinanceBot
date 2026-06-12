@@ -16,6 +16,14 @@ from core.keyboards import (
     accounts_menu_keyboard,
     budget_category_keyboard,
     budget_menu_keyboard,
+    capital_back_keyboard,
+    capital_confirm_snapshot_keyboard,
+    capital_history_keyboard,
+    capital_menu_keyboard,
+    capital_snapshot_back_keyboard,
+    capital_snapshot_items_keyboard,
+    capital_type_keyboard,
+    capital_wealth_items_keyboard,
     category_manage_keyboard,
     category_select_keyboard,
     category_suggest_keyboard,
@@ -50,15 +58,8 @@ from core.keyboards import (
     record_detail_keyboard,
     record_edit_field_keyboard,
     report_type_keyboard,
-    savings_confirm_keyboard,
-    savings_items_keyboard,
-    savings_view_keyboard,
     search_result_keyboard,
     user_categories_menu_keyboard,
-    wealth_back_keyboard,
-    wealth_items_keyboard,
-    wealth_menu_keyboard,
-    wealth_type_keyboard,
 )
 from core.utils import RU_MONTHS
 
@@ -92,7 +93,7 @@ def test_main_menu_keyboard():
     # Перенесённых во второй экран кнопок в главном меню быть не должно
     main_texts = {btn.text for row in keyboard.keyboard for btn in row}
     for moved in (
-        "Накопления",
+        "Капитал",
         "Категории",
         "Бюджеты",
         "Цели",
@@ -120,7 +121,7 @@ def test_more_menu_keyboard():
 
     texts = {btn.text for row in keyboard.keyboard for btn in row}
     for expected in (
-        "Накопления",
+        "Капитал",
         "Категории",
         "Бюджеты",
         "Цели",
@@ -284,19 +285,19 @@ def test_acc_back_keyboard_cached():
     assert acc_back_keyboard() is acc_back_keyboard()
 
 
-# Step-back клавиатура для wealth-wizard'а: единственная кнопка «← Назад» → wealth_back
-def test_wealth_back_keyboard():
-    keyboard = wealth_back_keyboard()
+# Step-back клавиатура capital-wizard'а: единственная кнопка «← Назад» → cap_back
+def test_capital_back_keyboard():
+    keyboard = capital_back_keyboard()
 
     assert len(keyboard.inline_keyboard) == 1
     assert len(keyboard.inline_keyboard[0]) == 1
     btn = keyboard.inline_keyboard[0][0]
     assert btn.text == "← Назад"
-    assert btn.callback_data == "wealth_back"
+    assert btn.callback_data == "cap_back"
 
 
-def test_wealth_back_keyboard_cached():
-    assert wealth_back_keyboard() is wealth_back_keyboard()
+def test_capital_back_keyboard_cached():
+    assert capital_back_keyboard() is capital_back_keyboard()
 
 
 # Проверяет префиксы callback_data (del_period, report_year, report_month)
@@ -352,13 +353,21 @@ class _FakeGoal:
 
 
 class _FakeSavItem:
-    def __init__(self, item_id: int, name: str, amount: float, snapshot_id: int = 1):
+    def __init__(
+        self,
+        item_id: int,
+        name: str,
+        amount: float,
+        snapshot_id: int = 1,
+        type_: str = "A",
+    ):
         from decimal import Decimal
 
         self.id = item_id
         self.name = name
         self.amount = Decimal(str(amount))
         self.snapshot_id = snapshot_id
+        self.type = type_
 
 
 class _FakeWealthItem:
@@ -416,18 +425,40 @@ def test_accounts_menu_keyboard():
     assert "acc_free" in callbacks
 
 
-def test_wealth_menu_keyboard():
-    kb = wealth_menu_keyboard()
-    callbacks = _flat(kb)
-    assert any(btn.callback_data == "wealth_add" for btn in callbacks)
-    assert any(btn.callback_data == "wealth_delete" for btn in callbacks)
+def test_capital_menu_keyboard_with_manual():
+    kb = capital_menu_keyboard(True)
+    cbs = {btn.callback_data for btn in _flat(kb)}
+    assert {"cap_add", "cap_wealth_edit", "cap_wealth_delete", "cap_snapshot",
+            "cap_history", "cap_close"} <= cbs
 
 
-def test_wealth_type_keyboard():
-    kb = wealth_type_keyboard()
+def test_capital_menu_keyboard_no_manual_hides_edit_delete():
+    kb = capital_menu_keyboard(False)
+    cbs = {btn.callback_data for btn in _flat(kb)}
+    assert {"cap_add", "cap_snapshot", "cap_history", "cap_close"} <= cbs
+    assert "cap_wealth_edit" not in cbs
+    assert "cap_wealth_delete" not in cbs
+
+
+def test_capital_type_keyboard():
+    kb = capital_type_keyboard()
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-    assert "wealth_type:A" in callbacks
-    assert "wealth_type:P" in callbacks
+    assert "cap_type:A" in callbacks
+    assert "cap_type:P" in callbacks
+
+
+def test_capital_confirm_snapshot_keyboard():
+    kb = capital_confirm_snapshot_keyboard()
+    callbacks = _flat(kb)
+    assert any(btn.callback_data == "cap_snapshot_confirm" for btn in callbacks)
+    assert any(btn.callback_data == "cap_back" for btn in callbacks)
+
+
+def test_capital_snapshot_back_keyboard():
+    kb = capital_snapshot_back_keyboard(42)
+    btn = kb.inline_keyboard[0][0]
+    assert btn.text == "← Назад"
+    assert btn.callback_data == "cap_snap:42"
 
 
 def test_budget_menu_keyboard():
@@ -462,13 +493,6 @@ def test_import_confirm_keyboard():
     callbacks = _flat(kb)
     assert any(btn.callback_data == "import_confirm:yes" for btn in callbacks)
     assert any(btn.callback_data == "import_confirm:cancel" for btn in callbacks)
-
-
-def test_savings_confirm_keyboard():
-    kb = savings_confirm_keyboard()
-    callbacks = _flat(kb)
-    assert any(btn.callback_data == "sav_confirm_save" for btn in callbacks)
-    assert any(btn.callback_data == "sav_cancel_action" for btn in callbacks)
 
 
 def test_category_suggest_keyboard():
@@ -553,64 +577,73 @@ def test_account_delete_move_keyboard():
     assert "acc_delete_cancel" in callbacks
 
 
-# ==================== Savings keyboards ====================
+# ==================== Capital: history keyboard ====================
 
 
-def test_savings_view_keyboard_no_nav_no_snapshot():
-    kb = savings_view_keyboard()
+def test_capital_history_keyboard_no_nav_no_snapshot():
+    kb = capital_history_keyboard()
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "sav_add" for btn in callbacks)
-    assert any(btn.callback_data == "sav_wealth" for btn in callbacks)
-    assert not any(btn.callback_data.startswith("sav_date:") for btn in callbacks)
+    assert any(btn.callback_data == "cap_to_capital" for btn in callbacks)
+    assert not any(btn.callback_data.startswith("cap_date:") for btn in callbacks)
+    assert not any(btn.callback_data.startswith("cap_edit:") for btn in callbacks)
 
 
-def test_savings_view_keyboard_with_nav():
-    kb = savings_view_keyboard(prev_date=_date(2025, 4, 1), next_date=_date(2025, 6, 1))
+def test_capital_history_keyboard_with_nav():
+    kb = capital_history_keyboard(
+        prev_date=_date(2025, 4, 1), next_date=_date(2025, 6, 1)
+    )
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "sav_date:2025-04-01" for btn in callbacks)
-    assert any(btn.callback_data == "sav_date:2025-06-01" for btn in callbacks)
+    assert any(btn.callback_data == "cap_date:2025-04-01" for btn in callbacks)
+    assert any(btn.callback_data == "cap_date:2025-06-01" for btn in callbacks)
 
 
-def test_savings_view_keyboard_with_snapshot():
-    kb = savings_view_keyboard(snapshot_id=99)
+def test_capital_history_keyboard_with_snapshot():
+    kb = capital_history_keyboard(snapshot_id=99)
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "sav_add_field:99" for btn in callbacks)
-    assert any(btn.callback_data == "sav_edit:99" for btn in callbacks)
-    assert any(btn.callback_data == "sav_delete:99" for btn in callbacks)
+    assert any(btn.callback_data == "cap_edit:99" for btn in callbacks)
+    assert any(btn.callback_data == "cap_delete:99" for btn in callbacks)
 
 
-def test_savings_items_keyboard_edit():
-    items = [_FakeSavItem(1, "Карта", 5000), _FakeSavItem(2, "Кэш", 1000)]
-    kb = savings_items_keyboard(items, "edit")
+# ==================== Capital: snapshot item keyboard ====================
+
+
+def test_capital_snapshot_items_keyboard_edit():
+    items = [_FakeSavItem(1, "Карта", 5000), _FakeSavItem(2, "Кэш", 1000, type_="P")]
+    kb = capital_snapshot_items_keyboard(items, "edit", 7)
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "sav_edit_item:1" for btn in callbacks)
-    assert any(btn.callback_data == "sav_edit_item:2" for btn in callbacks)
-    assert any(btn.callback_data == "sav_cancel_action" for btn in callbacks)
+    assert any(btn.callback_data == "cap_edit_item:1" for btn in callbacks)
+    assert any(btn.callback_data == "cap_edit_item:2" for btn in callbacks)
+    assert any(btn.callback_data == "cap_snap:7" for btn in callbacks)
+    assert any("💚" in btn.text for btn in callbacks)
+    assert any("🔴" in btn.text for btn in callbacks)
 
 
-def test_savings_items_keyboard_delete_adds_all_button():
-    items = [_FakeSavItem(1, "Карта", 5000, snapshot_id=7)]
-    kb = savings_items_keyboard(items, "delete", snapshot_id=7)
+def test_capital_snapshot_items_keyboard_delete_adds_all_button():
+    items = [_FakeSavItem(1, "Карта", 5000)]
+    kb = capital_snapshot_items_keyboard(items, "delete", 7)
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "sav_delete_all:7" for btn in callbacks)
+    assert any(btn.callback_data == "cap_delete_all:7" for btn in callbacks)
 
 
-# ==================== Wealth keyboards ====================
+# ==================== Capital: wealth item keyboard ====================
 
 
-def test_wealth_items_keyboard_assets():
+def test_capital_wealth_items_keyboard_assets():
     items = [_FakeWealthItem(1, "Квартира", 5_000_000, "A")]
-    kb = wealth_items_keyboard(items, "edit")
+    kb = capital_wealth_items_keyboard(items, "edit")
     callbacks = _flat(kb)
-    assert any(btn.callback_data == "wealth_edit_item:1" for btn in callbacks)
-    assert any(btn.callback_data == "wealth_to_savings" for btn in callbacks)
+    assert any(btn.callback_data == "cap_wealth_edit_item:1" for btn in callbacks)
+    assert any(btn.callback_data == "cap_back" for btn in callbacks)
     assert any("💚" in btn.text for btn in callbacks)
 
 
-def test_wealth_items_keyboard_liability_icon():
+def test_capital_wealth_items_keyboard_liability_icon():
     items = [_FakeWealthItem(2, "Ипотека", 2_000_000, "P")]
-    kb = wealth_items_keyboard(items, "delete")
+    kb = capital_wealth_items_keyboard(items, "delete")
     assert any("🔴" in btn.text for btn in _flat(kb))
+    assert any(
+        btn.callback_data == "cap_wealth_delete_item:2" for btn in _flat(kb)
+    )
 
 
 # ==================== Record keyboards ====================

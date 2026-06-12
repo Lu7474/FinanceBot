@@ -267,7 +267,11 @@ async def handle_backup(message: Message, user_id: int) -> None:
         ]
         snapshot_rows = (
             [
-                {"Название": item.name, "Сумма": float(item.amount)}
+                {
+                    "Тип": "Актив" if item.type == "A" else "Пассив",
+                    "Название": item.name,
+                    "Сумма": float(item.amount),
+                }
                 for item in snapshot.items
             ]
             if snapshot

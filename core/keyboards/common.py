@@ -23,7 +23,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 def more_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Накопления"), KeyboardButton(text="Категории")],
+            [KeyboardButton(text="Капитал"), KeyboardButton(text="Категории")],
             [KeyboardButton(text="Бюджеты"), KeyboardButton(text="Цели")],
             [KeyboardButton(text="Долги"), KeyboardButton(text="Платежи")],
             [KeyboardButton(text="Семья"), KeyboardButton(text="Настройки")],

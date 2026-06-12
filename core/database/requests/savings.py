@@ -14,6 +14,11 @@ from core.database.models import (
     WealthItem,
 )
 
+from .accounts import get_account_balances
+from .debts import get_active_debts
+
+_MAX_ITEM_NAME = 120
+
 
 async def get_snapshots_dates(session: AsyncSession, user_id: int) -> list[date_type]:
     """Returns all dates with savings snapshots for user, sorted ascending."""
@@ -69,9 +74,9 @@ async def upsert_snapshot(
     session: AsyncSession,
     user_id: int,
     snapshot_date: date_type,
-    items: list[tuple[str, Decimal]],
+    items: list[tuple[str, str, Decimal]],
 ) -> SavingsSnapshot | None:
-    """Creates or replaces snapshot for the given date. items = [(name, amount), ...]."""
+    """Creates or replaces snapshot for the date. items = [(type, name, amount), ...]."""
     try:
         result = await session.execute(
             select(SavingsSnapshot).where(
@@ -89,8 +94,15 @@ async def upsert_snapshot(
             session.add(snapshot)
             await session.flush()
 
-        for name, amount in items:
-            session.add(SavingsItem(snapshot_id=snapshot.id, name=name, amount=amount))
+        for type_, name, amount in items:
+            session.add(
+                SavingsItem(
+                    snapshot_id=snapshot.id,
+                    type=type_,
+                    name=name[:_MAX_ITEM_NAME],
+                    amount=amount,
+                )
+            )
         await session.flush()
         return snapshot
     except Exception as e:
@@ -99,26 +111,46 @@ async def upsert_snapshot(
         return None
 
 
-async def add_snapshot_item(
-    session: AsyncSession,
-    snapshot_id: int,
-    user_id: int,
-    name: str,
-    amount: Decimal,
-) -> SavingsItem | None:
-    """Adds a new item to an existing snapshot (validates ownership)."""
-    try:
-        snap = await session.get(SavingsSnapshot, snapshot_id)
-        if not snap or snap.user_id != user_id:
-            return None
-        item = SavingsItem(snapshot_id=snapshot_id, name=name, amount=amount)
-        session.add(item)
-        await session.flush()
-        return item
-    except Exception as e:
-        await session.rollback()
-        logging.exception(f"Error in add_snapshot_item: {e}")
+async def collect_capital_items(
+    session: AsyncSession, user_id: int
+) -> list[tuple[str, str, Decimal]]:
+    """Builds the current capital breakdown as (type, name, amount) rows.
+
+    Sources: manual WealthItems + open debts (I→asset / O→liability, by `remaining`)
+    + account balances (>0 asset, <0 liability by abs; ==0 skipped).
+    Used both for the live view freeze and snapshot creation.
+    """
+    items: list[tuple[str, str, Decimal]] = []
+
+    for w in await get_wealth_items(session, user_id):
+        items.append((w.type, w.name, w.amount))
+
+    for d in await get_active_debts(session, user_id):
+        if d.direction == "I":
+            items.append(("A", f"Мне должны: {d.person_name}", d.remaining))
+        else:
+            items.append(("P", f"Долг: {d.person_name}", d.remaining))
+
+    for acc, balance in await get_account_balances(session, user_id):
+        if balance > 0:
+            items.append(("A", acc.name, balance))
+        elif balance < 0:
+            items.append(("P", acc.name, -balance))
+
+    return items
+
+
+async def create_snapshot_from_wealth(
+    session: AsyncSession, user_id: int, snapshot_date: date_type
+) -> SavingsSnapshot | None:
+    """Freezes the current capital breakdown into a snapshot (upsert).
+
+    Returns None if there is nothing to snapshot (empty capital).
+    """
+    items = await collect_capital_items(session, user_id)
+    if not items:
         return None
+    return await upsert_snapshot(session, user_id, snapshot_date, items)
 
 
 async def update_snapshot_item(

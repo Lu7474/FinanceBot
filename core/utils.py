@@ -219,76 +219,143 @@ def goal_emoji(name: str) -> str:
     return _GOAL_EMOJI_POOL[idx]
 
 
-def format_snapshot(
-    items: list, prev_items: list | None, snapshot_date: date_type
+def _diff_suffix(diff: Decimal, *, is_new: bool) -> str:
+    """Renders a parenthesised diff marker for a snapshot row/total."""
+    if is_new:
+        return "  <i>(новое)</i>"
+    if diff > 0:
+        return f"  <i>(+{format_money(float(diff))})</i>"
+    if diff < 0:
+        return f"  <i>(−{format_money(float(abs(diff)))})</i>"
+    return "  <i>(=)</i>"
+
+
+def format_capital(
+    wealth_items: list,
+    debts: list,
+    balances: list,
+    last_snapshot=None,
 ) -> str:
-    """Formats savings snapshot text with dynamic comparison to previous snapshot."""
-    prev_map: dict[str, Decimal] = {}
-    if prev_items:
-        for item in prev_items:
-            prev_map[item.name] = item.amount
+    """Formats the live capital view: assets/liabilities, net worth, last-snapshot diff.
 
-    date_str = format_date_ru(snapshot_date)
-    lines = [f"💰 <b>Накопления</b>\n\n📅 {date_str}\n"]
+    Virtual rows (💳, read-only) are pulled from open debts and account balances:
+      debt I → asset «Мне должны: {person}»; debt O → liability «Долг: {person}».
+      account balance > 0 → asset; < 0 → liability (abs); == 0 → skipped.
+    """
+    assets: list[tuple[str, Decimal, str]] = []  # (label, amount, note)
+    liabilities: list[tuple[str, Decimal, str]] = []
 
-    total = Decimal("0")
-    for item in items:
-        amount_str = format_money(float(item.amount))
-        if item.name in prev_map:
-            diff = item.amount - prev_map[item.name]
-            if diff > 0:
-                diff_str = f"  <i>(+{format_money(float(diff))})</i>"
-            elif diff < 0:
-                diff_str = f"  <i>(−{format_money(float(abs(diff)))})</i>"
-            else:
-                diff_str = "  <i>(=)</i>"
+    for item in wealth_items:
+        note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
+        row = (html.escape(item.name), item.amount, note)
+        (assets if item.type == "A" else liabilities).append(row)
+
+    for acc, balance in balances:
+        if balance > 0:
+            assets.append((f"💳 {html.escape(acc.name)}", balance, ""))
+        elif balance < 0:
+            liabilities.append((f"💳 {html.escape(acc.name)}", -balance, ""))
+
+    for d in debts:
+        if d.direction == "I":
+            assets.append((f"💳 Мне должны: {html.escape(d.person_name)}", d.remaining, ""))
         else:
-            diff_str = ""
-        lines.append(f"{html.escape(item.name)}:  <b>{amount_str}</b>{diff_str}")
-        total += item.amount
+            liabilities.append((f"💳 Долг: {html.escape(d.person_name)}", d.remaining, ""))
 
-    lines.append(f"\n<b>Итого:  {format_money(float(total))}</b>")
-    return "\n".join(lines)
+    lines = ["📊 <b>Капитал</b>\n"]
 
+    def _section(title: str, rows: list[tuple[str, Decimal, str]]) -> Decimal:
+        lines.append(title)
+        total = Decimal("0")
+        if rows:
+            for label, amount, note in rows:
+                lines.append(f"  {label}  —  {format_money(float(amount))}{note}")
+                total += amount
+        else:
+            lines.append("  <i>Нет данных</i>")
+        return total
 
-def format_wealth(items: list) -> str:
-    """Formats wealth items with assets/liabilities breakdown and net worth."""
-    assets = [i for i in items if i.type == "A"]
-    liabilities = [i for i in items if i.type == "P"]
-
-    lines = ["📊 <b>Финансовый баланс</b>\n"]
-
-    lines.append("💚 <b>АКТИВЫ</b>")
-    total_assets = Decimal("0")
-    if assets:
-        for item in assets:
-            note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
-            lines.append(
-                f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}"
-            )
-            total_assets += item.amount
-    else:
-        lines.append("  <i>Нет данных</i>")
+    total_assets = _section("💚 <b>АКТИВЫ</b>", assets)
     lines.append(f"  <b>Итого активов:  {format_money(float(total_assets))}</b>")
-
     lines.append("")
-    lines.append("🔴 <b>ПАССИВЫ</b>")
-    total_liabilities = Decimal("0")
-    if liabilities:
-        for item in liabilities:
-            note = f"  <i>{html.escape(item.note)}</i>" if item.note else ""
-            lines.append(
-                f"  {html.escape(item.name)}  —  {format_money(float(item.amount))}{note}"
-            )
-            total_liabilities += item.amount
-    else:
-        lines.append("  <i>Нет данных</i>")
+    total_liabilities = _section("🔴 <b>ПАССИВЫ</b>", liabilities)
     lines.append(f"  <b>Итого пассивов:  {format_money(float(total_liabilities))}</b>")
 
     net = total_assets - total_liabilities
     sign = "+" if net >= 0 else ""
-    lines.append(f"<b>Чистый капитал:  {sign}{format_money(float(net))}</b>")
+    lines.append(f"\n<b>Чистый капитал:  {sign}{format_money(float(net))}</b>")
 
+    if last_snapshot is not None:
+        prev_net = Decimal("0")
+        for it in last_snapshot.items:
+            prev_net += it.amount if it.type == "A" else -it.amount
+        diff = net - prev_net
+        dsign = "+" if diff >= 0 else "−"
+        lines.append(
+            f"📸 <i>Последний снимок: {format_date_ru(last_snapshot.date)} "
+            f"({dsign}{format_money(float(abs(diff)))})</i>"
+        )
+
+    if debts or balances:
+        lines.append("<i>💳 Счета и долги меняются в своих разделах.</i>")
+
+    return "\n".join(lines)
+
+
+def format_capital_snapshot(
+    items: list, prev_items: list | None, snapshot_date: date_type
+) -> str:
+    """Formats a frozen capital snapshot grouped by assets/liabilities with diffs."""
+    prev_map: dict[tuple[str, str], Decimal] = {}
+    if prev_items:
+        for item in prev_items:
+            prev_map[(item.type, item.name)] = item.amount
+
+    has_prev = bool(prev_items)
+    date_str = format_date_ru(snapshot_date)
+    lines = [f"📸 <b>Снимок капитала</b>\n\n📅 {date_str}\n"]
+
+    assets = [i for i in items if i.type == "A"]
+    liabilities = [i for i in items if i.type == "P"]
+
+    def _section(title: str, rows: list) -> tuple[Decimal, Decimal]:
+        lines.append(title)
+        total = Decimal("0")
+        prev_total = Decimal("0")
+        for item in rows:
+            key = (item.type, item.name)
+            if not has_prev:
+                suffix = ""
+            elif key in prev_map:
+                suffix = _diff_suffix(item.amount - prev_map[key], is_new=False)
+                prev_total += prev_map[key]
+            else:
+                suffix = _diff_suffix(Decimal("0"), is_new=True)
+            lines.append(
+                f"  {html.escape(item.name)}:  "
+                f"<b>{format_money(float(item.amount))}</b>{suffix}"
+            )
+            total += item.amount
+        if not rows:
+            lines.append("  <i>Нет данных</i>")
+        return total, prev_total
+
+    total_a, prev_a = _section("💚 <b>АКТИВЫ</b>", assets)
+    a_suffix = _diff_suffix(total_a - prev_a, is_new=False) if has_prev else ""
+    lines.append(f"  <b>Итого активов:  {format_money(float(total_a))}</b>{a_suffix}")
+
+    lines.append("")
+    total_l, prev_l = _section("🔴 <b>ПАССИВЫ</b>", liabilities)
+    l_suffix = _diff_suffix(total_l - prev_l, is_new=False) if has_prev else ""
+    lines.append(f"  <b>Итого пассивов:  {format_money(float(total_l))}</b>{l_suffix}")
+
+    net = total_a - total_l
+    prev_net = prev_a - prev_l
+    sign = "+" if net >= 0 else ""
+    net_suffix = _diff_suffix(net - prev_net, is_new=False) if has_prev else ""
+    lines.append(
+        f"\n<b>Чистый капитал:  {sign}{format_money(float(net))}</b>{net_suffix}"
+    )
     return "\n".join(lines)
 
 

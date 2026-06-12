@@ -5,6 +5,7 @@ from aiogram import Router
 from .accounts import router as accounts_router
 from .admin import router as admin_router
 from .budgets import router as budgets_router
+from .capital import router as capital_router
 from .categories import router as categories_router
 from .debts import router as debts_router
 from .delete import router as delete_router
@@ -21,9 +22,7 @@ from .records import parse_record_line as parse_record_line
 from .records import router as records_router
 from .records_edit import router as records_edit_router
 from .reports import router as reports_router
-from .savings import router as savings_router
 from .settings import router as settings_router
-from .wealth import router as wealth_router
 
 router = Router()
 router.include_router(admin_router)
@@ -38,8 +37,7 @@ router.include_router(records_edit_router)
 router.include_router(reports_router)
 router.include_router(delete_router)
 router.include_router(accounts_router)
-router.include_router(savings_router)
-router.include_router(wealth_router)
+router.include_router(capital_router)
 router.include_router(goals_router)
 router.include_router(debts_router)
 router.include_router(payments_router)

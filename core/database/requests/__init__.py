@@ -150,8 +150,9 @@ from .reports import (
     search_records,
 )
 from .savings import (
-    add_snapshot_item,
     add_wealth_item,
+    collect_capital_items,
+    create_snapshot_from_wealth,
     delete_snapshot,
     delete_snapshot_item,
     delete_wealth_item,
@@ -229,8 +230,9 @@ __all__ = [
     "seed_default_categories",
     "suggest_category",
     # savings + wealth
-    "add_snapshot_item",
     "add_wealth_item",
+    "collect_capital_items",
+    "create_snapshot_from_wealth",
     "delete_snapshot",
     "delete_snapshot_item",
     "delete_wealth_item",

@@ -273,8 +273,8 @@ def _build_backup_sync(
             )
 
         if snapshot_items:
-            pd.DataFrame(snapshot_items, columns=["Название", "Сумма"]).to_excel(
-                writer, sheet_name="Накопления", index=False
+            pd.DataFrame(snapshot_items, columns=["Тип", "Название", "Сумма"]).to_excel(
+                writer, sheet_name="Снимок капитала", index=False
             )
 
         if wealth_items:

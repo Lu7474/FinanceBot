@@ -28,8 +28,7 @@ FinanceBot/
 │   │   ├── reports.py          # Отчёты: по категориям / структура по месяцам / годовой; сравнение и переключение периода
 │   │   ├── delete.py           # Удаление записей с подтверждением
 │   │   ├── accounts.py         # Управление счетами
-│   │   ├── savings.py          # Накопления: снимки баланса
-│   │   ├── wealth.py           # Активы и пассивы (имущество и долги): CRUD
+│   │   ├── capital.py          # Капитал: живой список активов/пассивов (+ виртуальные строки счетов/долгов), снимки и история
 │   │   ├── records_edit.py     # Редактирование отдельных записей из истории
 │   │   ├── categories.py       # Пользовательские категории + суггестия при вводе
 │   │   ├── budgets.py          # Месячные бюджеты по категориям
@@ -51,7 +50,7 @@ FinanceBot/
 │           ├── reports.py      # categories_summary, history_data, monthly/yearly/stacked/search
 │           ├── accounts.py     # CRUD счетов, балансы, переводы
 │           ├── categories.py   # UserCategory + suggest/learn keywords + seed_defaults
-│           ├── savings.py      # snapshots, items, wealth-items
+│           ├── savings.py      # snapshots, items (type A/P), wealth-items, collect_capital_items, create_snapshot_from_wealth
 │           ├── budgets.py      # CRUD бюджетов, alert-логика, сброс флагов
 │           ├── goals.py        # CRUD целей, deposit/withdraw, complete
 │           ├── debts.py        # CRUD долгов, частичные платежи, выборка для напоминаний
@@ -60,7 +59,7 @@ FinanceBot/
 │           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 649 pytest-тестов
+├── tests/                      # 684 pytest-теста
 └── requirements.txt
 ```
 
@@ -129,7 +128,8 @@ items: relationship → SavingsItem (cascade delete)
 ```
 id: int (PK)
 snapshot_id: int (FK → SavingsSnapshot.id, CASCADE)
-name: str (max 50)
+type: str  — "A" (актив) или "P" (пассив), default "A"
+name: str (max 120)
 amount: Decimal(14, 2)
 ```
 
@@ -335,23 +335,14 @@ waiting_for_acc_hist_page
 waiting_for_transfers_page  — пагинация журнала переводов
 ```
 
-### SavingsStates
+### CapitalStates
 ```
-choosing_names_source    — использовать прошлые названия или ввести новые
-entering_amounts         — итеративный ввод сумм по шаблону
-confirming_snapshot      — подтверждение перед сохранением
-entering_new_field_name  — ввод нового поля
-entering_new_field_amount
-editing_item_amount
-```
-
-### WealthStates
-```
-choosing_type     — актив или пассив
-entering_name
-entering_amount
-entering_note
-editing_amount
+choosing_type            — добавление: актив или пассив
+entering_name            — добавление: название
+entering_amount          — добавление: сумма
+entering_note            — добавление: необязательная заметка
+editing_amount           — изменение суммы ручного актива/пассива
+editing_snapshot_amount  — изменение суммы строки снимка
 ```
 
 ### RecordEditStates
@@ -478,14 +469,14 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
   [Ещё]
 
 Подменю «Ещё» (more_menu_keyboard, more.py) — второй экран reply-клавиатуры:
-  [Накопления] [Категории]
+  [Капитал] [Категории]
   [Бюджеты] [Цели]
   [Долги] [Платежи]
   [Семья] [Настройки]
   [Экспорт] [Импорт]
   [Назад]
 
-Активы/Пассивы (wealth) — inline-кнопка «💰 Активы/Пассивы» внутри раздела «Накопления».
+Кнопка «Накопления» остаётся легаси-алиасом «Капитала» (is_capital).
 ```
 
 ### Добавление записи (кнопка)
@@ -550,13 +541,16 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
     → история конкретного счёта (с пагинацией и фильтром по типу: все / расходы / доходы)
 ```
 
-### Накопления
+### Капитал
 ```
-[Накопления]
-    → использовать прошлые названия или ввести новые
-    → итеративный ввод сумм
-    → подтверждение → SavingsSnapshot + SavingsItem → БД
-    → график динамики роста
+[Капитал]
+    → живой список: ручные WealthItem (A/P)
+      + виртуальные строки 💳 из балансов счетов (>0 актив, <0 пассив) и открытых долгов (I актив, O пассив)
+      → format_capital(): итоги активов/пассивов, чистый капитал, дифф к последнему снимку
+    → ➕/✏️/🗑 — CRUD только ручных WealthItem; счета/долги read-only
+    → 📸 Снимок → collect_capital_items() → create_snapshot_from_wealth()
+      (замораживает срез в SavingsSnapshot + SavingsItem с type A/P; перезапись за сегодня — через подтверждение)
+    → 🕘 История → навигация ◀▶ по датам, format_capital_snapshot() с диффом по (type, name), итогам и чистому капиталу
 ```
 
 ### Категории
@@ -634,7 +628,7 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 [/backup]
     → get_all_records_for_export() + get_all_budgets_for_backup()
       + get_latest_snapshot_for_backup() + get_wealth_items_for_backup()
-    → _build_backup_sync()           — 4 листа: Записи / Бюджеты / Накопления / Активы
+    → _build_backup_sync()           — 4 листа: Записи / Бюджеты / Снимок капитала (Тип/Название/Сумма) / Активы
     → отправка файла
 ```
 
@@ -786,7 +780,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (649)
+## Тесты (684)
 
 ```bash
 pytest tests/ -v
@@ -800,7 +794,7 @@ pytest tests/ -v
 | test_accounts.py | Счета, переводы, балансы |
 | test_accounts_extended.py | Расширенные сценарии счетов |
 | test_records_edit.py | Редактирование записей |
-| test_savings.py | Накопления: снимки, динамика |
+| test_capital.py | Капитал: активы/пассивы, виртуальные строки счетов/долгов, снимки, история+дифф |
 | test_categories.py | Категории: CRUD, суггестия, ключевые слова |
 | test_utils.py | format_money, графики |
 | test_utils_extended.py | Расширенные утилиты |

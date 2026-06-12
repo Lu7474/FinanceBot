@@ -128,11 +128,17 @@ def is_accounts(message: Message) -> bool:
     return (message.text or "").strip().lower() in ("счета", "💳 счета")
 
 
-def is_savings(message: Message) -> bool:
-    """Проверяет, является ли сообщение командой 'Накопления'."""
+def is_capital(message: Message) -> bool:
+    """Проверяет команду 'Капитал' (вкл. легаси-алиас 'Накопления')."""
     if not message.text:
         return False
-    return (message.text or "").strip().lower() in ("накопления", "💰 накопления")
+    return (message.text or "").strip().lower() in (
+        "капитал",
+        "💼 капитал",
+        "📊 капитал",
+        "накопления",
+        "💰 накопления",
+    )
 
 
 def is_categories(message: Message) -> bool:
@@ -222,7 +228,7 @@ def is_main_menu_button(message: Message) -> bool:
             is_report(message),
             is_delete(message),
             is_accounts(message),
-            is_savings(message),
+            is_capital(message),
             is_categories(message),
             is_budgets(message),
             is_export(message),
@@ -300,25 +306,15 @@ class AdminStates(StatesGroup):
     search_query = State()
 
 
-class SavingsStates(StatesGroup):
-    """States for savings snapshots workflow."""
+class CapitalStates(StatesGroup):
+    """States for the Capital section: manual item CRUD + snapshot row editing."""
 
-    choosing_names_source = State()  # choose: use last names or enter new
-    entering_amounts = State()  # iterative amount input from template
-    confirming_snapshot = State()  # review before saving
-    entering_new_field_name = State()  # new field name (create or add to existing)
-    entering_new_field_amount = State()
-    editing_item_amount = State()
-
-
-class WealthStates(StatesGroup):
-    """States for wealth items (assets/liabilities) workflow."""
-
-    choosing_type = State()
-    entering_name = State()
-    entering_amount = State()
-    entering_note = State()
-    editing_amount = State()
+    choosing_type = State()  # add: pick asset/liability
+    entering_name = State()  # add: item name
+    entering_amount = State()  # add: item amount
+    entering_note = State()  # add: optional note
+    editing_amount = State()  # edit a manual wealth item amount
+    editing_snapshot_amount = State()  # edit a frozen snapshot row amount
 
 
 class RecordEditStates(StatesGroup):
