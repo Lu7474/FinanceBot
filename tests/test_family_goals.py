@@ -18,6 +18,7 @@ from core.database.requests import (
     delete_goal,
     deposit_goal,
     dissolve_family,
+    get_family_members,
     get_goal,
     get_goal_contributions,
     get_goals,
@@ -263,3 +264,53 @@ async def test_dissolve_converts_shared_goal_to_personal(session):
     assert revived.user_id == owner
     assert revived.current_amount == Decimal("5000")
     assert await _offset(session, member_acc) == Decimal("-5000")
+
+
+# ==================== Notify other members on deposit/withdraw ====================
+
+
+@pytest.mark.asyncio
+async def test_notify_excludes_actor_and_formats_withdraw(session):
+    from unittest.mock import AsyncMock
+
+    from core.handlers.goals import _notify_family_goal_move
+
+    owner, member, fam_id = await _family_with_member(session)
+    await session.commit()
+    members = await get_family_members(session, fam_id)
+    member_user = next(m for m in members if m.id == member)
+
+    bot = AsyncMock()
+    await _notify_family_goal_move(
+        bot, members, owner, "Иван", "Отпуск", Decimal("5000"), "withdraw"
+    )
+
+    # Only the member is notified — the actor (owner) is skipped
+    assert bot.send_message.await_count == 1
+    args, kwargs = bot.send_message.await_args
+    assert args[0] == member_user.tg_id
+    assert "снял" in args[1] and "5 000₽" in args[1] and "Отпуск" in args[1]
+    assert kwargs["parse_mode"] == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_notify_deposit_text_and_block_resilient(session):
+    from unittest.mock import AsyncMock
+
+    from core.handlers.goals import _notify_family_goal_move
+
+    owner, member, fam_id = await _family_with_member(session)
+    await session.commit()
+    members = await get_family_members(session, fam_id)
+
+    bot = AsyncMock()
+    bot.send_message.side_effect = Exception("bot blocked by user")
+    # A member who blocked the bot must not break the call
+    await _notify_family_goal_move(
+        bot, members, member, "Мария", "Отпуск", Decimal("3000"), "deposit"
+    )
+
+    # Actor (member) excluded → only the owner is targeted
+    assert bot.send_message.await_count == 1
+    args, _ = bot.send_message.await_args
+    assert "внёс" in args[1] and "3 000₽" in args[1]

@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from config import MAX_GOAL_AMOUNT, MAX_GOAL_NAME_LENGTH
-from core.database.models import async_session
+from core.database.models import User, async_session
 from core.database.requests import (
     complete_goal,
     create_goal,
@@ -17,6 +17,7 @@ from core.database.requests import (
     deposit_goal,
     get_accounts,
     get_family,
+    get_family_members,
     get_goal,
     get_goal_contributions,
     get_goal_deposits,
@@ -580,6 +581,35 @@ async def goal_deposit_skip_note(
     )
 
 
+async def _notify_family_goal_move(
+    bot,
+    members: list[User],
+    actor_id: int,
+    actor_name: str,
+    goal_name: str,
+    amount: Decimal,
+    kind: str,
+) -> None:
+    """Notify other family members about a deposit/withdrawal on a shared goal.
+
+    kind: "deposit" | "withdraw". Best-effort: a member who blocked the bot is skipped.
+    """
+    sum_txt = f"{amount:,.0f}".replace(",", " ")
+    name = html.escape(actor_name or "Кто-то")
+    goal = html.escape(goal_name)
+    if kind == "deposit":
+        text = f"💰 <b>{name}</b> внёс <b>{sum_txt}₽</b> в общую цель «{goal}»."
+    else:
+        text = f"📤 <b>{name}</b> снял <b>{sum_txt}₽</b> из общей цели «{goal}»."
+    for m in members:
+        if m.id == actor_id:
+            continue
+        try:
+            await bot.send_message(m.tg_id, text, parse_mode="HTML")
+        except Exception:
+            continue  # member blocked bot / chat unavailable — skip
+
+
 async def _execute_deposit(
     message: Message,
     state: FSMContext,
@@ -599,10 +629,23 @@ async def _execute_deposit(
             goal = await get_goal(session, goal_id, user_db_id)
             achieved = bool(goal and goal.current_amount >= goal.target_amount)
             can_manage = bool(goal and goal.user_id == user_db_id)
+            family_id = goal.family_id if goal else None
+            goal_name = goal.name if goal else ""
+            members: list[User] = []
+            actor_name = "Кто-то"
+            if family_id is not None:
+                members = await get_family_members(session, family_id)
+                actor = await session.get(User, user_db_id)
+                actor_name = actor.name if actor and actor.name else "Кто-то"
             await session.commit()
     except ValueError as e:
         await _handle_goal_op_error(message, state, e, user_db_id, callback=callback)
         return
+
+    if family_id is not None:
+        await _notify_family_goal_move(
+            message.bot, members, user_db_id, actor_name, goal_name, amount, "deposit"
+        )
 
     text = f"✅ Добавлено <b>{amount:,.0f}₽</b> к цели.".replace(",", " ")
     if achieved and can_manage:
@@ -815,10 +858,24 @@ async def _execute_withdraw(
     try:
         async with async_session() as session:
             await withdraw_goal(session, goal_id, user_db_id, amount, note, account_id)
+            goal = await get_goal(session, goal_id, user_db_id)
+            family_id = goal.family_id if goal else None
+            goal_name = goal.name if goal else ""
+            members: list[User] = []
+            actor_name = "Кто-то"
+            if family_id is not None:
+                members = await get_family_members(session, family_id)
+                actor = await session.get(User, user_db_id)
+                actor_name = actor.name if actor and actor.name else "Кто-то"
             await session.commit()
     except ValueError as e:
         await _handle_goal_op_error(message, state, e, user_db_id, callback=callback)
         return
+
+    if family_id is not None:
+        await _notify_family_goal_move(
+            message.bot, members, user_db_id, actor_name, goal_name, amount, "withdraw"
+        )
 
     text = f"📤 Снято <b>{amount:,.0f}₽</b> с цели.".replace(",", " ")
 
