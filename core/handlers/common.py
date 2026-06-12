@@ -296,6 +296,7 @@ class AdminStates(StatesGroup):
 
     in_admin = State()
     broadcast_text = State()
+    dm_text = State()  # ввод текста личного сообщения одному юзеру
     search_query = State()
 
 

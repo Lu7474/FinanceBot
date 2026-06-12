@@ -377,6 +377,11 @@ async def cb_user_card(query: CallbackQuery, state: FSMContext) -> None:
             ],
             [
                 InlineKeyboardButton(
+                    text="✉️ Написать", callback_data=f"adm_dm_{tg_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="↩ К списку", callback_data=f"adm_users_{page}"
                 )
             ],
@@ -793,3 +798,70 @@ async def cb_bc_confirm(query: CallbackQuery, state: FSMContext) -> None:
         result += f"\nНе доставлено: {failed}"
     await state.update_data(broadcast_text=None, broadcast_tg_ids=None)
     await get_message(query).answer(result, reply_markup=_back_kb())
+
+
+# ==================== Личное сообщение юзеру (DM) ====================
+
+_DM_PREFIX = "✉️ Сообщение от поддержки FinanceBot:\n\n"
+
+
+@router.callback_query(AdminStates.in_admin, F.data.startswith("adm_dm_"))
+async def cb_dm_start(query: CallbackQuery, state: FSMContext) -> None:
+    tg_id = int((query.data or "")[7:])  # "adm_dm_" = 7 chars
+    await state.update_data(dm_tg_id=tg_id)
+    await state.set_state(AdminStates.dm_text)
+    await _safe_edit(
+        get_message(query),
+        f"✉️ <b>Личное сообщение юзеру</b> <code>{tg_id}</code>\n\n"
+        f"Введи текст сообщения.\n/cancel — отмена.",
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+@router.message(AdminStates.dm_text, F.text == "/cancel")
+async def dm_cancel(message: Message, state: FSMContext) -> None:
+    await state.set_state(AdminStates.in_admin)
+    await message.answer(
+        "🔐 <b>Режим администратора</b>\n\nВыбери действие:",
+        parse_mode="HTML",
+        reply_markup=_main_menu_kb(),
+    )
+
+
+@router.message(AdminStates.dm_text, F.text)
+async def dm_text_received(message: Message, state: FSMContext) -> None:
+    if is_main_menu_button(message):
+        await message.answer(
+            "⚠️ Вы в режиме ввода личного сообщения. Отправьте текст или /cancel для отмены."
+        )
+        return
+    fsm = await state.get_data()
+    tg_id = fsm.get("dm_tg_id")
+    if not tg_id:
+        await state.set_state(AdminStates.in_admin)
+        await message.answer("Адресат не найден.", reply_markup=_back_kb())
+        return
+
+    # Финальный текст с подписью поддержки — попадает и в превью, и в отправку
+    final_text = _DM_PREFIX + (message.text or "")
+    # Переиспользуем confirm-флоу рассылки: список из одного tg_id
+    await state.update_data(broadcast_text=final_text, broadcast_tg_ids=[tg_id])
+    await state.set_state(AdminStates.in_admin)
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Отправить", callback_data="adm_bc_confirm"
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="adm_menu"),
+            ]
+        ]
+    )
+    await message.answer(
+        f"✉️ <b>Личное сообщение юзеру</b> <code>{tg_id}</code>:\n\n"
+        f"{html.escape(final_text)}\n\nОтправить?",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
