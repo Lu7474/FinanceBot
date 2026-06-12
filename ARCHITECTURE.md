@@ -11,6 +11,7 @@ FinanceBot/
 ├── core/
 │   ├── utils.py                # format_money, log_exceptions, RU_MONTHS, SYSTEM_KEYWORDS
 │   ├── charts.py               # Генерация PNG-графиков (matplotlib)
+│   ├── error_tracker.py        # In-memory счётчик ERROR/CRITICAL за 24ч для admin-статистики
 │   ├── reports.py              # Построение текста отчётов
 │   ├── middleware.py           # RateLimitMiddleware, UserMiddleware
 │   ├── keyboards/              # ReplyKeyboard и InlineKeyboard, разбито по доменам (пакет, re-export через __init__.py)
@@ -59,7 +60,7 @@ FinanceBot/
 │           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 640 pytest-тестов
+├── tests/                      # 649 pytest-тестов
 └── requirements.txt
 ```
 
@@ -739,6 +740,22 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
     → [🔔 Уведомления] (settings:notifications) → экран уведомлений с кнопкой «Назад»
 ```
 
+### Админ-статистика (`core/handlers/admin.py`)
+```
+/admin → [📊 Статистика] (adm_stats)
+    → get_bot_stats(): пользователи, баны, счета, записи, новые сегодня/неделя,
+      активные за неделю, DAU за сегодня (distinct авторы несистемных записей)
+    → get_retention_stats(): когорта 7д+ (зареганы ≥7д назад), retained (из них
+      ≥1 несистемная запись за 7д), churned, retention %
+    → get_error_count_24h(): счётчик ERROR/CRITICAL за 24ч (in-memory deque,
+      core/error_tracker.py; ✅/🔴; обнуляется при рестарте = деплое)
+
+    [📈 Динамика] (adm_growth) → отдельное фото:
+        get_daily_registrations() + get_daily_active_users() (func.date по МСК-дню,
+        непрерывный ряд за 30 дней) → build_admin_growth_chart(): бары регистраций
+        + линия DAU на двух осях Y (ThreadPoolExecutor, таймаут 10 с)
+```
+
 ## Оптимизации
 
 - **CASE WHEN** — доходы и расходы считаются одним запросом
@@ -769,7 +786,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (640)
+## Тесты (649)
 
 ```bash
 pytest tests/ -v
@@ -802,7 +819,8 @@ pytest tests/ -v
 | test_family_goals.py | Семейные цели: общая цель, взносы участников, атрибуция, права владельца |
 | test_notifications.py | Уведомления: форматтеры сводок (weekly/monthly/daily), DB-выборки |
 | test_family.py | Семья: membership, инвайт-коды, лимит участников, общие сводки и разбивки, права владельца |
-| test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка |
+| test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка, DAU/retention, динамика по дням |
+| test_error_tracker.py | Счётчик ошибок 24ч: учёт ERROR/CRITICAL, окно, игнор INFO/WARNING |
 | test_charts.py | Генерация графиков (matplotlib) |
 | test_middleware.py | RateLimitMiddleware и UserMiddleware |
 | test_set_user.py | Регистрация пользователя, дефолтный счёт |
