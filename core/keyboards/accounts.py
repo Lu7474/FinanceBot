@@ -31,6 +31,11 @@ def accounts_menu_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🔁 Переводы", callback_data="acc_transfers"),
             ],
+            [
+                InlineKeyboardButton(
+                    text="💸 Сколько могу потратить", callback_data="acc_free"
+                ),
+            ],
         ]
     )
 

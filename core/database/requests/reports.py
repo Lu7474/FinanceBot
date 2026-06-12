@@ -1,6 +1,8 @@
 """Aggregated read queries used by reports & history views."""
 
-from datetime import datetime
+import calendar
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 from zoneinfo import ZoneInfo
@@ -10,10 +12,11 @@ from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
-from core.database.models import Record, moscow_now
-from core.utils import parse_search_query
+from core.database.models import Goal, GoalDeposit, Payment, Record, moscow_now
+from core.utils import parse_search_query, today_msk
 
 from ._common import SYSTEM_CATEGORIES, apply_period_filter
+from .accounts import get_account_balances
 
 
 async def get_categories_summary(
@@ -408,6 +411,79 @@ async def get_yearly_report(
         }
         for row in rows
     ]
+
+
+@dataclass
+class FreeToSpend:
+    """«Свободные деньги» — сводка трёх источников по личному scope."""
+
+    free: Decimal  # итог: total_balance − earmark − upcoming_payments (не клампится)
+    total_balance: Decimal  # Σ балансов счетов (уже за вычетом привязанных депозитов)
+    earmark: Decimal  # непривязанный earmark активных целей, >= 0
+    upcoming_payments: Decimal  # сумма активных платежей до конца текущего месяца
+    payments_no_amount: int  # счётчик платежей с плавающей суммой (amount IS NULL)
+
+
+async def get_free_to_spend(
+    session: AsyncSession,
+    user_id: int,
+    balances: Optional[List[tuple]] = None,
+) -> FreeToSpend:
+    """Сколько пользователь может потратить = баланс − отложенное в цели − платежи.
+
+    Личный scope (только свои счета/взносы/платежи). Привязанные к счёту депозиты
+    в цели уже уменьшили balance_offset, поэтому из earmark берём ТОЛЬКО
+    непривязанную часть (account_id IS NULL) — иначе двойной счёт.
+
+    balances — уже посчитанные [(Account, balance), ...] для переиспользования
+    (экран «Мои счета»); если None — считаем сами.
+    """
+    if balances is None:
+        balances = await get_account_balances(session, user_id)
+    total_balance = sum((balance for _, balance in balances), Decimal("0"))
+
+    # Непривязанный net-earmark активных целей; net < 0 клампим в 0.
+    earmark_raw = await session.scalar(
+        select(func.coalesce(func.sum(GoalDeposit.amount), 0))
+        .select_from(GoalDeposit)
+        .join(Goal, Goal.id == GoalDeposit.goal_id)
+        .where(
+            GoalDeposit.user_id == user_id,
+            GoalDeposit.account_id.is_(None),
+            Goal.is_completed.is_(False),
+        )
+    )
+    earmark = Decimal(str(earmark_raw or 0))
+    if earmark < 0:
+        earmark = Decimal("0")
+
+    # Активные платежи с due_date до конца текущего месяца (включая просроченные).
+    today = today_msk()
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    month_end = date(today.year, today.month, last_day)
+    rows = await session.execute(
+        select(Payment.amount).where(
+            Payment.user_id == user_id,
+            Payment.is_active.is_(True),
+            Payment.due_date <= month_end,
+        )
+    )
+    upcoming = Decimal("0")
+    no_amount = 0
+    for (amount,) in rows:
+        if amount is None:
+            no_amount += 1
+        else:
+            upcoming += Decimal(str(amount))
+
+    free = total_balance - earmark - upcoming
+    return FreeToSpend(
+        free=free,
+        total_balance=total_balance,
+        earmark=earmark,
+        upcoming_payments=upcoming,
+        payments_no_amount=no_amount,
+    )
 
 
 async def get_categories_for_year(

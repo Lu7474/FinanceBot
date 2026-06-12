@@ -409,10 +409,11 @@ def test_report_type_keyboard():
 
 def test_accounts_menu_keyboard():
     kb = accounts_menu_keyboard()
-    assert len(kb.inline_keyboard) == 4
+    assert len(kb.inline_keyboard) == 5
     callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "acc_create" in callbacks and "acc_rename" in callbacks
     assert "acc_transfers" in callbacks
+    assert "acc_free" in callbacks
 
 
 def test_wealth_menu_keyboard():

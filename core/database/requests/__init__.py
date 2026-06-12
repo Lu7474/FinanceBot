@@ -137,9 +137,11 @@ from .records import (
     update_record,
 )
 from .reports import (
+    FreeToSpend,
     get_categories_for_year,
     get_categories_summary,
     get_daily_balance_for_month,
+    get_free_to_spend,
     get_history_data,
     get_monthly_totals,
     get_stacked_data,
@@ -188,9 +190,11 @@ __all__ = [
     "get_totals",
     "update_record",
     # reports
+    "FreeToSpend",
     "get_categories_for_year",
     "get_categories_summary",
     "get_daily_balance_for_month",
+    "get_free_to_spend",
     "get_history_data",
     "get_monthly_totals",
     "get_stacked_data",

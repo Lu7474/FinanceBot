@@ -27,6 +27,7 @@ from core.database.requests import (
     get_account_balances,
     get_account_record_count,
     get_accounts,
+    get_free_to_spend,
     get_history_data,
     get_transfer,
     get_transfers,
@@ -47,7 +48,7 @@ from core.keyboards import (
     transfer_card_keyboard,
     transfers_list_keyboard,
 )
-from core.utils import clean_text, log_exceptions
+from core.utils import clean_text, format_money, log_exceptions
 
 from .common import (
     AccountStates,
@@ -61,8 +62,11 @@ from .history import build_history_page
 router = Router()
 
 
-def _build_accounts_text(balances: list[tuple]) -> str:
-    """Формирует текст с балансами по счетам."""
+def _build_accounts_text(balances: list[tuple], free: Decimal | None = None) -> str:
+    """Формирует текст с балансами по счетам.
+
+    free — если задан, под «Всего:» добавляется строка «Свободно: X ₽».
+    """
     if not balances:
         return "💳 <b>Мои счета</b>\n\nСчетов нет. Нажмите ➕ Создать."
 
@@ -77,6 +81,10 @@ def _build_accounts_text(balances: list[tuple]) -> str:
     sign = "-" if total < 0 else ""
     total_str = f"{sign}{abs(total):,.0f}₽".replace(",", " ")
     lines.append(f"\n<b>Всего:  {total_str}</b>")
+    if free is not None:
+        free_sign = "-" if free < 0 else ""
+        free_str = f"{free_sign}{abs(free):,.0f}₽".replace(",", " ")
+        lines.append(f"💸 Свободно:  {free_str}")
     return "\n".join(lines)
 
 
@@ -92,9 +100,10 @@ async def handle_accounts(message: Message, state: FSMContext, **kwargs) -> None
 
     async with async_session() as session:
         balances = await get_account_balances(session, user_id)
+        fts = await get_free_to_spend(session, user_id, balances=balances)
 
     await message.answer(
-        _build_accounts_text(balances),
+        _build_accounts_text(balances, free=fts.free),
         reply_markup=accounts_menu_keyboard(),
         parse_mode="HTML",
     )
@@ -454,12 +463,72 @@ async def _back_to_accounts(
     if user_id:
         async with async_session() as session:
             balances = await get_account_balances(session, user_id)
+            fts = await get_free_to_spend(session, user_id, balances=balances)
         await get_message(callback).edit_text(
-            _build_accounts_text(balances),
+            _build_accounts_text(balances, free=fts.free),
             reply_markup=accounts_menu_keyboard(),
             parse_mode="HTML",
         )
     await state.clear()
+    await callback.answer()
+
+
+# --- Сколько могу потратить (свободные деньги) ---
+
+
+def _plural_payments(n: int) -> str:
+    """Russian plural for «платёж» (1 платёж / 2 платежа / 5 платежей)."""
+    if 11 <= n % 100 <= 14:
+        return "платежей"
+    last = n % 10
+    if last == 1:
+        return "платёж"
+    if 2 <= last <= 4:
+        return "платежа"
+    return "платежей"
+
+
+def _build_free_to_spend_text(fts) -> str:
+    """Экран «Сколько могу потратить» с разбивкой — объясняет, откуда число."""
+    head = f"💸 <b>Свободно:  {format_money(fts.free)}</b>"
+    if fts.free < 0:
+        head += "\n⚠️ Перерасход — обязательства больше доступных денег."
+
+    lines = [head, "", "<b>Откуда число:</b>"]
+    lines.append(f"  Баланс счетов:  {format_money(fts.total_balance)}")
+    if fts.earmark > 0:
+        lines.append(f"  − Отложено в цели:  {format_money(fts.earmark)}")
+    if fts.upcoming_payments > 0:
+        lines.append(
+            f"  − Платежи до конца месяца:  {format_money(fts.upcoming_payments)}"
+        )
+    if fts.payments_no_amount > 0:
+        n = fts.payments_no_amount
+        lines.append(
+            f"    (+ {n} {_plural_payments(n)} без точной суммы — не учтены)"
+        )
+    if fts.earmark == 0 and fts.upcoming_payments == 0:
+        lines.append("\nНет отложенного в цели и платежей — весь баланс свободен.")
+    else:
+        lines.append("\nСвободно = баланс − отложенное в цели − платежи месяца.")
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data == "acc_free")
+@log_exceptions("Ошибка при расчёте свободных денег")
+async def handle_acc_free(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Показывает экран «Сколько могу потратить» с разбивкой."""
+    user_id = await get_user_id_from_event(callback, kwargs)
+    if not user_id:
+        await callback.answer()
+        return
+    async with async_session() as session:
+        fts = await get_free_to_spend(session, user_id)
+    await get_message(callback).edit_text(
+        _build_free_to_spend_text(fts),
+        reply_markup=acc_back_keyboard(),
+        parse_mode="HTML",
+    )
     await callback.answer()
 
 
