@@ -59,7 +59,7 @@ FinanceBot/
 │           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 615 pytest-тестов
+├── tests/                      # 640 pytest-тестов
 └── requirements.txt
 ```
 
@@ -769,7 +769,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (615)
+## Тесты (640)
 
 ```bash
 pytest tests/ -v

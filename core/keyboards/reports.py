@@ -1,4 +1,4 @@
-"""Keyboards for reports: year/month pickers, report type, weekday report."""
+"""Keyboards for reports: year/month pickers, report type."""
 
 from functools import lru_cache
 

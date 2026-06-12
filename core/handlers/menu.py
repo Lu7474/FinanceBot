@@ -104,6 +104,7 @@ async def handle_help(message: Message, state: FSMContext, **kwargs) -> None:
 /cancel — отменить текущую операцию
 /backup — скачать резервную копию данных
 /notifications — настройка уведомлений
+/join &lt;код&gt; — вступить в семью по коду приглашения
 
 <b>Основные функции:</b>
 <b>Доход / Расход</b> — добавить запись
