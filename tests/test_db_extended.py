@@ -207,23 +207,26 @@ async def test_get_records_year(session):
     await session.refresh(user)
 
     user_id = user.id  # Сохраняем ID
-    current_year = datetime.now(ZoneInfo("Europe/Moscow")).year
+    now = datetime.now(ZoneInfo("Europe/Moscow")).replace(tzinfo=None)
+    current_year = now.year
 
-    # Создаем записи за текущий и прошлый год
+    # Создаем записи за текущий и прошлый год.
+    # Даты текущего года берём <= now: period-filter "year" отсекает будущее
+    # верхней границей end_of_today.
     records = [
         Record(
             user_id=user_id,
             operation="+",
             amount=Decimal("100"),
             category="current_year",
-            created_at=datetime(current_year, 6, 15),
+            created_at=datetime(current_year, 1, 1),
         ),
         Record(
             user_id=user_id,
             operation="-",
             amount=Decimal("50"),
             category="current_year",
-            created_at=datetime(current_year, 12, 15),
+            created_at=now,
         ),
         Record(
             user_id=user_id,
