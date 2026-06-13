@@ -32,6 +32,8 @@ from .export_import import build_export_buffer
 
 router = Router()
 
+DESC_MAX_LEN = 40
+
 PERIOD_NAMES = {
     "day": "сегодня",
     "yesterday": "вчера",
@@ -57,6 +59,7 @@ def build_history_page(
     header: str = "",
     operation_filter: str | None = None,
     category_filter: str | None = None,
+    show_descriptions: bool = False,
 ) -> tuple[str, InlineKeyboardBuilder]:
     """Формирует текст истории и кнопки навигации + фильтров для указанной страницы."""
     remaining = income_sum - expense_sum
@@ -101,7 +104,15 @@ def build_history_page(
         for r in day_records:
             sign = "+" if r.operation == "+" else "-"
             category = html.escape(r.category or "")
-            text += f"   {sign}{float(r.amount):,.0f}₽ {category}\n".replace(",", " ")
+            # Build amount part first; .replace strips the thousands comma —
+            # must run BEFORE appending description (commas in desc must survive).
+            line = f"   {sign}{float(r.amount):,.0f}₽ {category}".replace(",", " ")
+            if show_descriptions and r.description:
+                desc = r.description.strip()
+                if len(desc) > DESC_MAX_LEN:
+                    desc = desc[:DESC_MAX_LEN].rstrip() + "…"
+                line += f" · <i>{html.escape(desc)}</i>"
+            text += line + "\n"
 
         text += "\n"
 
@@ -134,6 +145,10 @@ def build_history_page(
     kb.button(text="📋 Открыть запись", callback_data="hist_open_record")
     kb.button(text="📥 Скачать в Excel", callback_data="hist_export")
     row_sizes.append(2)
+
+    desc_text = "🙈 Скрыть описания" if show_descriptions else "👁 Описания"
+    kb.button(text=desc_text, callback_data="hist_toggle_desc")
+    row_sizes.append(1)
 
     # Filter rows
     all_text = "✓ Все" if operation_filter is None else "Все"
@@ -224,6 +239,7 @@ async def _apply_filter_and_reload(
 
     operation_filter = new_filter.get("operation")
     category_filter = new_filter.get("category")
+    show_desc = data.get("history_show_desc", False)
 
     async with async_session() as session:
         total_count, income_sum, expense_sum, records = await get_history_data(
@@ -265,6 +281,7 @@ async def _apply_filter_and_reload(
         total_count=total_count,
         operation_filter=operation_filter,
         category_filter=category_filter,
+        show_descriptions=show_desc,
     )
     await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
@@ -335,6 +352,7 @@ async def menu_history_period(
         history_income=str(income_sum),
         history_expense=str(expense_sum),
         history_filter={},
+        history_show_desc=False,
     )
 
     text, kb = build_history_page(
@@ -412,6 +430,7 @@ async def menu_history_page(
 
     period_label = data.get("history_period_label", "")
     total_count = data.get("history_total_count", 0)
+    show_desc = data.get("history_show_desc", False)
 
     await state.update_data(history_page=new_page)
     text, kb = build_history_page(
@@ -425,6 +444,74 @@ async def menu_history_page(
         total_count=total_count,
         operation_filter=operation_filter,
         category_filter=category_filter,
+        show_descriptions=show_desc,
+    )
+    if len(text) > MAX_MESSAGE_LENGTH - 100:
+        text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
+
+    await get_message(callback).edit_text(
+        text, reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_history_page, F.data == "hist_toggle_desc"
+)
+@log_exceptions("Ошибка при переключении описаний")
+async def menu_history_toggle_desc(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Toggle inline descriptions in the history list and reload current page."""
+    data = await state.get_data()
+    period = data.get("history_period")
+    if not period:
+        await get_message(callback).edit_text(
+            "Данные истории устарели. Попробуйте снова."
+        )
+        await state.clear()
+        await callback.answer()
+        return
+
+    show_desc = not data.get("history_show_desc", False)
+    period_label = data.get("history_period_label", "")
+    page = data.get("history_page", 0)
+    total_pages = data.get("history_total_pages", 1)
+    total_count = data.get("history_total_count", 0)
+    income_sum = Decimal(data.get("history_income", "0"))
+    expense_sum = Decimal(data.get("history_expense", "0"))
+    history_filter = data.get("history_filter", {})
+    operation_filter = history_filter.get("operation")
+    category_filter = history_filter.get("category")
+    date_from, date_to = _extract_date_range(data)
+
+    user_id = kwargs["user_id"]
+    async with async_session() as session:
+        records = await get_records(
+            session,
+            user_id,
+            period,
+            date_from,
+            date_to,
+            limit=RECORDS_PER_PAGE,
+            offset=page * RECORDS_PER_PAGE,
+            operation_filter=operation_filter,
+            category_filter=category_filter,
+        )
+
+    await state.update_data(history_show_desc=show_desc)
+    text, kb = build_history_page(
+        records,
+        page,
+        total_pages,
+        income_sum,
+        expense_sum,
+        period=period,
+        period_label=period_label,
+        total_count=total_count,
+        operation_filter=operation_filter,
+        category_filter=category_filter,
+        show_descriptions=show_desc,
     )
     if len(text) > MAX_MESSAGE_LENGTH - 100:
         text = text[: MAX_MESSAGE_LENGTH - 150] + "\n\n... (сообщение обрезано)"
@@ -450,6 +537,7 @@ async def menu_history_show_all(
     history_filter = data.get("history_filter", {})
     operation_filter = history_filter.get("operation")
     category_filter = history_filter.get("category")
+    show_desc = data.get("history_show_desc", False)
 
     date_from, date_to = _extract_date_range(data)
 
@@ -486,6 +574,7 @@ async def menu_history_show_all(
         total_count=total_count,
         operation_filter=operation_filter,
         category_filter=category_filter,
+        show_descriptions=show_desc,
     )
 
     if len(text) > MAX_MESSAGE_LENGTH - 100:
@@ -656,6 +745,7 @@ async def menu_history_custom_period(
         history_income=str(income_sum),
         history_expense=str(expense_sum),
         history_filter={},
+        history_show_desc=False,
     )
 
     text, kb = build_history_page(
@@ -734,6 +824,7 @@ async def _restore_history_from_category_picker(
         await callback.answer()
         return
 
+    show_desc = data.get("history_show_desc", False)
     async with async_session() as session:
         records = await get_records(
             session,
@@ -759,6 +850,7 @@ async def _restore_history_from_category_picker(
         total_count=total_count,
         operation_filter=operation_filter,
         category_filter=category_filter,
+        show_descriptions=show_desc,
     )
     await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
@@ -986,6 +1078,7 @@ async def search_back_to_history(
         return
 
     user_id = kwargs["user_id"]
+    show_desc = data.get("history_show_desc", False)
     async with async_session() as session:
         records = await get_records(
             session,
@@ -1011,6 +1104,7 @@ async def search_back_to_history(
         total_count=total_count,
         operation_filter=operation_filter,
         category_filter=category_filter,
+        show_descriptions=show_desc,
     )
     await get_message(callback).edit_text(
         text, reply_markup=kb.as_markup(), parse_mode="HTML"
