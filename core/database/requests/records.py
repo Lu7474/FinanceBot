@@ -233,6 +233,7 @@ async def update_record(
             select(Record)
             .options(selectinload(Record.account))
             .where(Record.id == record_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
