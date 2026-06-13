@@ -65,6 +65,8 @@ async def _return_to_history(
     """Reload history page from DB and display it. Falls back to period selection."""
     from core.keyboards import history_period_keyboard
 
+    from .common import MenuStates
+
     data = await state.get_data()
     period = data.get("history_period")
     if not period:
@@ -73,6 +75,7 @@ async def _return_to_history(
             "За какой период показать историю?",
             reply_markup=history_period_keyboard(),
         )
+        await state.set_state(MenuStates.waiting_for_history_period)
         return
 
     page = data.get("history_page", 0)
@@ -133,8 +136,6 @@ async def _return_to_history(
         history_income=str(income_sum),
         history_expense=str(expense_sum),
     )
-
-    from .common import MenuStates
 
     text, kb = build_history_page(
         records,
