@@ -478,13 +478,14 @@ def parse_edit_amount(text: str):
 def parse_edit_date(text: str, tz: str):
     """Parse 'DD.MM' (current year) or 'DD.MM.YY' date strings.
 
-    Returns timezone-aware datetime at 12:00 or None if invalid/future.
+    Returns naive datetime at 12:00 (tz-local) or None if invalid/future.
+    Naive to match how records are stored (moscow_now / record creation).
     """
     from zoneinfo import ZoneInfo as _ZI
 
     text = text.strip()
     parts = text.split(".")
-    now = datetime.now(_ZI(tz))
+    now = datetime.now(_ZI(tz)).replace(tzinfo=None)
 
     if len(parts) == 2:
         fmt = "%d.%m"
@@ -507,10 +508,10 @@ def parse_edit_date(text: str, tz: str):
     else:
         return None
 
-    aware = parsed.replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=_ZI(tz))
-    if aware > now:
+    result = parsed.replace(hour=12, minute=0, second=0, microsecond=0)
+    if result > now:
         return None
-    return aware
+    return result
 
 
 def parse_flex_date(text: str) -> date_type | None:

@@ -185,6 +185,33 @@ def test_parse_edit_date_rejects_future():
     assert parse_edit_date(text, tz) is None
 
 
+def test_parse_edit_date_returns_naive():
+    """Must return naive datetime to match how records are stored (no tzinfo)."""
+    tz = "Europe/Moscow"
+    past = datetime.now(ZoneInfo(tz)) - timedelta(days=3)
+    result = parse_edit_date(past.strftime("%d.%m"), tz)
+    assert result is not None
+    assert result.tzinfo is None
+
+
+@pytest.mark.asyncio
+async def test_update_record_changes_date(session, user_and_record):
+    """Editing the date persists via update_record (naive datetime, no DB error)."""
+    user, _, record = user_and_record
+    record_id = record.id
+    user_id = user.id
+
+    past = datetime.now(ZoneInfo("Europe/Moscow")) - timedelta(days=1)
+    new_dt = parse_edit_date(past.strftime("%d.%m"), "Europe/Moscow")
+    assert new_dt is not None
+
+    updated = await update_record(session, record_id, user_id, created_at=new_dt)
+
+    assert updated is not None
+    assert updated.created_at.day == past.day
+    assert updated.created_at.month == past.month
+
+
 # ==================== 6. format_record_card contains key fields ====================
 
 
