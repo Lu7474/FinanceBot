@@ -712,7 +712,7 @@ def format_goal_detail(
 
     if deposits:
         lines.append("\n<b>Последние операции:</b>")
-        for d in deposits:
+        for d in reversed(deposits):
             sign = "+" if d.amount > 0 else ""
             amount_str = format_money(abs(float(d.amount)))
             date_str = f"{d.created_at.day} {RU_MONTHS_GEN[d.created_at.month]}"
