@@ -28,9 +28,15 @@ def apply_period_filter(
     elif now.tzinfo is not None:
         now = now.replace(tzinfo=None)
 
+    # Upper bound for "up to today" periods: end of the current day.
+    # Without it, future-dated records (user-edited date) leak into the period.
+    end_of_today = now.replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) + timedelta(days=1)
+
     if within == "day":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        query = query.where(Record.created_at >= start)
+        query = query.where(Record.created_at >= start, Record.created_at < end_of_today)
     elif within == "yesterday":
         yesterday = now - timedelta(days=1)
         start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -40,15 +46,15 @@ def apply_period_filter(
         start = (now - timedelta(days=7)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        query = query.where(Record.created_at >= start)
+        query = query.where(Record.created_at >= start, Record.created_at < end_of_today)
     elif within == "month30":
         start = (now - timedelta(days=30)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        query = query.where(Record.created_at >= start)
+        query = query.where(Record.created_at >= start, Record.created_at < end_of_today)
     elif within == "month":
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        query = query.where(Record.created_at >= start)
+        query = query.where(Record.created_at >= start, Record.created_at < end_of_today)
     elif within == "prev_month":
         first_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         last_prev_month = first_this_month - timedelta(days=1)
@@ -59,7 +65,7 @@ def apply_period_filter(
         query = query.where(Record.created_at.between(start, end))
     elif within == "year":
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        query = query.where(Record.created_at >= start)
+        query = query.where(Record.created_at >= start, Record.created_at < end_of_today)
     elif within == "date" and date_from:
         start = date_from.replace(
             hour=0, minute=0, second=0, microsecond=0, tzinfo=None
