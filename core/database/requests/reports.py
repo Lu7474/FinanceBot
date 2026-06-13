@@ -300,6 +300,44 @@ async def get_daily_balance_for_month(
     return [(int(row.day), Decimal(str(row.net))) for row in rows]
 
 
+async def get_month_income_expense(
+    session: AsyncSession,
+    user_id: int | list[int],
+    year: int,
+    month: int,
+) -> tuple[Decimal, Decimal]:
+    """Raw income/expense totals for a single month. For the balance chart caption.
+
+    Sums positive and negative operations separately (NOT daily net), so
+    intra-day expenses are not swallowed by larger same-day income.
+    SYSTEM_CATEGORIES excluded; user_id accepts a single id or a list.
+    """
+    user_ids = [user_id] if isinstance(user_id, int) else list(user_id)
+    date_from = datetime(year, month, 1)
+    if month == 12:
+        date_to = datetime(year + 1, 1, 1)
+    else:
+        date_to = datetime(year, month + 1, 1)
+
+    income_expr = func.sum(
+        case((Record.operation == "+", Record.amount), else_=0)
+    ).label("income")
+    expense_expr = func.sum(
+        case((Record.operation == "-", Record.amount), else_=0)
+    ).label("expense")
+
+    query = select(income_expr, expense_expr).where(
+        Record.user_id.in_(user_ids),
+        Record.category.not_in(SYSTEM_CATEGORIES),
+        Record.created_at >= date_from,
+        Record.created_at < date_to,
+    )
+    row = (await session.execute(query)).one()
+    income = Decimal(str(row.income)) if row.income is not None else Decimal("0")
+    expense = Decimal(str(row.expense)) if row.expense is not None else Decimal("0")
+    return income, expense
+
+
 async def get_stacked_data(
     session: AsyncSession,
     user_id: int | list[int],

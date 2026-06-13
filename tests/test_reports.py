@@ -130,23 +130,35 @@ def test_format_stacked_caption_folds_tail_into_other():
 
 
 def test_format_balance_caption_empty():
-    text = format_balance_caption([], 2025, 5)
+    text = format_balance_caption([], 2025, 5, Decimal("0"), Decimal("0"))
     assert "Нет данных за месяц" in text
 
 
 def test_format_balance_caption_positive_net():
     daily = [(1, Decimal("1000")), (5, Decimal("-300"))]
-    text = format_balance_caption(daily, 2025, 5)
+    text = format_balance_caption(daily, 2025, 5, Decimal("1000"), Decimal("300"))
     assert "🟢" in text  # net positive
     assert "Доходы" in text and "Расходы" in text
 
 
 def test_format_balance_caption_negative_net_and_extremes():
     daily = [(1, Decimal("100")), (2, Decimal("-500")), (3, Decimal("200"))]
-    text = format_balance_caption(daily, 2025, 5)
-    assert "🔴" in text  # net negative (100-500+200 = -200)
+    text = format_balance_caption(daily, 2025, 5, Decimal("300"), Decimal("500"))
+    assert "🔴" in text  # net negative (300-500 = -200)
     # running: 100, -400, -200 → high=100, low=-400
     assert "Максимум" in text and "Минимум" in text
+
+
+def test_format_balance_caption_intraday_expense_not_swallowed():
+    # Single positive-net day (+20500) that hides intra-day expenses (3800).
+    # Expense must reflect raw totals, not the daily net.
+    daily = [(13, Decimal("20500")), (14, Decimal("1000"))]
+    text = format_balance_caption(
+        daily, 2026, 6, Decimal("25300"), Decimal("3800")
+    )
+    assert "🟢" in text  # net = 21500
+    assert "3 800" in text  # expense not 0
+    assert "25 300" in text  # raw income
 
 
 # ==================== format_yearly_report ====================

@@ -30,6 +30,7 @@ from core.database.requests import (
     get_categories_for_year,
     get_categories_summary,
     get_daily_balance_for_month,
+    get_month_income_expense,
     get_monthly_totals,
     get_records,
     get_stacked_data,
@@ -231,6 +232,9 @@ async def balance_month(callback: CallbackQuery, state: FSMContext, **kwargs) ->
 
     async with async_session() as session:
         daily_data = await get_daily_balance_for_month(session, user_id, year, month)
+        income, expense = await get_month_income_expense(
+            session, user_id, year, month
+        )
 
     if not daily_data:
         await get_message(callback).edit_text(
@@ -240,7 +244,7 @@ async def balance_month(callback: CallbackQuery, state: FSMContext, **kwargs) ->
         return
 
     buf = await build_balance_line_chart(daily_data, year, month)
-    caption = format_balance_caption(daily_data, year, month)
+    caption = format_balance_caption(daily_data, year, month, income, expense)
 
     if buf:
         await get_message(callback).answer_photo(

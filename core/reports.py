@@ -210,12 +210,17 @@ def format_stacked_caption(data: list[dict], operation: str) -> str:
 
 
 def format_balance_caption(
-    daily_data: list[tuple[int, Decimal]], year: int, month: int
+    daily_data: list[tuple[int, Decimal]],
+    year: int,
+    month: int,
+    income: Decimal,
+    expense: Decimal,
 ) -> str:
     """Caption for the monthly balance line chart.
 
-    Income = Σ positive net contributions, expense = Σ negative, итог = net.
-    Also reports the lowest/highest cumulative balance during the month.
+    income/expense are raw monthly totals (summed separately, not daily net),
+    so intra-day expenses aren't swallowed by larger same-day income; итог = net.
+    daily_data provides the lowest/highest cumulative balance during the month.
     """
     month_name = RU_MONTHS[month]
     if not daily_data:
@@ -223,8 +228,6 @@ def format_balance_caption(
             f"📈 <b>Динамика баланса</b> • {month_name} {year}\n\nНет данных за месяц."
         )
 
-    income = sum((v for _, v in daily_data if v > 0), Decimal("0"))
-    expense = sum((-v for _, v in daily_data if v < 0), Decimal("0"))
     net = income - expense
 
     running = Decimal("0")
