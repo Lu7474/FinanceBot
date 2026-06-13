@@ -96,8 +96,8 @@ def yearly_report_type_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Расходы", callback_data="yr_type:expense"),
                 InlineKeyboardButton(text="Доходы", callback_data="yr_type:income"),
+                InlineKeyboardButton(text="Расходы", callback_data="yr_type:expense"),
             ],
             [InlineKeyboardButton(text="← Назад", callback_data="report_section_back")],
         ]
