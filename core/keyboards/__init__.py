@@ -22,6 +22,7 @@ from .budgets import (
 )
 from .capital import (
     capital_back_keyboard,
+    capital_confirm_delete_all_keyboard,
     capital_confirm_snapshot_keyboard,
     capital_history_keyboard,
     capital_menu_keyboard,
@@ -135,6 +136,7 @@ __all__ = [
     "CANCEL_BUTTON",
     "MEMBER_MARKERS",
     "capital_back_keyboard",
+    "capital_confirm_delete_all_keyboard",
     "capital_confirm_snapshot_keyboard",
     "capital_history_keyboard",
     "capital_menu_keyboard",

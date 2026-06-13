@@ -38,6 +38,7 @@ from core.database.requests import (
 )
 from core.keyboards import (
     capital_back_keyboard,
+    capital_confirm_delete_all_keyboard,
     capital_confirm_snapshot_keyboard,
     capital_history_keyboard,
     capital_menu_keyboard,
@@ -651,7 +652,22 @@ async def cb_cap_delete_item(
 async def cb_cap_delete_all(
     callback: CallbackQuery, state: FSMContext, **kwargs
 ) -> None:
-    """Удаляет весь снимок."""
+    """Спрашивает подтверждение перед удалением всего снимка."""
+    snapshot_id = int((callback.data or "").split(":")[1])
+    await get_message(callback).edit_text(
+        "🗑 <b>Удалить весь снимок?</b>\n\nЭто действие нельзя отменить.",
+        reply_markup=capital_confirm_delete_all_keyboard(snapshot_id),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cap_delete_all_confirm:"))
+@log_exceptions("Ошибка при удалении снимка")
+async def cb_cap_delete_all_confirm(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Удаляет весь снимок (после подтверждения)."""
     snapshot_id = int((callback.data or "").split(":")[1])
     user_id = await get_user_id_from_event(callback, kwargs)
     assert isinstance(user_id, int)

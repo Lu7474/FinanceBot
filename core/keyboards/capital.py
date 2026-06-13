@@ -86,6 +86,23 @@ def capital_confirm_snapshot_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def capital_confirm_delete_all_keyboard(snapshot_id: int) -> InlineKeyboardMarkup:
+    """Confirmation before deleting an entire snapshot."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, удалить",
+                    callback_data=f"cap_delete_all_confirm:{snapshot_id}",
+                ),
+                InlineKeyboardButton(
+                    text="Отмена", callback_data=f"cap_delete:{snapshot_id}"
+                ),
+            ],
+        ]
+    )
+
+
 def capital_wealth_items_keyboard(items: List, action: str) -> InlineKeyboardMarkup:
     """Manual wealth items as selectable buttons for edit or delete."""
     builder = InlineKeyboardBuilder()
