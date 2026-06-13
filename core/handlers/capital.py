@@ -46,6 +46,7 @@ from core.keyboards import (
     capital_snapshot_items_keyboard,
     capital_type_keyboard,
     capital_wealth_items_keyboard,
+    main_menu_keyboard,
 )
 from core.utils import (
     clean_text,
@@ -146,8 +147,11 @@ async def handle_capital(message: Message, state: FSMContext, **kwargs) -> None:
 
 @router.callback_query(F.data == "cap_close")
 async def cb_cap_close(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
-    """Закрывает раздел (удаляет сообщение)."""
+    """Возврат в главное меню (как в долгах/целях/платежах)."""
     await state.clear()
+    await get_message(callback).answer(
+        "Главное меню:", reply_markup=main_menu_keyboard()
+    )
     await get_message(callback).delete()
     await callback.answer()
 
