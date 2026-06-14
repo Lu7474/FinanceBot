@@ -915,7 +915,7 @@ def format_payments_list(payments: list, today: date_type) -> str:
 def format_payment_detail(payment, today: date_type) -> str:
     """Renders a single payment card."""
     lines = [f"💳 <b>{html.escape(payment.title)}</b>", ""]
-    lines.append(f"Сумма:    {_payment_amount_str(payment.amount)}")
+    lines.append(f"<b>Сумма:</b> {_payment_amount_str(payment.amount)}")
 
     days_left = (payment.due_date - today).days
     if days_left < 0:
@@ -926,12 +926,12 @@ def format_payment_detail(payment, today: date_type) -> str:
         tail = "завтра"
     else:
         tail = f"через {days_left} дн."
-    lines.append(f"Срок:     {format_date_ru(payment.due_date)} ({tail})")
-    lines.append(f"Период:   {PAYMENT_PERIOD_LABELS.get(payment.period, '')}")
+    lines.append(f"<b>Срок:</b> {format_date_ru(payment.due_date)} ({tail})")
+    lines.append(f"<b>Период:</b> {PAYMENT_PERIOD_LABELS.get(payment.period, '')}")
     if payment.category:
-        lines.append(f"Категория: {html.escape(payment.category)}")
+        lines.append(f"<b>Категория:</b> {html.escape(payment.category)}")
     if payment.last_paid_at:
-        lines.append(f"Оплачен:  {format_date_ru(payment.last_paid_at.date())}")
+        lines.append(f"<b>Оплачен:</b> {format_date_ru(payment.last_paid_at.date())}")
     return "\n".join(lines)
 
 
