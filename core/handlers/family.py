@@ -94,13 +94,13 @@ def _format_summary(
         name = html.escape((m.name or "—"))
         lines.append(
             f"{marker} <b>{name}</b>{you}: "
-            f"расходы {format_money(expense)} | доходы {format_money(income)}"
+            f"доходы {format_money(income)} | расходы {format_money(expense)}"
         )
     balance = total_income - total_expense
     sign = "+" if balance >= 0 else ""
     lines.append("─" * 18)
-    lines.append(f"Итого расходы: {format_money(total_expense)}")
     lines.append(f"Итого доходы:  {format_money(total_income)}")
+    lines.append(f"Итого расходы: {format_money(total_expense)}")
     lines.append(f"Общий баланс:  {sign}{format_money(balance)}")
     lines.append("")
     lines.append("<i>за текущий месяц</i>")
