@@ -23,6 +23,7 @@ from core.keyboards import (
     history_category_filter_keyboard,
     history_period_keyboard,
     main_menu_keyboard,
+    member_marker,
     search_result_keyboard,
 )
 from core.utils import RU_WEEKDAYS, format_money, log_exceptions
@@ -60,9 +61,20 @@ def build_history_page(
     operation_filter: str | None = None,
     category_filter: str | None = None,
     show_descriptions: bool = False,
+    members: list | None = None,
 ) -> tuple[str, InlineKeyboardBuilder]:
-    """Формирует текст истории и кнопки навигации + фильтров для указанной страницы."""
+    """Формирует текст истории и кнопки навигации + фильтров для указанной страницы.
+
+    members задан только для семейной истории — добавляет цветной маркер и имя
+    участника перед суммой; для личной/счёта None (маркер не печатается).
+    """
     remaining = income_sum - expense_sum
+
+    marker_by_uid = None
+    name_by_uid: dict[int, str] = {}
+    if members:
+        marker_by_uid = {m.id: member_marker(i) for i, m in enumerate(members)}
+        name_by_uid = {m.id: (m.name or "—") for m in members}
 
     grouped: dict[str, list] = {}
     for r in page_records:
@@ -89,24 +101,31 @@ def build_history_page(
         text = f"{base_header}{active_filter}\n\n"
 
     for date_str, day_records in grouped.items():
-        day_income = sum(float(r.amount) for r in day_records if r.operation == "+")
-        day_expense = sum(float(r.amount) for r in day_records if r.operation == "-")
-        day_total = day_income - day_expense
+        day_income = sum((r.amount for r in day_records if r.operation == "+"), Decimal(0))
+        day_expense = sum((r.amount for r in day_records if r.operation == "-"), Decimal(0))
 
         weekday = RU_WEEKDAYS[day_records[0].created_at.weekday()]
-        short_date = ".".join(date_str.split(".")[:2])
 
-        total_sign = "+" if day_total >= 0 else ""
-        text += f"▸ <b>{weekday}, {short_date}</b> │ {total_sign}{day_total:,.0f}₽\n".replace(
-            ",", " "
-        )
+        # Split day total: '+income / -expense', omitting a zero side.
+        total_parts = []
+        if day_income:
+            total_parts.append(f"+{format_money(day_income)}")
+        if day_expense:
+            total_parts.append(f"-{format_money(day_expense)}")
+        day_total_str = " / ".join(total_parts) if total_parts else format_money(0)
+        text += f"▸ <b>{weekday}, {date_str}</b> │ {day_total_str}\n"
 
         for r in day_records:
             sign = "+" if r.operation == "+" else "-"
             category = html.escape(r.category or "")
+            prefix = ""
+            if marker_by_uid is not None:
+                marker = marker_by_uid.get(r.user_id, "▫️")
+                name = html.escape(name_by_uid.get(r.user_id, "—"))
+                prefix = f"{marker} {name} "
             # Build amount part first; .replace strips the thousands comma —
             # must run BEFORE appending description (commas in desc must survive).
-            line = f"   {sign}{float(r.amount):,.0f}₽ {category}".replace(",", " ")
+            line = f"   {prefix}{sign}{float(r.amount):,.0f}₽ {category}".replace(",", " ")
             if show_descriptions and r.description:
                 desc = r.description.strip()
                 if len(desc) > DESC_MAX_LEN:
@@ -252,6 +271,7 @@ async def _apply_filter_and_reload(
             offset=0,
             operation_filter=operation_filter,
             category_filter=category_filter,
+            newest_first=True,
         )
 
     if total_count == 0:
@@ -331,7 +351,8 @@ async def menu_history_period(
     user_id = kwargs["user_id"]
     async with async_session() as session:
         total_count, income_sum, expense_sum, records = await get_history_data(
-            session, user_id, period, limit=RECORDS_PER_PAGE, offset=0
+            session, user_id, period, limit=RECORDS_PER_PAGE, offset=0,
+            newest_first=True,
         )
 
         if total_count == 0:
@@ -426,6 +447,7 @@ async def menu_history_page(
             offset=offset,
             operation_filter=operation_filter,
             category_filter=category_filter,
+            newest_first=True,
         )
 
     period_label = data.get("history_period_label", "")
@@ -497,6 +519,7 @@ async def menu_history_toggle_desc(
             offset=page * RECORDS_PER_PAGE,
             operation_filter=operation_filter,
             category_filter=category_filter,
+            newest_first=True,
         )
 
     await state.update_data(history_show_desc=show_desc)
@@ -561,6 +584,7 @@ async def menu_history_show_all(
             offset=0,
             operation_filter=operation_filter,
             category_filter=category_filter,
+            newest_first=True,
         )
 
     text, _ = build_history_page(
@@ -720,6 +744,7 @@ async def menu_history_custom_period(
             date_to,
             limit=RECORDS_PER_PAGE,
             offset=0,
+            newest_first=True,
         )
 
         if total_count == 0:
@@ -836,6 +861,7 @@ async def _restore_history_from_category_picker(
             offset=page * RECORDS_PER_PAGE,
             operation_filter=operation_filter,
             category_filter=category_filter,
+            newest_first=True,
         )
 
     await state.set_state(MenuStates.waiting_for_history_page)
@@ -1090,6 +1116,7 @@ async def search_back_to_history(
             offset=page * RECORDS_PER_PAGE,
             operation_filter=operation_filter,
             category_filter=category_filter,
+            newest_first=True,
         )
 
     await state.set_state(MenuStates.waiting_for_history_page)

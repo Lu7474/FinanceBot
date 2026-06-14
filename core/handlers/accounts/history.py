@@ -151,6 +151,7 @@ async def _render_acc_history(
             account_id=account_id,
             include_transfers=True,
             operation_filter=op_filter,
+            newest_first=True,
         )
         await _annotate_transfer_direction(session, records, account_id)
 

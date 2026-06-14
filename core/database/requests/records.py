@@ -52,6 +52,7 @@ async def get_records(
     operation_filter: Optional[str] = None,
     category_filter: Optional[str] = None,
     load_account: bool = False,
+    newest_first: bool = False,
 ) -> List[Record]:
     """Fetch user records filtered by period with optional pagination/filters.
 
@@ -72,7 +73,8 @@ async def get_records(
     if load_account:
         query = query.options(selectinload(Record.account))
     query = apply_period_filter(query, within, date_from, date_to, now=now)
-    query = query.order_by(Record.created_at.asc())
+    order_col = Record.created_at.desc() if newest_first else Record.created_at.asc()
+    query = query.order_by(order_col)
 
     if limit is not None:
         query = query.limit(limit).offset(offset)
