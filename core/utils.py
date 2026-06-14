@@ -674,22 +674,22 @@ def format_goal_detail(
     lines = [
         f"{emoji} <b>{html.escape(goal.name)}</b>{fam}",
         "─" * 20,
-        f"Цель:     {format_money(float(goal.target_amount))}",
-        f"Собрано:  {format_money(float(goal.current_amount))}  ({pct}%)",
-        f"Осталось: {format_money(float(goal.target_amount - goal.current_amount))}",
+        f"<b>Цель:</b> {format_money(float(goal.target_amount))}",
+        f"<b>Собрано:</b> {format_money(float(goal.current_amount))}  ({pct}%)",
+        f"<b>Осталось:</b> {format_money(float(goal.target_amount - goal.current_amount))}",
     ]
     if goal.deadline:
         days_left = (goal.deadline - today_msk()).days
         deadline_str = goal.deadline.strftime("%d.%m.%Y")
         if overdue:
             lines.append(
-                f"Дедлайн:  {deadline_str} (<b>просрочено на {-days_left} дн.</b>)"
+                f"<b>Дедлайн:</b> {deadline_str} (<b>просрочено на {-days_left} дн.</b>)"
             )
         else:
-            lines.append(f"Дедлайн:  {deadline_str} ({days_left} дн.)")
+            lines.append(f"<b>Дедлайн:</b> {deadline_str} ({days_left} дн.)")
         month_part = _monthly_deposit_str(goal)
         if month_part:
-            lines.append(f"Откладывать: ~{month_part}/мес")
+            lines.append(f"<b>Откладывать:</b> ~{month_part}/мес")
 
     # ETA-прогноз по честному месячному темпу (реальные взносы за окно)
     forecast = goal_forecast(goal, pace_per_month)
@@ -809,13 +809,13 @@ def format_debt_detail(debt, payments: list, today: date_type) -> str:
     lines = [
         f"📋 <b>Долг: {direction_label}</b>",
         "",
-        f"Исходная сумма: {format_money(float(debt.amount))}",
+        f"<b>Исходная сумма:</b> {format_money(float(debt.amount))}",
     ]
     if debt.remaining < debt.amount:
-        lines.append(f"Остаток:        <b>{format_money(float(debt.remaining))}</b>")
+        lines.append(f"<b>Остаток:</b> <b>{format_money(float(debt.remaining))}</b>")
     if debt.description:
-        lines.append(f"Описание:       {html.escape(debt.description)}")
-    lines.append(f"Создан:         {format_date_ru(debt.created_at.date())}")
+        lines.append(f"<b>Описание:</b> {html.escape(debt.description)}")
+    lines.append(f"<b>Создан:</b> {format_date_ru(debt.created_at.date())}")
     if debt.due_date:
         days_left = (debt.due_date - today).days
         due_full = format_date_ru(debt.due_date)
@@ -825,9 +825,9 @@ def format_debt_detail(debt, payments: list, today: date_type) -> str:
             tail = "<b>сегодня</b>"
         else:
             tail = f"осталось {days_left} дн."
-        lines.append(f"Срок:           {due_full} ({tail})")
+        lines.append(f"<b>Срок:</b> {due_full} ({tail})")
     if debt.is_closed and debt.closed_at:
-        lines.append(f"Закрыт:         {format_date_ru(debt.closed_at.date())}")
+        lines.append(f"<b>Закрыт:</b> {format_date_ru(debt.closed_at.date())}")
 
     if payments:
         lines.append("")
