@@ -8,6 +8,7 @@ import html
 import logging
 from datetime import datetime
 from decimal import Decimal
+from itertools import groupby
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -329,23 +330,37 @@ async def fam_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -> None
 # ==================== Shared history ====================
 
 
+def _day_total_str(recs: list) -> str:
+    """Daily balance line: '+income / −expense', omitting zero sides."""
+    inc = sum((r.amount for r in recs if r.operation == "+"), Decimal(0))
+    exp = sum((r.amount for r in recs if r.operation == "-"), Decimal(0))
+    parts = []
+    if inc:
+        parts.append(f"+{format_money(inc)}")
+    if exp:
+        parts.append(f"−{format_money(exp)}")
+    return " / ".join(parts)
+
+
 def _format_history(records: list, members: list, page: int, total_pages: int) -> str:
-    """Groups records by date with per-member colour markers."""
+    """Groups records by date (newest first) with per-member colour markers."""
     marker_by_uid = {m.id: member_marker(i) for i, m in enumerate(members)}
     name_by_uid = {m.id: (m.name or "—") for m in members}
 
     lines = [f"📋 <b>Общая история</b> (стр. {page + 1}/{total_pages})", ""]
-    last_date = None
-    for r in records:
-        d = r.created_at.date()
-        if d != last_date:
-            lines.append(f"📅 {d.strftime('%d.%m.%Y')}")
-            last_date = d
-        marker = marker_by_uid.get(r.user_id, "▫️")
-        name = html.escape(name_by_uid.get(r.user_id, "—"))
-        op = "➕" if r.operation == "+" else "➖"
-        cat = html.escape(r.category or "—")
-        lines.append(f"  {marker} {name} {op} {format_money(r.amount)}  {cat}")
+    for d, group in groupby(records, key=lambda r: r.created_at.date()):
+        recs = list(group)
+        total = _day_total_str(recs)
+        date_line = f"📅 {d.strftime('%d.%m.%Y')}"
+        if total:
+            date_line += f" · {total}"
+        lines.append(date_line)
+        for r in recs:
+            marker = marker_by_uid.get(r.user_id, "▫️")
+            name = html.escape(name_by_uid.get(r.user_id, "—"))
+            op = "➕" if r.operation == "+" else "➖"
+            cat = html.escape(r.category or "—")
+            lines.append(f"  {marker} {name} {op} {format_money(r.amount)}  {cat}")
     return "\n".join(lines)
 
 
@@ -369,6 +384,7 @@ async def _render_history(
             within="all",
             limit=RECORDS_PER_PAGE,
             offset=page * RECORDS_PER_PAGE,
+            newest_first=True,
         )
 
     total_pages = max(1, (total_count + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE)

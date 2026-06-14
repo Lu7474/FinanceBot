@@ -71,6 +71,7 @@ async def get_history_data(
     include_transfers: bool = False,
     operation_filter: Optional[str] = None,
     category_filter: Optional[str] = None,
+    newest_first: bool = False,
 ) -> tuple[int, Decimal, Decimal, List[Record]]:
     """Single call returning (total_count, income_sum, expense_sum, records).
 
@@ -112,7 +113,8 @@ async def get_history_data(
     records_query = apply_period_filter(
         records_query, within, date_from, date_to, now=now
     )
-    records_query = records_query.order_by(Record.created_at.asc())
+    order_col = Record.created_at.desc() if newest_first else Record.created_at.asc()
+    records_query = records_query.order_by(order_col)
 
     if limit is not None:
         records_query = records_query.limit(limit).offset(offset)
