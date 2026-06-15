@@ -1099,7 +1099,8 @@ async def apply_operation_filter(
 async def start_search(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Начало поиска — просим ввести запрос."""
     await get_message(callback).edit_text(
-        "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>",
+        "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>\n"
+        "<code>\"газ\"</code> в кавычках — точное слово (не найдёт «газель»)",
         parse_mode="HTML",
     )
     await state.set_state(MenuStates.waiting_for_search_query)
@@ -1244,7 +1245,8 @@ async def new_search(callback: CallbackQuery, state: FSMContext, **kwargs) -> No
     """Начать новый поиск."""
     await state.update_data(search_query=None, search_page=0)
     await get_message(callback).edit_text(
-        "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>",
+        "Введите запрос.\nПримеры: <code>Такси</code> | <code>Еда</code> | <code>&gt;1000</code> | <code>+&gt;1000</code> | <code>-&gt;1000</code>\n"
+        "<code>\"газ\"</code> в кавычках — точное слово (не найдёт «газель»)",
         parse_mode="HTML",
     )
     await state.set_state(MenuStates.waiting_for_search_query)

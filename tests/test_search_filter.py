@@ -91,6 +91,40 @@ def test_parse_search_query_expense_alias_gt():
     assert result == {"type": "gt", "value": 1000.0, "operation": "-"}
 
 
+def test_parse_search_query_quoted_is_whole_word():
+    result = parse_search_query('"газ"')
+    assert result["type"] == "text"
+    assert result["value"] == "газ"
+    assert result["whole_word"] is True
+
+
+def test_parse_search_query_unquoted_no_whole_word():
+    result = parse_search_query("газ")
+    assert "whole_word" not in result
+
+
+def test_parse_search_query_quoted_skips_amount_parsing():
+    # quotes force literal text search, even for amount-like content
+    result = parse_search_query('">1000"')
+    assert result["value"] == ">1000"
+    assert result["whole_word"] is True
+
+
+def test_parse_search_query_empty_quotes_no_whole_word():
+    # "" / "  " → plain empty text, NOT whole_word (else it would skip the
+    # truthy-value guard and return all records)
+    for q in ('""', '"  "'):
+        result = parse_search_query(q)
+        assert result["value"] == ""
+        assert "whole_word" not in result
+
+
+def test_parse_search_query_single_quote_is_plain_text():
+    # one-sided quote is not a whole-word query
+    assert "whole_word" not in parse_search_query('"газ')
+    assert "whole_word" not in parse_search_query('газ"')
+
+
 # ==================== search_records ====================
 
 
@@ -286,6 +320,80 @@ async def test_search_records_matches_category_or_description(session):
     assert total == 2
     found = {(r.category, r.description) for r in records}
     assert found == {("Кафе", None), ("Развлечения", "кафе с друзьями")}
+
+
+@pytest.mark.asyncio
+async def test_search_records_partial_matches_substring(session):
+    # unquoted search is substring: "газ" finds "газель"
+    uid = await _make_user(session, tg_id=150)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"), category="Газель"))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("200"), category="Газ"))
+    await session.commit()
+
+    total, _, _, _ = await search_records(session, uid, "газ")
+    assert total == 2  # both "Газ" and "Газель"
+
+
+@pytest.mark.asyncio
+async def test_search_records_whole_word_excludes_substring(session):
+    # quoted search is whole-word: "газ" excludes "газель"
+    uid = await _make_user(session, tg_id=151)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"), category="Газель"))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("200"), category="Газ"))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, '"газ"')
+    assert total == 1
+    assert records[0].category == "Газ"
+
+
+@pytest.mark.asyncio
+async def test_search_records_whole_word_matches_inside_phrase(session):
+    # whole-word matches the term as a word inside a multi-word description
+    uid = await _make_user(session, tg_id=152)
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("100"),
+        category="Машина", description="газ solaris",
+    ))
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("200"),
+        category="Машина", description="газель solaris",
+    ))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, '"газ"')
+    assert total == 1
+    assert records[0].description == "газ solaris"
+
+
+@pytest.mark.asyncio
+async def test_search_records_whole_word_case_insensitive(session):
+    uid = await _make_user(session, tg_id=153)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"), category="Газ"))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, '"ГАЗ"')
+    assert total == 1
+    assert records[0].category == "Газ"
+
+
+@pytest.mark.asyncio
+async def test_search_records_whole_word_escapes_like_wildcards(session):
+    # "%" inside needle must be literal, not a LIKE wildcard
+    uid = await _make_user(session, tg_id=154)
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("100"),
+        category="Скидка", description="50% solaris",
+    ))
+    session.add(Record(
+        user_id=uid, operation="-", amount=Decimal("200"),
+        category="Еда", description="обед",
+    ))
+    await session.commit()
+
+    total, _, _, records = await search_records(session, uid, '"50%"')
+    assert total == 1
+    assert records[0].description == "50% solaris"
 
 
 @pytest.mark.asyncio

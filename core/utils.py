@@ -400,8 +400,20 @@ def parse_search_query(query: str) -> dict:
 
     Returns:
         {"type": "gt" | "lt" | "eq" | "text", "value": float | str, "operation": "+" | "-"}
+        Text queries wrapped in double quotes ("газ") set "whole_word": True —
+        match the term as a whole word only (so "газ" excludes "газель").
     """
     q = query.strip()
+
+    # "..." → exact whole-word text search (skip amount parsing).
+    # Empty quotes ("" or "  ") fall back to plain empty text — no whole_word,
+    # so they don't pass the truthy-value guard in search_records.
+    if len(q) >= 2 and q[0] == '"' and q[-1] == '"':
+        inner = q[1:-1].strip()
+        if inner:
+            return {"type": "text", "value": inner, "whole_word": True}
+        return {"type": "text", "value": ""}
+
     operation = None
     amount_query = q
 

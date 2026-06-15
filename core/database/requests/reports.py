@@ -8,7 +8,7 @@ from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import ColumnElement, case, func, or_, select
+from sqlalchemy import ColumnElement, case, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
@@ -152,12 +152,30 @@ async def search_records(
         conditions.append(Record.amount == parsed["value"])
     elif parsed["type"] == "text" and parsed["value"]:
         needle = parsed["value"].lower()
-        conditions.append(
-            or_(
-                func.lower(Record.category).contains(needle, autoescape=True),
-                func.lower(Record.description).contains(needle, autoescape=True),
+        if parsed.get("whole_word"):
+            # Match needle as a whole word: pad both column and pattern with
+            # spaces so " газ " hits "газ"/"газ solaris" but not "газель".
+            # Word boundary == space (good enough; punctuation not treated as one).
+            # Escape LIKE wildcards in needle so "50%" is matched literally.
+            safe = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"% {safe} %"
+
+            def _padded(col):
+                return literal(" ").concat(func.lower(func.coalesce(col, ""))).concat(" ")
+
+            conditions.append(
+                or_(
+                    _padded(Record.category).like(pattern, escape="\\"),
+                    _padded(Record.description).like(pattern, escape="\\"),
+                )
             )
-        )
+        else:
+            conditions.append(
+                or_(
+                    func.lower(Record.category).contains(needle, autoescape=True),
+                    func.lower(Record.description).contains(needle, autoescape=True),
+                )
+            )
 
     count_sum_q = select(
         func.count(Record.id).label("cnt"),
