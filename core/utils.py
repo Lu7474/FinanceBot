@@ -454,6 +454,30 @@ def parse_search_query(query: str) -> dict:
     return {"type": "text", "value": q}
 
 
+def strip_search_needle(text: str, query_str: str) -> str:
+    """Removes the matched search term from text for display.
+
+    Strips only WHOLE-WORD matches (\\b boundaries) so a broad search keeps the
+    DB-level partial match intact while display stays clean: searching "газ"
+    finds "газель" (LIKE) but does NOT mutilate it to "ель" here. If stripping
+    would empty the text (description == the term), the original is kept — that
+    way only truly empty descriptions become "(без описания)".
+
+    Only text queries strip; amount filters (>, <, =) leave text unchanged.
+    Used for search-result lines and breakdown labels (e.g. "газ solaris" → "газ").
+    """
+    s = (text or "").strip()
+    parsed = parse_search_query(query_str) if query_str else {"type": "text", "value": ""}
+    if parsed.get("type") != "text":
+        return s
+    needle = str(parsed.get("value", "")).strip()
+    if not needle:
+        return s
+    stripped = re.sub(rf"\b{re.escape(needle)}\b", " ", s, flags=re.IGNORECASE)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    return stripped if stripped else s
+
+
 def normalize_category(text: str) -> str:
     """Sanitizes (NFKC + strip hidden chars) and capitalizes first letter."""
     text = clean_text(text)

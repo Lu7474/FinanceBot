@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import TIMEZONE
 from core.database.models import Goal, GoalDeposit, Payment, Record, moscow_now
-from core.utils import parse_search_query, today_msk
+from core.utils import parse_search_query, strip_search_needle, today_msk
 
 from ._common import SYSTEM_CATEGORIES, apply_period_filter
 from .accounts import get_account_balances
@@ -179,6 +179,42 @@ async def search_records(
 
     result = await session.execute(records_q)
     return total, income_sum, expense_sum, list(result.scalars().all())
+
+
+async def aggregate_search_by_description(
+    session: AsyncSession,
+    user_id: int | list[int],
+    query_str: str,
+) -> list[dict]:
+    """Groups ALL records matching the search query by description.
+
+    Description is first stripped of the search term (e.g. "газ solaris" → "газ"),
+    then normalized (case/space-insensitive) for grouping. Empty result → label
+    "(без описания)". Returns list of {label, expense, income, count} sorted by
+    expense desc. user_id accepts a single id or a list (family scope).
+    """
+    _, _, _, records = await search_records(session, user_id, query_str, limit=None)
+
+    groups: dict[str, dict] = {}
+    for r in records:
+        cleaned = strip_search_needle(r.description or "", query_str)
+        key = cleaned.casefold()
+        g = groups.get(key)
+        if g is None:
+            g = {
+                "label": cleaned or "(без описания)",
+                "expense": Decimal("0"),
+                "income": Decimal("0"),
+                "count": 0,
+            }
+            groups[key] = g
+        if r.operation == "-":
+            g["expense"] += r.amount
+        else:
+            g["income"] += r.amount
+        g["count"] += 1
+
+    return sorted(groups.values(), key=lambda g: g["expense"], reverse=True)
 
 
 async def get_top_categories_for_period(

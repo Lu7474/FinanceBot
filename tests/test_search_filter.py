@@ -11,12 +11,14 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from core.database.models import Record
 from core.database.requests import (
+    aggregate_search_by_description,
     get_history_data,
     get_top_categories_for_period,
     search_records,
     set_user,
 )
-from core.utils import parse_search_query
+from core.handlers.history import _build_breakdown_text, _build_search_page_text
+from core.utils import parse_search_query, strip_search_needle
 
 # ==================== parse_search_query ====================
 
@@ -418,3 +420,176 @@ async def test_get_top_categories_empty_period(session):
     uid = await _make_user(session, tg_id=123)
     cats = await get_top_categories_for_period(session, uid, "all")
     assert cats == []
+
+
+# ==================== strip_search_needle ====================
+
+
+def test_strip_needle_removes_text_term():
+    assert strip_search_needle("газ solaris", "solaris") == "газ"
+
+
+def test_strip_needle_case_and_space_insensitive():
+    assert strip_search_needle("Газ  SOLARIS ", "solaris") == "Газ"
+
+
+def test_strip_needle_full_match_keeps_original():
+    # stripping would empty the text → keep original (only real-empty → "(без описания)")
+    assert strip_search_needle("solaris", "solaris") == "solaris"
+
+
+def test_strip_needle_whole_word_only():
+    # broad LIKE search "газ" finds "газель" but display must NOT mutilate it
+    assert strip_search_needle("газель", "газ") == "газель"
+    assert strip_search_needle("газель газ", "газ") == "газель"
+
+
+def test_strip_needle_amount_query_keeps_text():
+    assert strip_search_needle("ремонт", ">1000") == "ремонт"
+
+
+def test_strip_needle_empty_query_keeps_text():
+    assert strip_search_needle("газ", "") == "газ"
+
+
+# ==================== aggregate_search_by_description ====================
+
+
+@pytest.mark.asyncio
+async def test_aggregate_groups_and_normalizes(session):
+    uid = await _make_user(session, tg_id=140)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"),
+                       category="Машина", description="газ solaris"))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("200"),
+                       category="Машина", description="Газ  SOLARIS"))  # same group
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("1000"),
+                       category="Машина", description="ремонт solaris"))
+    await session.commit()
+
+    groups = await aggregate_search_by_description(session, uid, "solaris")
+    by_label = {g["label"].casefold(): g for g in groups}
+
+    assert by_label["газ"]["expense"] == Decimal("300")  # 100 + 200 merged
+    assert by_label["газ"]["count"] == 2
+    assert by_label["ремонт"]["expense"] == Decimal("1000")
+    assert by_label["ремонт"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_aggregate_empty_description_label(session):
+    uid = await _make_user(session, tg_id=141)
+    # matched via category, description empty → "(без описания)"
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("500"),
+                       category="Авто solaris", description=None))
+    await session.commit()
+
+    groups = await aggregate_search_by_description(session, uid, "solaris")
+    assert len(groups) == 1
+    assert groups[0]["label"] == "(без описания)"
+    assert groups[0]["expense"] == Decimal("500")
+
+
+@pytest.mark.asyncio
+async def test_aggregate_description_equals_term_kept(session):
+    uid = await _make_user(session, tg_id=144)
+    # description == search term → stripping would empty it, original is kept as label
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("500"),
+                       category="Машина", description="solaris"))
+    await session.commit()
+
+    groups = await aggregate_search_by_description(session, uid, "solaris")
+    assert len(groups) == 1
+    assert groups[0]["label"] == "solaris"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_sorted_by_expense_desc(session):
+    uid = await _make_user(session, tg_id=142)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"),
+                       category="Машина", description="газ solaris"))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("9000"),
+                       category="Машина", description="ремонт solaris"))
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("500"),
+                       category="Машина", description="мойка solaris"))
+    await session.commit()
+
+    groups = await aggregate_search_by_description(session, uid, "solaris")
+    expenses = [g["expense"] for g in groups]
+    assert expenses == sorted(expenses, reverse=True)
+    assert groups[0]["label"].casefold() == "ремонт"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_income_and_expense_separated(session):
+    uid = await _make_user(session, tg_id=143)
+    session.add(Record(user_id=uid, operation="-", amount=Decimal("100"),
+                       category="Машина", description="газ solaris"))
+    session.add(Record(user_id=uid, operation="+", amount=Decimal("50"),
+                       category="Машина", description="газ solaris"))  # refund
+    await session.commit()
+
+    groups = await aggregate_search_by_description(session, uid, "solaris")
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["expense"] == Decimal("100")
+    assert g["income"] == Decimal("50")
+    assert g["count"] == 2
+
+
+# ==================== search results rendering (A1) ====================
+
+
+def test_search_page_shows_description_without_needle():
+    recs = [
+        Record(operation="-", amount=Decimal("800"), category="Машина",
+               description="мойка solaris", created_at=datetime(2025, 1, 18, 12, 0)),
+        Record(operation="-", amount=Decimal("5400"), category="Машина",
+               description="ремонт solaris", created_at=datetime(2025, 1, 18, 13, 0)),
+    ]
+    text = _build_search_page_text(recs, 0, 1, 2, "solaris")
+    assert "Машина · <i>мойка</i>" in text
+    assert "Машина · <i>ремонт</i>" in text
+    # the needle is stripped from record lines (it only stays in the header)
+    header, _, body = text.partition("\n")
+    assert "solaris" in header
+    assert "solaris" not in body
+
+
+def test_search_page_empty_description_no_separator():
+    recs = [
+        Record(operation="-", amount=Decimal("100"), category="Машина",
+               description=None, created_at=datetime(2025, 1, 18, 12, 0)),
+    ]
+    text = _build_search_page_text(recs, 0, 1, 1, "Машина")
+    assert " · " not in text
+
+
+# ==================== breakdown text ====================
+
+
+def test_build_breakdown_text_empty():
+    text = _build_breakdown_text("solaris", [])
+    assert "Ничего не найдено" in text
+
+
+def test_build_breakdown_text_lists_groups_and_totals():
+    groups = [
+        {"label": "ремонт", "expense": Decimal("9000"), "income": Decimal("0"), "count": 2},
+        {"label": "газ", "expense": Decimal("1200"), "income": Decimal("0"), "count": 8},
+    ]
+    text = _build_breakdown_text("solaris", groups)
+    assert "<b>ремонт</b>" in text
+    assert "<b>газ</b>" in text
+    assert "(2)" in text
+    assert "(8)" in text
+    assert "Итого расход" in text
+
+
+def test_build_breakdown_text_mixed_group_shows_both_sums():
+    groups = [
+        {"label": "газ", "expense": Decimal("100"), "income": Decimal("50"), "count": 2},
+    ]
+    text = _build_breakdown_text("solaris", groups)
+    # both expense and income must appear for a mixed group (regression: income was dropped)
+    assert "−" in text and "100" in text
+    assert "+" in text and "50" in text

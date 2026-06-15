@@ -138,6 +138,7 @@ from .records import (
 )
 from .reports import (
     FreeToSpend,
+    aggregate_search_by_description,
     get_categories_for_year,
     get_categories_summary,
     get_daily_balance_for_month,
@@ -193,6 +194,7 @@ __all__ = [
     "update_record",
     # reports
     "FreeToSpend",
+    "aggregate_search_by_description",
     "get_categories_for_year",
     "get_categories_summary",
     "get_daily_balance_for_month",

@@ -92,6 +92,7 @@ from .history import (
     history_filter_keyboard,
     history_period_keyboard,
     history_record_select_keyboard,
+    search_breakdown_keyboard,
     search_result_keyboard,
 )
 from .notifications import notification_settings_keyboard, notify_onboarding_keyboard
@@ -230,6 +231,7 @@ __all__ = [
     "record_edit_field_keyboard",
     "report_section_keyboard",
     "report_type_keyboard",
+    "search_breakdown_keyboard",
     "search_result_keyboard",
     "settings_menu_keyboard",
     "stacked_period_keyboard",

@@ -14,6 +14,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import MAX_MESSAGE_LENGTH, MAX_SHOW_ALL_RECORDS, RECORDS_PER_PAGE
 from core.database.models import Record, async_session, moscow_now
 from core.database.requests import (
+    aggregate_search_by_description,
     get_history_data,
     get_records,
     get_top_categories_for_period,
@@ -24,9 +25,10 @@ from core.keyboards import (
     history_period_keyboard,
     main_menu_keyboard,
     member_marker,
+    search_breakdown_keyboard,
     search_result_keyboard,
 )
-from core.utils import RU_WEEKDAYS, format_money, log_exceptions
+from core.utils import RU_WEEKDAYS, format_money, log_exceptions, strip_search_needle
 
 from .common import MenuStates, get_message, is_history, is_main_menu_button
 from .export_import import build_export_buffer
@@ -225,7 +227,15 @@ def _build_search_page_text(
         for r in day_records:
             sign = "+" if r.operation == "+" else "-"
             category = html.escape(r.category or "")
-            text += f"   {sign}{float(r.amount):,.0f}₽ {category}\n".replace(",", " ")
+            # amount/category first, .replace strips thousands comma — must run
+            # before appending description (commas in desc must survive).
+            line = f"   {sign}{float(r.amount):,.0f}₽ {category}".replace(",", " ")
+            desc = strip_search_needle(r.description or "", query_str)
+            if desc:
+                if len(desc) > DESC_MAX_LEN:
+                    desc = desc[:DESC_MAX_LEN].rstrip() + "…"
+                line += f" · <i>{html.escape(desc)}</i>"
+            text += line + "\n"
         text += "\n"
 
     text = text.rstrip()
@@ -236,6 +246,34 @@ def _build_search_page_text(
         totals.append(f"−{format_money(expense_sum)}")
     total_display = " ".join(totals) if totals else format_money(0)
     text += f"\n\nНайдено: {total} зап.  │  {total_display}"
+    return text
+
+
+def _build_breakdown_text(query_str: str, groups: list[dict]) -> str:
+    """Builds the by-description breakdown text from aggregated groups."""
+    text = f"📊 <b>Разбивка:</b> <i>{html.escape(query_str)}</i>\n\n"
+    if not groups:
+        return text + "Ничего не найдено."
+
+    total_expense = Decimal("0")
+    total_income = Decimal("0")
+    for g in groups:
+        total_expense += g["expense"]
+        total_income += g["income"]
+        label = html.escape(g["label"])
+        parts = []
+        if g["expense"] > 0:
+            parts.append(f"−{format_money(g['expense'])}")
+        if g["income"] > 0:
+            parts.append(f"+{format_money(g['income'])}")
+        amount_str = " / ".join(parts) if parts else format_money(0)
+        text += f"<b>{label}</b> — {amount_str}  <i>({g['count']})</i>\n"
+
+    text += "─────────────────"
+    if total_expense > 0:
+        text += f"\n📉 Итого расход: {format_money(total_expense)}"
+    if total_income > 0:
+        text += f"\n📈 Итого доход: {format_money(total_income)}"
     return text
 
 
@@ -1108,6 +1146,34 @@ async def handle_search_input(message: Message, state: FSMContext, **kwargs) -> 
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
+async def _render_search_results_page(
+    message: Message, state: FSMContext, user_id: int, page: int
+) -> None:
+    """Fetches `page` of current search and renders it into `message` (edit)."""
+    data = await state.get_data()
+    query_str = data.get("search_query", "")
+    total_pages = data.get("search_total_pages", 1)
+    total = data.get("search_total", 0)
+    income_sum = Decimal(data.get("search_income_sum", "0"))
+    expense_sum = Decimal(data.get("search_expense_sum", "0"))
+
+    async with async_session() as session:
+        _, _, _, records = await search_records(
+            session,
+            user_id,
+            query_str,
+            limit=RECORDS_PER_PAGE,
+            offset=page * RECORDS_PER_PAGE,
+        )
+
+    await state.update_data(search_page=page)
+    text = _build_search_page_text(
+        records, page, total_pages, total, query_str, income_sum, expense_sum
+    )
+    kb = search_result_keyboard(page, total_pages)
+    await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
+
 @router.callback_query(
     MenuStates.waiting_for_search_page, F.data.startswith("search_page:")
 )
@@ -1125,32 +1191,50 @@ async def search_page_nav(callback: CallbackQuery, state: FSMContext, **kwargs) 
         return
 
     data = await state.get_data()
-    query_str = data.get("search_query", "")
     total_pages = data.get("search_total_pages", 1)
-    total = data.get("search_total", 0)
-    income_sum = Decimal(data.get("search_income_sum", "0"))
-    expense_sum = Decimal(data.get("search_expense_sum", "0"))
-    user_id = kwargs["user_id"]
-
     if new_page < 0 or new_page >= total_pages:
         await callback.answer("Страница не существует.")
         return
 
-    async with async_session() as session:
-        _, _, _, records = await search_records(
-            session,
-            user_id,
-            query_str,
-            limit=RECORDS_PER_PAGE,
-            offset=new_page * RECORDS_PER_PAGE,
-        )
-
-    await state.update_data(search_page=new_page)
-    text = _build_search_page_text(
-        records, new_page, total_pages, total, query_str, income_sum, expense_sum
+    await _render_search_results_page(
+        get_message(callback), state, kwargs["user_id"], new_page
     )
-    kb = search_result_keyboard(new_page, total_pages)
-    await get_message(callback).edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_search_page, F.data == "search_breakdown"
+)
+@log_exceptions("Ошибка при разбивке по описанию")
+async def search_breakdown(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    """Группирует найденные записи по описанию (сумма по каждому)."""
+    data = await state.get_data()
+    query_str = data.get("search_query", "")
+    user_id = kwargs["user_id"]
+
+    async with async_session() as session:
+        groups = await aggregate_search_by_description(session, user_id, query_str)
+
+    text = _build_breakdown_text(query_str, groups)
+    await get_message(callback).edit_text(
+        text, reply_markup=search_breakdown_keyboard(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(
+    MenuStates.waiting_for_search_page, F.data == "search_back_to_results"
+)
+@log_exceptions("Ошибка при возврате к результатам поиска")
+async def search_back_to_results(
+    callback: CallbackQuery, state: FSMContext, **kwargs
+) -> None:
+    """Возврат из разбивки к списку результатов (текущая страница)."""
+    data = await state.get_data()
+    page = data.get("search_page", 0)
+    await _render_search_results_page(
+        get_message(callback), state, kwargs["user_id"], page
+    )
     await callback.answer()
 
 

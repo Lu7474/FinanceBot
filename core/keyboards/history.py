@@ -88,10 +88,19 @@ def search_result_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
         if page < total_pages - 1:
             kb.button(text="Вперёд ▶", callback_data=f"search_page:{page + 1}")
             nav_count += 1
+    kb.button(text="📊 По описанию", callback_data="search_breakdown")
     kb.button(text="🔍 Новый поиск", callback_data="search_new")
     kb.button(text="◀ К фильтрам", callback_data="search_back")
-    row_sizes = ([nav_count] if nav_count > 0 else []) + [2]
+    row_sizes = ([nav_count] if nav_count > 0 else []) + [1, 2]
     kb.adjust(*row_sizes)
+    return kb.as_markup()
+
+
+def search_breakdown_keyboard() -> InlineKeyboardMarkup:
+    """Single [← К результатам] button shown on the description breakdown view."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="← К результатам", callback_data="search_back_to_results")
+    kb.adjust(1)
     return kb.as_markup()
 
 
