@@ -647,7 +647,7 @@ async def test_aggregate_income_and_expense_separated(session):
 # ==================== search results rendering (A1) ====================
 
 
-def test_search_page_shows_description_without_needle():
+def test_search_page_highlights_needle_in_description():
     recs = [
         Record(operation="-", amount=Decimal("800"), category="Машина",
                description="мойка solaris", created_at=datetime(2025, 1, 18, 12, 0)),
@@ -655,12 +655,40 @@ def test_search_page_shows_description_without_needle():
                description="ремонт solaris", created_at=datetime(2025, 1, 18, 13, 0)),
     ]
     text = _build_search_page_text(recs, 0, 1, 2, "solaris")
-    assert "Машина · <i>мойка</i>" in text
-    assert "Машина · <i>ремонт</i>" in text
-    # the needle is stripped from record lines (it only stays in the header)
-    header, _, body = text.partition("\n")
-    assert "solaris" in header
-    assert "solaris" not in body
+    # needle kept in the line and wrapped in <b> (no longer stripped)
+    assert "<i>мойка <b>solaris</b></i>" in text
+    assert "<i>ремонт <b>solaris</b></i>" in text
+
+
+def test_search_page_highlights_needle_in_category():
+    recs = [
+        Record(operation="-", amount=Decimal("5000"), category="Дом",
+               description=None, created_at=datetime(2025, 1, 18, 12, 0)),
+    ]
+    text = _build_search_page_text(recs, 0, 1, 1, "дом")
+    # case-insensitive match, original case preserved inside <b>
+    assert "<b>Дом</b>" in text
+
+
+def test_search_page_substring_highlight_keeps_word_whole():
+    recs = [
+        Record(operation="-", amount=Decimal("100"), category="Еда",
+               description="домашка детям", created_at=datetime(2025, 1, 18, 12, 0)),
+    ]
+    text = _build_search_page_text(recs, 0, 1, 1, "дом")
+    # substring match highlights inside the word, rest stays intact
+    assert "<b>дом</b>ашка детям" in text
+
+
+def test_search_page_whole_word_query_skips_partial():
+    recs = [
+        Record(operation="-", amount=Decimal("100"), category="Еда",
+               description="домашка детям", created_at=datetime(2025, 1, 18, 12, 0)),
+    ]
+    text = _build_search_page_text(recs, 0, 1, 1, '"дом"')
+    # quoted query = whole-word: partial "домашка" must NOT be highlighted
+    assert "<b>дом</b>" not in text
+    assert "домашка детям" in text
 
 
 def test_search_page_empty_description_no_separator():

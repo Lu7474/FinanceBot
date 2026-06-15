@@ -28,7 +28,7 @@ from core.keyboards import (
     search_breakdown_keyboard,
     search_result_keyboard,
 )
-from core.utils import RU_WEEKDAYS, format_money, log_exceptions, strip_search_needle
+from core.utils import RU_WEEKDAYS, format_money, log_exceptions, parse_search_query
 
 from .common import MenuStates, get_message, is_history, is_main_menu_button
 from .export_import import build_export_buffer
@@ -201,6 +201,25 @@ def build_history_page(
     return text, kb
 
 
+def _highlight(text: str, needle: str, whole_word: bool) -> str:
+    """HTML-escapes text and wraps matches of needle in <b>.
+
+    Mirrors search matching: whole_word uses \\b boundaries, otherwise substring.
+    Empty needle → plain escape (amount queries have nothing to highlight).
+    """
+    if not needle:
+        return html.escape(text)
+    pat = rf"\b{re.escape(needle)}\b" if whole_word else re.escape(needle)
+    out: list[str] = []
+    last = 0
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        out.append(html.escape(text[last : m.start()]))
+        out.append(f"<b>{html.escape(m.group())}</b>")
+        last = m.end()
+    out.append(html.escape(text[last:]))
+    return "".join(out)
+
+
 def _build_search_page_text(
     records: list[Record],
     page: int,
@@ -212,6 +231,14 @@ def _build_search_page_text(
 ) -> str:
     """Builds search results text."""
     text = f"🔍 <b>Поиск:</b> <i>{html.escape(query_str)}</i>\n\n"
+
+    parsed = parse_search_query(query_str)
+    needle = (
+        str(parsed["value"]).strip()
+        if parsed.get("type") == "text" and parsed.get("value")
+        else ""
+    )
+    whole_word = bool(parsed.get("whole_word"))
 
     grouped: dict[str, list] = {}
     for r in records:
@@ -226,15 +253,18 @@ def _build_search_page_text(
         text += f"▸ <b>{weekday}, {short_date}</b>\n"
         for r in day_records:
             sign = "+" if r.operation == "+" else "-"
-            category = html.escape(r.category or "")
-            # amount/category first, .replace strips thousands comma — must run
-            # before appending description (commas in desc must survive).
-            line = f"   {sign}{float(r.amount):,.0f}₽ {category}".replace(",", " ")
-            desc = strip_search_needle(r.description or "", query_str)
+            category = _highlight(r.category or "", needle, whole_word)
+            # amount first, .replace strips thousands comma — must run before
+            # appending category/description (already HTML, commas must survive).
+            amount = f"   {sign}{float(r.amount):,.0f}₽ ".replace(",", " ")
+            line = amount + category
+            desc = (r.description or "").strip()
             if desc:
+                ellipsis = ""
                 if len(desc) > DESC_MAX_LEN:
-                    desc = desc[:DESC_MAX_LEN].rstrip() + "…"
-                line += f" · <i>{html.escape(desc)}</i>"
+                    desc = desc[:DESC_MAX_LEN].rstrip()
+                    ellipsis = "…"
+                line += f" · <i>{_highlight(desc, needle, whole_word)}{ellipsis}</i>"
             text += line + "\n"
         text += "\n"
 
