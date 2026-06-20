@@ -59,7 +59,7 @@ FinanceBot/
 │           ├── family.py       # семьи: membership, инвайт-коды, общие сводки и разбивки по категориям
 │           ├── admin.py        # admin-выборки, ban, cascade-delete пользователя
 │           └── backup.py       # выборки и bulk-insert для экспорта/бэкапа
-├── tests/                      # 692 pytest-теста
+├── tests/                      # 794 pytest-теста
 └── requirements.txt
 ```
 
@@ -507,7 +507,8 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
     → build_history_page() — текст + инлайн-навигация
     → пагинация: ◀ [1/5] ▶
     → фильтр по типу (Все / Расходы / Доходы) и по категории (топ-15)
-    → [🔍 Поиск] → ввод запроса (текст / >N / <N / =N) → постраничные результаты
+    → [🔍 Поиск] → ввод запроса (текст / "точное слово" / >N / <N / =N)
+      → постраничные результаты с подсветкой совпадений (<b>) + разбивка по описанию
     → тап на запись → редактирование (сумма / категория / дата / счёт / удаление)
 ```
 
@@ -535,6 +536,8 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
 ```
 [Счета]
     → get_account_balances() — балансы всех счетов
+    → get_free_to_spend() — строка «💸 Свободно»: суммарный баланс − непривязанный
+      earmark активных целей − активные платежи до конца месяца (защита от двойного счёта)
     → создать / переименовать / удалить (с переносом записей)
     → перевод между счетами (↔️) + журнал переводов (🔁) с просмотром и отменой
     → установить баланс (через balance_offset)
@@ -614,7 +617,7 @@ Read-only функции (`reports.py`, `_common.py`) commit не делают.
     → FSM: waiting_for_export_period → выбор периода (месяц / 3 мес / год / всё)
     → FSM: waiting_for_export_type   → выбор типа (все / доходы / расходы)
     → get_all_records_for_export()   — выборка из БД
-    → _build_export_sync()           — xlsx: лист «Записи» + лист «Итоги»
+    → _build_export_sync()           — xlsx: листы «Записи», «Итоги», «По месяцам», «По категориям»
     → отправка файла
 
 [Импорт]
@@ -780,7 +783,7 @@ APScheduler (AsyncIOScheduler, TZ=Europe/Moscow), запускается в bot.
 | CHART_DPI | 150 |
 | TIMEZONE | Europe/Moscow |
 
-## Тесты (692)
+## Тесты (794)
 
 ```bash
 pytest tests/ -v
@@ -802,16 +805,21 @@ pytest tests/ -v
 | test_parse_record.py | Парсинг быстрого ввода |
 | test_period_filters.py | Фильтры периодов и DB-запросы |
 | test_queries.py | Сложные SQL-запросы |
+| test_free_to_spend.py | «Свободно»: баланс − отложенное в цели − платежи, защита от двойного счёта |
 | test_search_filter.py | Поиск записей и фильтры истории |
 | test_budgets.py | Бюджеты: CRUD, прогресс, уведомления, сброс флагов |
 | test_export_import.py | Экспорт/импорт: парсинг xlsx, валидация строк, bulk insert, дубли |
 | test_export_import_tz.py | Экспорт/импорт: корректность временной зоны |
+| test_export_excel.py | Excel-билдеры (`core/export.py`): листы экспорта, шаблона и бэкапа |
+| test_backup.py | Бэкап/экспорт DB-геттеры (`requests/backup.py`): выборки + bulk-insert |
 | test_goals.py | Цели: CRUD, deposit/withdraw, edit, archive, smart sort, overdue, ETA, форматтеры, длительность накопления |
 | test_goals_errors.py | Цели: обработка ошибок и граничные случаи |
 | test_debts.py | Долги: CRUD, частичные погашения, выборка для напоминаний, каскадное удаление |
 | test_payments.py | Платежи: CRUD, mark_paid (перенос цикла), категория, запись расхода при оплате, выборка для напоминаний, форматтеры |
 | test_family_goals.py | Семейные цели: общая цель, взносы участников, атрибуция, права владельца |
 | test_notifications.py | Уведомления: форматтеры сводок (weekly/monthly/daily), DB-выборки |
+| test_scheduler.py | Планировщик: отправка сводок/напоминаний, retry, форматтеры, setup |
+| test_reports.py | Текстовые форматтеры отчётов и подписей (`core/reports.py`) |
 | test_family.py | Семья: membership, инвайт-коды, лимит участников, общие сводки и разбивки, права владельца |
 | test_admin.py | Админ-функции: выборки, бан, каскадное удаление, CSV-выгрузка, DAU/retention, динамика по дням |
 | test_error_tracker.py | Счётчик ошибок 24ч: учёт ERROR/CRITICAL, окно, игнор INFO/WARNING |
